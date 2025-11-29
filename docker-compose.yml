@@ -1,0 +1,166 @@
+version: '3.8'
+
+services:
+  # ===========================================
+  # Development Container
+  # ===========================================
+  devcontainer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspaces/dilux-azure-databases-backup-alpha:cached
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: sleep infinity
+    depends_on:
+      azurite:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      sqlserver:
+        condition: service_healthy
+    environment:
+      # Azure Storage Emulator (Azurite)
+      - AZURITE_ACCOUNTS=devstoreaccount1:Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
+      - AzureWebJobsStorage=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
+      - STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
+
+      # Database Connections
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_DATABASE=testdb
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=DevPassword123!
+
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DATABASE=testdb
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=DevPassword123!
+
+      - SQLSERVER_HOST=sqlserver
+      - SQLSERVER_PORT=1433
+      - SQLSERVER_DATABASE=testdb
+      - SQLSERVER_USER=sa
+      - SQLSERVER_PASSWORD=DevPassword123!
+
+      # Azure Functions
+      - AZURE_FUNCTIONS_ENVIRONMENT=Development
+      - FUNCTIONS_WORKER_RUNTIME=python
+    networks:
+      - dilux-network
+
+  # ===========================================
+  # Azure Storage Emulator (Azurite)
+  # ===========================================
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    container_name: dilux-azurite
+    ports:
+      - "10000:10000"  # Blob
+      - "10001:10001"  # Queue
+      - "10002:10002"  # Table
+    volumes:
+      - azurite-data:/data
+    command: "azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --location /data --debug /data/debug.log"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "10000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dilux-network
+
+  # ===========================================
+  # MySQL Database (Test)
+  # ===========================================
+  mysql:
+    image: mysql:8.0
+    container_name: dilux-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=DevPassword123!
+      - MYSQL_DATABASE=testdb
+      - MYSQL_USER=dilux
+      - MYSQL_PASSWORD=DevPassword123!
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./tools/db-init/mysql-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-pDevPassword123!"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - dilux-network
+
+  # ===========================================
+  # PostgreSQL Database (Test)
+  # ===========================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: dilux-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=DevPassword123!
+      - POSTGRES_DB=testdb
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./tools/db-init/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dilux-network
+
+  # ===========================================
+  # SQL Server Database (Test)
+  # ===========================================
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: dilux-sqlserver
+    ports:
+      - "1433:1433"
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=DevPassword123!
+      - MSSQL_PID=Developer
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'DevPassword123!' -Q 'SELECT 1' -C -l 5 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    networks:
+      - dilux-network
+
+# ===========================================
+# Volumes
+# ===========================================
+volumes:
+  azurite-data:
+    name: dilux-azurite-data
+  mysql-data:
+    name: dilux-mysql-data
+  postgres-data:
+    name: dilux-postgres-data
+  sqlserver-data:
+    name: dilux-sqlserver-data
+
+# ===========================================
+# Networks
+# ===========================================
+networks:
+  dilux-network:
+    name: dilux-network
+    driver: bridge

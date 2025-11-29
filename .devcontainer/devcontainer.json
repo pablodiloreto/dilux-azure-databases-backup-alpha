@@ -1,0 +1,114 @@
+{
+  "name": "Dilux Database Backup Solution",
+  "dockerComposeFile": ["../docker-compose.yml"],
+  "service": "devcontainer",
+  "workspaceFolder": "/workspaces/dilux-azure-databases-backup-alpha",
+
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.10",
+      "installTools": true
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "18",
+      "nodeGypDependencies": true
+    },
+    "ghcr.io/devcontainers/features/azure-cli:1": {
+      "installBicep": true
+    },
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  "postCreateCommand": "bash .devcontainer/scripts/post-create.sh",
+  "postStartCommand": "bash .devcontainer/scripts/post-start.sh",
+
+  "forwardPorts": [
+    3000,
+    7071,
+    7072,
+    7073,
+    10000,
+    10001,
+    10002,
+    3306,
+    5432,
+    1433
+  ],
+
+  "portsAttributes": {
+    "3000":  { "label": "React Frontend", "onAutoForward": "notify" },
+    "7071":  { "label": "Functions API", "onAutoForward": "silent" },
+    "7072":  { "label": "Functions Scheduler", "onAutoForward": "silent" },
+    "7073":  { "label": "Functions Processor", "onAutoForward": "silent" },
+    "10000": { "label": "Azurite Blob", "onAutoForward": "silent" },
+    "10001": { "label": "Azurite Queue", "onAutoForward": "silent" },
+    "10002": { "label": "Azurite Table", "onAutoForward": "silent" },
+    "3306":  { "label": "MySQL", "onAutoForward": "silent" },
+    "5432":  { "label": "PostgreSQL", "onAutoForward": "silent" },
+    "1433":  { "label": "SQL Server", "onAutoForward": "silent" }
+  },
+
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.analysis.typeCheckingMode": "basic",
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": null,
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.black-formatter"
+        },
+        "[typescript]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode"
+        },
+        "[typescriptreact]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode"
+        },
+        "azureFunctions.projectLanguage": "Python",
+        "azureFunctions.projectRuntime": "~4",
+        "files.associations": {
+          "*.json": "jsonc"
+        }
+      },
+      "extensions": [
+        "ms-azuretools.vscode-azurefunctions",
+        "ms-azuretools.vscode-azurestorage",
+        "ms-azuretools.vscode-docker",
+        "ms-vscode.azure-account",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.black-formatter",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "mtxr.sqltools",
+        "mtxr.sqltools-driver-mysql",
+        "mtxr.sqltools-driver-pg",
+        "mtxr.sqltools-driver-mssql",
+        "eamodio.gitlens",
+        "usernamehw.errorlens",
+        "humao.rest-client",
+        "ms-vscode.vscode-json",
+        "anthropic.claude-code"
+      ]
+    }
+  },
+
+  "remoteEnv": {
+    "AZURE_FUNCTIONS_ENVIRONMENT": "Development",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python"
+  },
+
+  "mounts": [
+    "source=dilux-vscode-extensions,target=/home/vscode/.vscode-server/extensions,type=volume",
+    "source=dilux-pip-cache,target=/home/vscode/.cache/pip,type=volume",
+    "source=dilux-npm-cache,target=/home/vscode/.npm,type=volume"
+  ],
+
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "8gb",
+    "storage": "32gb"
+  }
+}
