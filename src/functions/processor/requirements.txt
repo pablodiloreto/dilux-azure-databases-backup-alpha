@@ -1,0 +1,16 @@
+# Dilux Database Backup - Processor Function App
+
+# Azure Functions
+azure-functions>=1.17.0
+
+# Shared package dependencies
+azure-storage-blob>=12.19.0
+azure-storage-queue>=12.9.0
+azure-data-tables>=12.5.0
+azure-identity>=1.15.0
+azure-keyvault-secrets>=4.7.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+python-dotenv>=1.0.0
+python-dateutil>=2.8.2
+structlog>=24.1.0
