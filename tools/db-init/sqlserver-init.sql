@@ -2,6 +2,13 @@
 -- Dilux Database Backup - SQL Server Test Database
 -- ============================================
 
+-- Create testdb database if it doesn't exist
+IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'testdb')
+BEGIN
+    CREATE DATABASE testdb;
+END
+GO
+
 -- Use the testdb database
 USE testdb;
 GO

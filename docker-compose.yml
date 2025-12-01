@@ -12,34 +12,27 @@ services:
       - .:/workspaces/dilux-azure-databases-backup-alpha:cached
       - /var/run/docker.sock:/var/run/docker.sock
     command: sleep infinity
-    depends_on:
-      azurite:
-        condition: service_healthy
-      mysql:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      sqlserver:
-        condition: service_healthy
     environment:
       # Azure Storage Emulator (Azurite)
       - AZURITE_ACCOUNTS=devstoreaccount1:Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
       - AzureWebJobsStorage=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
       - STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
 
-      # Database Connections
+      # Database Connections - MySQL
       - MYSQL_HOST=mysql
       - MYSQL_PORT=3306
       - MYSQL_DATABASE=testdb
       - MYSQL_USER=root
       - MYSQL_PASSWORD=DevPassword123!
 
+      # Database Connections - PostgreSQL
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DATABASE=testdb
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=DevPassword123!
 
+      # SQL Server
       - SQLSERVER_HOST=sqlserver
       - SQLSERVER_PORT=1433
       - SQLSERVER_DATABASE=testdb
@@ -88,7 +81,7 @@ services:
       - MYSQL_PASSWORD=DevPassword123!
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./tools/db-init/mysql-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # Note: init scripts run from post-start.sh due to Codespaces bind mount limitations
     command: --default-authentication-plugin=mysql_native_password
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-pDevPassword123!"]
@@ -105,14 +98,14 @@ services:
     image: postgres:15-alpine
     container_name: dilux-postgres
     ports:
-      - "5432:5432"
+      - "55432:5432"
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=DevPassword123!
       - POSTGRES_DB=testdb
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./tools/db-init/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # Note: init scripts run from post-start.sh due to Codespaces bind mount limitations
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s

@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(chmod:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(docker ps:*)",
+      "Bash(docker logs:*)",
+      "Bash(umask)",
+      "Bash(getfacl:*)",
+      "Bash(apt-get install:*)",
+      "Bash(sudo apt-get install:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(bash:*)",
+      "Bash(docker restart:*)",
+      "Bash(mysql:*)",
+      "Bash(PGPASSWORD=DevPassword123! psql:*)",
+      "Bash(docker stop:*)",
+      "Bash(docker rm:*)",
+      "Bash(docker volume rm:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker inspect:*)",
+      "Bash(python3:*)",
+      "Bash(docker run:*)",
+      "Bash(docker exec:*)",
+      "Bash(cat:*)",
+      "Bash(echo:*)",
+      "Bash(__NEW_LINE__ echo \"1. CONTENEDORES DOCKER\")",
+      "Bash(__NEW_LINE__ echo \"\")",
+      "Bash(curl:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

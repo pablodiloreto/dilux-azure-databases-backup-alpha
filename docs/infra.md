@@ -42,7 +42,7 @@ The development environment uses **Docker Compose** with multiple services to em
 
 #### 1. DevContainer (Main Development Environment)
 
-**Image:** Custom Dockerfile based on `mcr.microsoft.com/devcontainers/base:ubuntu-22.04`
+**Image:** Custom Dockerfile based on `mcr.microsoft.com/devcontainers/base:ubuntu-20.04`
 
 **Installed Tools:**
 - Python 3.10 with pip
@@ -91,7 +91,7 @@ DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02x
 
 **Image:** `postgres:15-alpine`
 
-**Port:** 5432
+**Port:** 55432 (external) → 5432 (internal container port)
 
 **Credentials:**
 - User: `postgres`
@@ -145,7 +145,7 @@ Data is persisted across container restarts using named volumes:
 | 10001 | Azurite Queue | Queue storage | silent |
 | 10002 | Azurite Table | Table storage | silent |
 | 3306 | MySQL | Database | silent |
-| 5432 | PostgreSQL | Database | silent |
+| 55432 | PostgreSQL | Database (maps to 5432 internal) | silent |
 | 1433 | SQL Server | Database | silent |
 
 ---
@@ -181,9 +181,11 @@ dilux-azure-databases-backup-alpha/
 │
 ├── tools/
 │   └── db-init/                # Database initialization scripts
-│       ├── mysql-init.sql
-│       ├── postgres-init.sql
-│       └── sqlserver-init.sql
+│       ├── mysql/
+│       │   └── init.sql        # MySQL test data
+│       ├── postgres/
+│       │   └── init.sql        # PostgreSQL test data
+│       └── sqlserver-init.sql  # SQL Server test data
 │
 ├── docs/
 │   ├── dilux-azure-databases-backup-solution.md
@@ -201,8 +203,11 @@ dilux-azure-databases-backup-alpha/
 The repository is configured to work with GitHub Codespaces. When you open it:
 
 1. Docker Compose services start automatically
-2. `post-create.sh` installs dependencies
-3. `post-start.sh` verifies all services are ready
+2. `post-create.sh` installs dependencies (runs once on container creation)
+3. `post-start.sh` runs on every start:
+   - Fixes file permissions for Docker-mounted files
+   - Verifies all services are ready
+   - Initializes test databases with sample data (first run only)
 
 ### 2. Verify Services
 
@@ -226,8 +231,11 @@ docker ps
 # MySQL
 mysql -h mysql -P 3306 -u root -pDevPassword123! testdb
 
-# PostgreSQL
+# PostgreSQL (from inside devcontainer)
 PGPASSWORD=DevPassword123! psql -h postgres -p 5432 -U postgres testdb
+
+# PostgreSQL (from host machine - uses mapped port)
+PGPASSWORD=DevPassword123! psql -h localhost -p 55432 -U postgres testdb
 
 # SQL Server
 sqlcmd -S sqlserver,1433 -U sa -P 'DevPassword123!' -d testdb -C
@@ -297,14 +305,44 @@ If ports conflict with local services:
 1. Stop local MySQL/PostgreSQL/SQL Server
 2. Or modify ports in `docker-compose.yml`
 
+### Database Tables Not Created
+
+If the test tables don't exist after container start:
+
+```bash
+# Check if marker file exists
+ls -la /workspaces/.codespaces/.persistedshare/.db-initialized
+
+# If it exists but tables are missing, delete it and re-run post-start
+rm /workspaces/.codespaces/.persistedshare/.db-initialized
+bash .devcontainer/scripts/post-start.sh
+```
+
+### Permission Denied Errors
+
+Codespaces can have issues with file permissions. The `post-start.sh` script fixes this automatically, but if you see permission errors:
+
+```bash
+# Manually fix permissions
+chmod 644 tools/db-init/mysql/*.sql
+chmod 644 tools/db-init/postgres/*.sql
+chmod 644 tools/db-init/*.sql
+```
+
 ### Reset Everything
 
 ```bash
 # Stop and remove all containers and volumes
 docker-compose down -v
 
+# Remove the DB initialization marker
+rm -f /workspaces/.codespaces/.persistedshare/.db-initialized
+
 # Rebuild
 docker-compose up -d --build
+
+# Re-run post-start to initialize DBs
+bash .devcontainer/scripts/post-start.sh
 ```
 
 ---
