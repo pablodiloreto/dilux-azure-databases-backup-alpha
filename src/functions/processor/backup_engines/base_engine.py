@@ -95,15 +95,19 @@ class BaseBackupEngine(ABC):
             f"Backup command completed, raw size: {len(backup_data)} bytes"
         )
 
+        # Validate backup data is not empty
+        if len(backup_data) == 0:
+            raise RuntimeError("Backup command returned empty data")
+
         # Compress if requested
         if compress:
             compressed_data = gzip.compress(backup_data)
             file_format = f"{self.file_extension}.gz"
 
+            ratio = len(compressed_data) / len(backup_data) * 100
             logger.info(
                 f"Compressed backup from {len(backup_data)} to "
-                f"{len(compressed_data)} bytes "
-                f"({len(compressed_data) / len(backup_data) * 100:.1f}%)"
+                f"{len(compressed_data)} bytes ({ratio:.1f}%)"
             )
 
             return io.BytesIO(compressed_data), file_format

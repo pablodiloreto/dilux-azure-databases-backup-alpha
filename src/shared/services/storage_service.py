@@ -13,7 +13,7 @@ from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
 from azure.storage.blob import BlobSasPermissions, ContentSettings, generate_blob_sas
 
 from ..config import AzureClients, get_settings
-from ..models import BackupResult
+from ..models import BackupResult, AppSettings
 
 logger = logging.getLogger(__name__)
 
@@ -318,7 +318,7 @@ class StorageService:
         limit: int = 100,
     ) -> list[BackupResult]:
         """
-        Get backup history from table storage.
+        Get backup history from table storage (loads all, use get_backup_history_paged for efficiency).
 
         Args:
             database_id: Filter by database ID
@@ -348,10 +348,8 @@ class StorageService:
         logger.info(f"Querying backup history with filter: {filter_str}")
 
         try:
-            entities = list(table_client.query_entities(
-                query_filter=filter_str,
-                select=["*"],
-            ))
+            # Note: Don't use select=["*"] as it returns empty entities in azure-data-tables SDK
+            entities = list(table_client.query_entities(query_filter=filter_str))
             logger.info(f"Found {len(entities)} entities in backup history table")
         except Exception as e:
             logger.error(f"Error querying backup history table: {e}")
@@ -369,6 +367,92 @@ class StorageService:
         # Sort by created_at descending
         results.sort(key=lambda x: x.created_at, reverse=True)
         return results
+
+    def get_backup_history_paged(
+        self,
+        page_size: int = 25,
+        continuation_token: Optional[str] = None,
+        database_id: Optional[str] = None,
+        status: Optional[str] = None,
+        triggered_by: Optional[str] = None,
+        database_type: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> tuple[list[BackupResult], Optional[str]]:
+        """
+        Get backup history with server-side pagination using continuation tokens.
+
+        Only fetches the requested page from Table Storage, minimizing memory usage
+        and Azure Functions execution time.
+
+        Args:
+            page_size: Number of results per page (default 25)
+            continuation_token: Token from previous call to get next page
+            database_id: Filter by database ID
+            status: Filter by backup status (completed, failed, in_progress)
+            triggered_by: Filter by trigger type (manual, scheduler)
+            database_type: Filter by database type (mysql, postgresql, sqlserver)
+            start_date: Filter from this date
+            end_date: Filter until this date
+
+        Returns:
+            Tuple of (list of BackupResult, next continuation token or None)
+        """
+        table_client = self._clients.get_table_client(
+            self._settings.history_table_name
+        )
+
+        # Build filter
+        filters = []
+        if database_id:
+            filters.append(f"database_id eq '{database_id}'")
+        if status:
+            filters.append(f"status eq '{status}'")
+        if triggered_by:
+            filters.append(f"triggered_by eq '{triggered_by}'")
+        if database_type:
+            filters.append(f"database_type eq '{database_type}'")
+        if start_date:
+            filters.append(f"PartitionKey ge '{start_date.strftime('%Y-%m-%d')}'")
+        if end_date:
+            filters.append(f"PartitionKey le '{end_date.strftime('%Y-%m-%d')}'")
+
+        filter_str = " and ".join(filters) if filters else None
+
+        logger.info(f"Querying backup history (paged) with filter: {filter_str}, page_size: {page_size}")
+
+        results = []
+        next_token = None
+
+        try:
+            # Query with pagination
+            query_iter = table_client.query_entities(
+                query_filter=filter_str,
+                results_per_page=page_size,
+            )
+
+            # Get pages iterator with continuation token
+            pages = query_iter.by_page(continuation_token=continuation_token)
+
+            # Get only the current page
+            current_page = next(pages, None)
+
+            if current_page:
+                for entity in current_page:
+                    try:
+                        results.append(BackupResult.from_table_entity(entity))
+                    except (KeyError, ValueError) as e:
+                        logger.warning(f"Skipping malformed backup entity: {e}")
+
+                # Get the continuation token for next page
+                next_token = pages.continuation_token
+
+            logger.info(f"Returned {len(results)} results, has_more: {next_token is not None}")
+
+        except Exception as e:
+            logger.error(f"Error querying backup history table: {e}")
+
+        return results, next_token
 
     def get_backup_result(self, result_id: str, date: datetime) -> Optional[BackupResult]:
         """
@@ -393,3 +477,65 @@ class StorageService:
             return BackupResult.from_table_entity(entity)
         except ResourceNotFoundError:
             return None
+
+    # ===========================================
+    # Settings Operations
+    # ===========================================
+
+    def get_settings(self) -> AppSettings:
+        """
+        Get application settings from table storage.
+
+        Returns default settings if none exist.
+
+        Returns:
+            AppSettings instance
+        """
+        table_name = "settings"
+        table_client = self._clients.get_table_client(table_name)
+
+        # Ensure table exists
+        try:
+            self._clients.table_service_client.create_table(table_name)
+        except ResourceExistsError:
+            pass
+
+        try:
+            entity = table_client.get_entity(
+                partition_key="settings",
+                row_key="app",
+            )
+            return AppSettings.from_table_entity(entity)
+        except ResourceNotFoundError:
+            # Return default settings
+            return AppSettings()
+
+    def save_settings(self, settings: AppSettings) -> AppSettings:
+        """
+        Save application settings to table storage.
+
+        Args:
+            settings: AppSettings instance to save
+
+        Returns:
+            Saved AppSettings instance
+        """
+        from datetime import datetime
+
+        table_name = "settings"
+        table_client = self._clients.get_table_client(table_name)
+
+        # Ensure table exists
+        try:
+            self._clients.table_service_client.create_table(table_name)
+        except ResourceExistsError:
+            pass
+
+        # Update timestamp
+        settings.updated_at = datetime.utcnow()
+
+        entity = settings.to_table_entity()
+        table_client.upsert_entity(entity)
+        logger.info("Saved application settings")
+
+        return settings

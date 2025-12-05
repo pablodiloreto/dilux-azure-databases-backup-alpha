@@ -129,21 +129,71 @@ fi
 echo ""
 
 echo "=============================================="
-echo " All services are running!"
+echo " All database services are running!"
 echo "=============================================="
 echo ""
 
-echo " Quick Start Commands:"
+# ==============================================
+# 4. Start Application Services (Background)
+# ==============================================
+echo "Starting application services..."
 echo ""
-echo "   Frontend:"
-echo "     cd src/frontend && npm run dev"
+
+PROJECT_DIR="/workspaces/dilux-azure-databases-backup-alpha"
+LOG_DIR="$PROJECT_DIR/.devcontainer/logs"
+mkdir -p "$LOG_DIR"
+
+# Function to start a service if not already running
+start_service() {
+    local name=$1
+    local port=$2
+    local dir=$3
+    local cmd=$4
+    local log_file="$LOG_DIR/$name.log"
+
+    if lsof -i :$port >/dev/null 2>&1; then
+        echo "  [OK] $name already running on port $port"
+    else
+        echo -n "  Starting $name on port $port... "
+        cd "$dir"
+        nohup $cmd > "$log_file" 2>&1 &
+
+        # Wait for service to be ready (max 30 seconds)
+        local count=0
+        while ! lsof -i :$port >/dev/null 2>&1 && [ $count -lt 30 ]; do
+            sleep 1
+            count=$((count + 1))
+        done
+
+        if lsof -i :$port >/dev/null 2>&1; then
+            echo "[OK]"
+        else
+            echo "[FAILED - check $log_file]"
+        fi
+        cd "$PROJECT_DIR"
+    fi
+}
+
+# Start API (required for frontend proxy)
+start_service "API" 7071 "$PROJECT_DIR/src/functions/api" "func start --port 7071"
+
+# Start Processor (handles backup jobs from queue)
+start_service "Processor" 7073 "$PROJECT_DIR/src/functions/processor" "func start --port 7073"
+
+# Start Frontend
+start_service "Frontend" 3000 "$PROJECT_DIR/src/frontend" "npm run dev"
+
 echo ""
-echo "   Functions API:"
-echo "     cd src/functions/api && func start --port 7071"
+echo "=============================================="
+echo " All services started!"
+echo "=============================================="
 echo ""
-echo "   Functions Scheduler:"
-echo "     cd src/functions/scheduler && func start --port 7072"
+echo " Service URLs:"
+echo "   Frontend:  http://localhost:3000"
+echo "   API:       http://localhost:7071/api/health"
+echo "   Processor: http://localhost:7073 (queue trigger)"
 echo ""
-echo "   Functions Processor:"
-echo "     cd src/functions/processor && func start --port 7073"
+echo " Logs: $LOG_DIR/"
+echo ""
+echo " To stop services: pkill -f 'func start' && pkill -f 'vite'"
 echo ""

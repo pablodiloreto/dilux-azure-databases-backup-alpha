@@ -6,7 +6,6 @@ import {
   Switch,
   Divider,
   TextField,
-  Button,
   Alert,
   List,
   ListItem,
@@ -14,6 +13,8 @@ import {
   ListItemText,
   ListItemSecondaryAction,
   Snackbar,
+  CircularProgress,
+  Skeleton,
 } from '@mui/material'
 import {
   DarkMode as DarkModeIcon,
@@ -27,12 +28,58 @@ import { useState } from 'react'
 import { useSettings } from '../../contexts/SettingsContext'
 
 export function SettingsPage() {
-  const { settings, updateSettings, toggleDarkMode } = useSettings()
-  const [snackbar, setSnackbar] = useState(false)
+  const { settings, isLoading, error, updateSettings, toggleDarkMode } = useSettings()
+  const [saving, setSaving] = useState(false)
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
+    open: false,
+    message: '',
+    severity: 'success',
+  })
 
-  const handleSave = () => {
-    // Settings are already persisted via context/localStorage
-    setSnackbar(true)
+  const handleUpdateSetting = async (updates: Parameters<typeof updateSettings>[0]) => {
+    setSaving(true)
+    try {
+      await updateSettings(updates)
+      setSnackbar({ open: true, message: 'Setting saved', severity: 'success' })
+    } catch {
+      setSnackbar({ open: true, message: 'Failed to save setting', severity: 'error' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleToggleDarkMode = async () => {
+    setSaving(true)
+    try {
+      await toggleDarkMode()
+      setSnackbar({ open: true, message: 'Theme updated', severity: 'success' })
+    } catch {
+      setSnackbar({ open: true, message: 'Failed to update theme', severity: 'error' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <Box sx={{ maxWidth: 800 }}>
+        <Typography variant="h4" gutterBottom>
+          Settings
+        </Typography>
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Skeleton variant="text" width={150} height={32} />
+            <Skeleton variant="rectangular" height={60} sx={{ mt: 2 }} />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent>
+            <Skeleton variant="text" width={150} height={32} />
+            <Skeleton variant="rectangular" height={120} sx={{ mt: 2 }} />
+          </CardContent>
+        </Card>
+      </Box>
+    )
   }
 
   return (
@@ -43,6 +90,12 @@ export function SettingsPage() {
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
         Configure your backup preferences and application settings.
       </Typography>
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {error}
+        </Alert>
+      )}
 
       {/* Appearance */}
       <Card sx={{ mb: 3 }}>
@@ -62,7 +115,8 @@ export function SettingsPage() {
               <ListItemSecondaryAction>
                 <Switch
                   checked={settings.darkMode}
-                  onChange={toggleDarkMode}
+                  onChange={handleToggleDarkMode}
+                  disabled={saving}
                 />
               </ListItemSecondaryAction>
             </ListItem>
@@ -94,13 +148,14 @@ export function SettingsPage() {
                   type="number"
                   value={settings.defaultRetentionDays}
                   onChange={(e) =>
-                    updateSettings({
+                    handleUpdateSetting({
                       defaultRetentionDays: parseInt(e.target.value) || 30,
                     })
                   }
                   size="small"
                   sx={{ width: 80 }}
                   inputProps={{ min: 1, max: 365 }}
+                  disabled={saving}
                 />
               </ListItemSecondaryAction>
             </ListItem>
@@ -117,10 +172,11 @@ export function SettingsPage() {
                 <Switch
                   checked={settings.defaultCompression}
                   onChange={() =>
-                    updateSettings({
+                    handleUpdateSetting({
                       defaultCompression: !settings.defaultCompression,
                     })
                   }
+                  disabled={saving}
                 />
               </ListItemSecondaryAction>
             </ListItem>
@@ -148,7 +204,7 @@ export function SettingsPage() {
               </ListItemIcon>
               <ListItemText
                 primary="Storage"
-                secondary="Azure Blob Storage (Azurite - Development)"
+                secondary="Azure Table Storage (settings persist across devices)"
               />
             </ListItem>
             <Divider component="li" />
@@ -167,18 +223,23 @@ export function SettingsPage() {
 
       {/* Info Alert */}
       <Alert severity="info" sx={{ mb: 2 }}>
-        Settings are automatically saved to your browser's local storage.
+        Settings are automatically saved to Azure Table Storage and persist across all devices.
       </Alert>
 
-      <Button variant="contained" color="primary" onClick={handleSave}>
-        Save Settings
-      </Button>
+      {saving && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2 }}>
+          <CircularProgress size={20} />
+          <Typography variant="body2" color="text.secondary">
+            Saving...
+          </Typography>
+        </Box>
+      )}
 
       <Snackbar
-        open={snackbar}
+        open={snackbar.open}
         autoHideDuration={3000}
-        onClose={() => setSnackbar(false)}
-        message="Settings saved successfully"
+        onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
+        message={snackbar.message}
       />
     </Box>
   )

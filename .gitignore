@@ -126,3 +126,4 @@ temp/
 # === Misc ===
 .cache/
 .parcel-cache/
+.devcontainer/logs/

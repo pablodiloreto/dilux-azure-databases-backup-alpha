@@ -50,7 +50,9 @@
       "Bash(gh codespace ports visibility:*)",
       "Bash(git rm:*)",
       "Bash(sqlcmd:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(kill:*)",
+      "Bash(npm install:*)"
     ],
     "deny": [],
     "ask": []

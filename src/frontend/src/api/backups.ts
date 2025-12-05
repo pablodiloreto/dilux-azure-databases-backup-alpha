@@ -1,10 +1,5 @@
 import { apiClient } from './client'
-import type { BackupResult, BackupFile } from '../types'
-
-interface BackupsResponse {
-  backups: BackupResult[]
-  count: number
-}
+import type { BackupResult, BackupFile, BackupsPagedResponse, BackupFilters } from '../types'
 
 interface BackupFilesResponse {
   files: BackupFile[]
@@ -19,7 +14,33 @@ interface DownloadUrlResponse {
 
 export const backupsApi = {
   /**
-   * Get backup history
+   * Get backup history with server-side pagination
+   */
+  getHistoryPaged: async (options?: {
+    pageSize?: number
+    continuationToken?: string | null
+    filters?: BackupFilters
+  }): Promise<BackupsPagedResponse> => {
+    const params = new URLSearchParams()
+
+    // Pagination
+    if (options?.pageSize) params.append('page_size', options.pageSize.toString())
+    if (options?.continuationToken) params.append('continuation_token', options.continuationToken)
+
+    // Filters
+    if (options?.filters?.databaseId) params.append('database_id', options.filters.databaseId)
+    if (options?.filters?.status) params.append('status', options.filters.status)
+    if (options?.filters?.triggeredBy) params.append('triggered_by', options.filters.triggeredBy)
+    if (options?.filters?.databaseType) params.append('database_type', options.filters.databaseType)
+    if (options?.filters?.startDate) params.append('start_date', options.filters.startDate)
+    if (options?.filters?.endDate) params.append('end_date', options.filters.endDate)
+
+    const response = await apiClient.get<BackupsPagedResponse>('/backups', { params })
+    return response.data
+  },
+
+  /**
+   * Get backup history (legacy - loads all, use getHistoryPaged for efficiency)
    */
   getHistory: async (options?: {
     databaseId?: string
@@ -33,7 +54,7 @@ export const backupsApi = {
     if (options?.endDate) params.append('end_date', options.endDate)
     if (options?.limit) params.append('limit', options.limit.toString())
 
-    const response = await apiClient.get<BackupsResponse>('/backups', { params })
+    const response = await apiClient.get<BackupsPagedResponse>('/backups', { params })
     return response.data.backups
   },
 

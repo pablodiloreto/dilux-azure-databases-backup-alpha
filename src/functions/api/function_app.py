@@ -11,6 +11,8 @@ HTTP triggers for managing database backups:
 - GET /api/backups - List backup history
 - GET /api/backups/{id}/download - Download a backup file
 - GET /api/health - Health check
+- GET /api/settings - Get application settings
+- PUT /api/settings - Update application settings
 """
 
 import json
@@ -27,7 +29,7 @@ if str(shared_path) not in sys.path:
     sys.path.insert(0, str(shared_path))
 
 from shared.config import get_settings
-from shared.models import DatabaseConfig, DatabaseType, BackupJob, BackupStatus
+from shared.models import DatabaseConfig, DatabaseType, BackupJob, BackupStatus, AppSettings
 from shared.services import StorageService, DatabaseConfigService
 from shared.exceptions import NotFoundError, ValidationError
 
@@ -317,34 +319,67 @@ def trigger_backup(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="backups", methods=["GET"])
 def list_backups(req: func.HttpRequest) -> func.HttpResponse:
     """
-    List backup history.
+    List backup history with server-side pagination.
 
     Query params:
+    - page_size: int - Results per page (default 25, max 100)
+    - continuation_token: str - Token for next page (from previous response)
     - database_id: str - Filter by database ID
+    - status: str - Filter by status (completed, failed, in_progress)
+    - triggered_by: str - Filter by trigger (manual, scheduler)
+    - database_type: str - Filter by type (mysql, postgresql, sqlserver)
     - start_date: str - Filter from date (YYYY-MM-DD)
     - end_date: str - Filter until date (YYYY-MM-DD)
-    - limit: int - Maximum results (default 100)
     """
     try:
+        import base64
+
+        # Pagination params
+        page_size = min(int(req.params.get("page_size", "25")), 100)
+        continuation_token_param = req.params.get("continuation_token")
+
+        # Decode continuation token from base64 JSON
+        continuation_token = None
+        if continuation_token_param:
+            try:
+                continuation_token = json.loads(base64.b64decode(continuation_token_param).decode())
+            except Exception:
+                pass  # Invalid token, start from beginning
+
+        # Filter params
         database_id = req.params.get("database_id")
+        status = req.params.get("status")
+        triggered_by = req.params.get("triggered_by")
+        database_type = req.params.get("database_type")
         start_date_str = req.params.get("start_date")
         end_date_str = req.params.get("end_date")
-        limit = int(req.params.get("limit", "100"))
 
         start_date = datetime.fromisoformat(start_date_str) if start_date_str else None
         end_date = datetime.fromisoformat(end_date_str) if end_date_str else None
 
-        results = storage_service.get_backup_history(
+        results, next_token = storage_service.get_backup_history_paged(
+            page_size=page_size,
+            continuation_token=continuation_token,
             database_id=database_id,
+            status=status,
+            triggered_by=triggered_by,
+            database_type=database_type,
             start_date=start_date,
             end_date=end_date,
-            limit=limit,
         )
+
+        # Encode continuation token as base64 JSON string for URL safety
+        encoded_token = None
+        if next_token:
+            import base64
+            encoded_token = base64.b64encode(json.dumps(next_token).encode()).decode()
 
         return func.HttpResponse(
             json.dumps({
-                "backups": [result.model_dump() for result in results],
+                "backups": [result.model_dump(mode="json") for result in results],
                 "count": len(results),
+                "continuation_token": encoded_token,
+                "has_more": next_token is not None,
             }),
             mimetype="application/json",
             status_code=200,
@@ -426,6 +461,74 @@ def download_backup(req: func.HttpRequest) -> func.HttpResponse:
         )
     except Exception as e:
         logger.exception("Error generating download URL")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+# ===========================================
+# Settings Endpoints
+# ===========================================
+
+
+@app.route(route="settings", methods=["GET"])
+def get_app_settings(req: func.HttpRequest) -> func.HttpResponse:
+    """Get application settings."""
+    try:
+        app_settings = storage_service.get_settings()
+
+        return func.HttpResponse(
+            json.dumps({
+                "settings": app_settings.model_dump(mode="json"),
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error getting settings")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="settings", methods=["PUT"])
+def update_app_settings(req: func.HttpRequest) -> func.HttpResponse:
+    """Update application settings."""
+    try:
+        body = req.get_json()
+
+        # Get current settings and update
+        current = storage_service.get_settings()
+
+        if "dark_mode" in body:
+            current.dark_mode = body["dark_mode"]
+        if "default_retention_days" in body:
+            current.default_retention_days = body["default_retention_days"]
+        if "default_compression" in body:
+            current.default_compression = body["default_compression"]
+
+        saved = storage_service.save_settings(current)
+
+        return func.HttpResponse(
+            json.dumps({
+                "message": "Settings updated",
+                "settings": saved.model_dump(mode="json"),
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except ValueError as e:
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=400,
+        )
+    except Exception as e:
+        logger.exception("Error updating settings")
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
             mimetype="application/json",

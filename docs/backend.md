@@ -519,11 +519,35 @@ curl -X POST http://localhost:7071/api/databases/{id}/backup
 | Column | Type | Description |
 |--------|------|-------------|
 | PartitionKey | string | Date (`YYYY-MM-DD`) |
-| RowKey | string | Result ID |
+| RowKey | string | Inverted timestamp + ID (see below) |
 | job_id | string | Backup job ID |
 | database_id | string | Database ID |
 | status | string | `completed`, `failed`, etc. |
 | ... | ... | Other result fields |
+
+**RowKey Format (Inverted Timestamp):**
+
+Para lograr orden descendente por fecha (backups más recientes primero), el RowKey usa un timestamp invertido:
+
+```
+RowKey = "{MAX_TICKS - current_ticks:019d}_{backup_id}"
+```
+
+- `MAX_TICKS` = 3155378975999999999 (DateTime.MaxValue.Ticks en .NET)
+- `current_ticks` = timestamp en ticks (segundos × 10,000,000)
+- El resultado es un número de 19 dígitos seguido de underscore y el UUID
+
+**Ejemplo:**
+- Backup creado: 2025-12-05 10:00:00
+- `current_ticks` = 17333280000000000
+- `inverted_ticks` = 3138045695999999999
+- `RowKey` = `3138045695999999999_abc123...`
+
+Los backups más nuevos tienen valores de `inverted_ticks` más pequeños, por lo que aparecen primero cuando Azure Table Storage ordena por RowKey ascendente.
+
+**Migración de datos legacy:**
+
+Registros anteriores usan RowKey = UUID solamente. El script `scripts/migrate_backup_rowkeys.py` convierte registros legacy al nuevo formato.
 
 ---
 

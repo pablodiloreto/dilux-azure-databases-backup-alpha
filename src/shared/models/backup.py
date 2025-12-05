@@ -155,9 +155,17 @@ class BackupResult(BaseModel):
         # Use date as partition key for efficient querying by date range
         partition_key = self.created_at.strftime("%Y-%m-%d")
 
+        # Use inverted timestamp as RowKey prefix for descending order by default
+        # MAX_TICKS (year 9999) - current_ticks = newer records have smaller values = appear first
+        max_ticks = 3155378975999999999  # DateTime.MaxValue.Ticks in .NET
+        current_ticks = int(self.created_at.timestamp() * 10_000_000)
+        inverted_ticks = max_ticks - current_ticks
+        # Format: inverted_ticks (19 digits) + underscore + id (for uniqueness)
+        row_key = f"{inverted_ticks:019d}_{self.id}"
+
         return {
             "PartitionKey": partition_key,
-            "RowKey": self.id,
+            "RowKey": row_key,
             "job_id": self.job_id,
             "database_id": self.database_id,
             "database_name": self.database_name,
@@ -186,8 +194,17 @@ class BackupResult(BaseModel):
                 return None
             return datetime.fromisoformat(value)
 
+        # Extract ID from RowKey (format: "inverted_ticks_id" or legacy "id")
+        row_key = entity["RowKey"]
+        if "_" in row_key and len(row_key) > 20:
+            # New format: "0123456789012345678_uuid"
+            backup_id = row_key.split("_", 1)[1]
+        else:
+            # Legacy format: just the UUID
+            backup_id = row_key
+
         return cls(
-            id=entity["RowKey"],
+            id=backup_id,
             job_id=entity["job_id"],
             database_id=entity["database_id"],
             database_name=entity["database_name"],

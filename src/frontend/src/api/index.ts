@@ -1,3 +1,5 @@
 export { apiClient } from './client'
 export { databasesApi } from './databases'
 export { backupsApi } from './backups'
+export { settingsApi } from './settings'
+export type { AppSettings } from './settings'

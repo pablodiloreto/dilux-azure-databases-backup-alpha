@@ -1,201 +1,128 @@
 # Plan de Implementación - Dilux Database Backup
 
-**Fecha:** 2025-12-05
-**Estado:** ✅ APROBADO
 **Última actualización:** 2025-12-05
 
 ---
 
-## Decisiones Confirmadas
+## Estado Actual
+
+### Qué funciona
+- **API Function App** (puerto 7071): Health, CRUD databases, trigger backup manual
+- **Processor Function App** (puerto 7073): Queue trigger, backup MySQL/PostgreSQL/SQL Server
+- **Frontend** (puerto 3000): Dashboard, lista DBs, forms crear/editar, historial backups
+- **Servicios Docker**: Azurite, MySQL 8.0, PostgreSQL 15, SQL Server 2022
+- **Arranque automático**: Configurado en `post-start.sh`
+
+### Fixes aplicados
+| Fecha | Fix |
+|-------|-----|
+| 2025-12-05 | Backup history ordenado por fecha descendente: inverted timestamp en RowKey (backup.py, migrate_backup_rowkeys.py) |
+| 2025-12-05 | Settings en Table Storage: dark mode, retention, compression persisten en backend (settings.py, function_app.py, SettingsContext.tsx) |
+| 2025-12-05 | Server-side pagination con continuation tokens: eficiencia en Azure Functions (storage_service.py, function_app.py, BackupsPage.tsx) |
+| 2025-12-05 | Division by zero en backup vacío: validar datos antes de comprimir (base_engine.py) |
+| 2025-12-05 | Backup history no mostraba datos: quitar `select=["*"]` en query_entities (storage_service.py) |
+| 2025-12-05 | JSON serialize datetime: usar `model_dump(mode="json")` en API (function_app.py) |
+| 2025-12-05 | HMR en Codespaces (vite.config.ts: clientPort 443) |
+| 2025-12-05 | PostgreSQL backup via docker exec (version mismatch) |
+| 2025-12-05 | Timer triggers AzureWebJobsStorage → hostname azurite |
+| 2025-12-05 | Arranque automático de servicios en post-start.sh |
+| 2025-12-01 | Password en Table Storage (dev mode) |
+| 2025-12-01 | ContentSettings en Blob Upload |
+| 2025-12-01 | Queue Message Encoding (host.json) |
+
+---
+
+## Decisiones de Arquitectura
 
 | Tema | Decisión |
 |------|----------|
-| **UI Library** | Material UI (MUI) - ya implementado |
-| **Multi-tenant** | ❌ No - Una instalación por cliente |
-| **Notificaciones email/Teams** | ❌ No para v1 |
-| **System Health** | ✅ Sí - Panel de estado de servicios |
-| **Auto-update** | ⏸️ v2 - Diseñar v1 preparado para soportarlo |
-| **Autenticación** | Azure AD en prod, bypass en dev |
-| **Passwords** | Key Vault en prod, Table Storage en dev |
+| UI Library | Material UI (MUI) |
+| Multi-tenant | No - Una instalación por cliente |
+| Notificaciones | No para v1 |
+| System Health | Sí - Panel de estado |
+| Auto-update | v2 |
+| Autenticación | Azure AD en prod, bypass en dev |
+| Passwords | Key Vault en prod, Table Storage en dev |
 
 ---
 
-## Arquitectura Final
+## Tareas Pendientes
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Frontend (React + MUI)                     │
-│  - Dashboard con stats y System Health                       │
-│  - CRUD de configuraciones de backup                         │
-│  - Historial de backups con descarga                         │
-│  - Gestión de passwords                                      │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    API Function App                          │
-│  - GET/POST/PUT/DELETE /api/databases                        │
-│  - POST /api/databases/{id}/backup (trigger manual)          │
-│  - POST /api/databases/test-connection                       │
-│  - PUT /api/databases/{id}/password                          │
-│  - GET /api/backups, /api/backups/files, /api/backups/download│
-│  - GET /api/health, /api/system-status                       │
-└─────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┼───────────────┐
-              ▼               ▼               ▼
-┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-│ Scheduler App   │ │ Processor App   │ │ Storage Account │
-│                 │ │                 │ │                 │
-│ - Timer 15min   │ │ - Queue trigger │ │ - Blobs (backups)│
-│ - Evalúa DBs    │ │ - MySQL backup  │ │ - Queues (jobs) │
-│ - Encola jobs   │ │ - PostgreSQL    │ │ - Tables (config)│
-│                 │ │ - SQL Server    │ │                 │
-│ - Cleanup timer │ │                 │ │                 │
-└─────────────────┘ └─────────────────┘ └─────────────────┘
-```
+### Sprint 2: Dashboard y UX (SIGUIENTE)
 
----
-
-## Fase 1: MVP Funcional
-
-### 1.1 Frontend - CRUD de Databases
-
-| # | Tarea | Descripción | Estado |
-|---|-------|-------------|--------|
-| 1.1.1 | Form Crear Database | Dialog: name, type (MySQL/PostgreSQL/SQL Server), host, port, database, username, password, schedule (15m/1h/6h/1d/1w), retention_days, compression | ✅ |
-| 1.1.2 | Form Editar Database | Mismo form pre-poblado, password oculto (placeholder "••••••") | ✅ |
-| 1.1.3 | Validaciones | Campos requeridos, formato host, puerto numérico | ✅ |
-| 1.1.4 | Test Connection | Botón que prueba conectividad antes de guardar | ⬜ |
-
-### 1.2 Backend - Endpoints faltantes
-
-| # | Tarea | Descripción | Estado |
-|---|-------|-------------|--------|
-| 1.2.1 | Test Connection | `POST /api/databases/test-connection` - Prueba sin guardar | ⬜ |
-| 1.2.2 | Update Password | `PUT /api/databases/{id}/password` | ⬜ |
-| 1.2.3 | System Status | `GET /api/system-status` - Estado de servicios | ⬜ |
-
-### 1.3 Backup Engines
-
-| # | Tarea | Descripción | Estado |
-|---|-------|-------------|--------|
-| 1.3.1 | Fix PostgreSQL | Usar docker exec en dev (pg_dump v15 vs v12) | ✅ |
-| 1.3.2 | Test SQL Server | Verificar sqlcmd con contenedor | ✅ |
-
-### 1.4 Timer Triggers
-
-| # | Tarea | Descripción | Estado |
-|---|-------|-------------|--------|
-| 1.4.1 | Fix AzureWebJobsStorage | Resolver 127.0.0.1 vs azurite | ✅ |
-| 1.4.2 | Scheduler | Timer 15min que evalúa DBs y encola backups | ⬜ |
-| 1.4.3 | Cleanup | Timer diario que borra backups viejos según retention_days | ⬜ |
-
----
-
-## Fase 2: Dashboard Completo
-
-| # | Tarea | Descripción | Estado |
-|---|-------|-------------|--------|
-| 2.1 | Storage Used | Stat card con tamaño total de blobs | ⬜ |
-| 2.2 | Success Rate % | Ratio completed/(completed+failed) 24h | ⬜ |
-| 2.3 | Backups Today | Contador de backups del día | ⬜ |
-| 2.4 | System Health | Panel: API ✅, Processor ✅, Storage ✅, Scheduler ⚠️ | ⬜ |
-
----
-
-## Fase 3: Gestión de Passwords
-
-| # | Tarea | Descripción | Estado |
-|---|-------|-------------|--------|
-| 3.1 | Password Dialog | UI para cambiar password de una DB | ⬜ |
-| 3.2 | Test antes de guardar | Probar conexión con nueva password | ⬜ |
-| 3.3 | Key Vault (prod) | Guardar en Key Vault cuando `ENVIRONMENT=production` | ⬜ |
-| 3.4 | Audit log | Registrar cambios de password | ⬜ |
-
----
-
-## Fase 4: Retención y Cleanup
-
-| # | Tarea | Descripción | Estado |
-|---|-------|-------------|--------|
-| 4.1 | CleanupOldBackups | Timer diario, borra según `retention_days` de cada DB | ⬜ |
-| 4.2 | UI archivos | Lista de archivos blob con opción eliminar manual | ⬜ |
-
----
-
-## Fase 5: Autenticación Azure AD
-
-| # | Tarea | Descripción | Estado |
-|---|-------|-------------|--------|
-| 5.1 | MSAL React | Login/logout en frontend | ⬜ |
-| 5.2 | JWT Backend | Validar tokens en Function Apps | ⬜ |
-| 5.3 | Bypass dev | `ENVIRONMENT=development` → sin auth | ⬜ |
-
----
-
-## Fase 6: Deploy One-Click
-
-| # | Tarea | Descripción | Estado |
-|---|-------|-------------|--------|
-| 6.1 | ARM/Bicep | Templates para todos los recursos | ⬜ |
-| 6.2 | Managed Identity | MI + RBAC assignments automáticos | ⬜ |
-| 6.3 | Deploy Button | Botón en README.md | ⬜ |
-| 6.4 | Installation ID | Generar ID único por instalación (prep para auto-update) | ⬜ |
-| 6.5 | Version endpoint | `/api/version` retorna versión instalada | ⬜ |
-
----
-
-## Fase 7: Auto-Update (v2)
-
-> **Nota:** Diseñamos v1 preparado para esto, pero se implementa en v2.
-
-| # | Tarea | Descripción | Estado |
-|---|-------|-------------|--------|
-| 7.1 | Registry Central | Function App que registra instalaciones | ⬜ v2 |
-| 7.2 | Check version | Frontend consulta si hay nueva versión | ⬜ v2 |
-| 7.3 | Campanita | UI notifica "Nueva versión disponible" | ⬜ v2 |
-| 7.4 | Update ARM | Template que actualiza sin borrar datos | ⬜ v2 |
-
-### Cómo funcionará:
-1. Usuario instala con "Deploy to Azure" → se registra en Registry Central
-2. Frontend consulta periódicamente `/api/latest-version` del Registry
-3. Si hay nueva versión → muestra campanita 🔔
-4. Usuario hace click → ejecuta ARM de update (solo código, no datos)
-5. Registry actualiza la versión registrada
-
----
-
-## Orden de Ejecución
-
-### Sprint 1: MVP
-- [x] Fix acceso frontend (401)
-- [x] 1.3.1 - Fix PostgreSQL backup (docker exec)
-- [x] 1.3.2 - Test SQL Server backup
-- [x] 1.1.1 + 1.1.2 - Forms crear/editar database
-- [x] 1.4.1 - Fix timer triggers (AzureWebJobsStorage)
-
-### Sprint 2: Dashboard y UX
-- [ ] 2.* - Stats completos + System Health
-- [ ] 1.1.4 + 1.2.1 - Test connection
-- [ ] 3.* - Gestión passwords
+| # | Tarea | Descripción |
+|---|-------|-------------|
+| 1.1.4 | Test Connection UI | Botón que prueba conectividad antes de guardar |
+| 1.2.1 | Test Connection API | `POST /api/databases/test-connection` |
+| 1.2.3 | System Status API | `GET /api/system-status` |
+| 1.4.2 | Scheduler | Timer 15min que evalúa DBs y encola backups |
+| 1.4.3 | Cleanup Timer | Timer diario que borra backups viejos |
+| 2.1 | Storage Used | Stat card con tamaño total de blobs |
+| 2.2 | Success Rate | Ratio completed/(completed+failed) 24h |
+| 2.3 | Backups Today | Contador de backups del día |
+| 2.4 | System Health UI | Panel: API, Processor, Storage, Scheduler |
 
 ### Sprint 3: Production Ready
-- [ ] 4.* - Retención y cleanup
-- [ ] 5.* - Azure AD auth
-- [ ] 6.* - Deploy one-click
 
-### Sprint 4: v2
-- [ ] 7.* - Auto-update system
+| # | Tarea | Descripción |
+|---|-------|-------------|
+| 1.2.2 | Update Password API | `PUT /api/databases/{id}/password` |
+| 3.1 | Password Dialog | UI para cambiar password |
+| 3.2 | Test + Save | Probar conexión antes de guardar password |
+| 3.3 | Key Vault | Guardar en Key Vault en producción |
+| 4.1 | Cleanup Job | Timer diario según retention_days |
+| 4.2 | UI Archivos | Lista de blobs con opción eliminar |
+| 5.1 | MSAL React | Login/logout en frontend |
+| 5.2 | JWT Backend | Validar tokens en Function Apps |
+| 5.3 | Bypass Dev | Sin auth cuando ENVIRONMENT=development |
+
+### Sprint 4: Deploy
+
+| # | Tarea | Descripción |
+|---|-------|-------------|
+| 6.1 | ARM/Bicep | Templates para todos los recursos |
+| 6.2 | Managed Identity | MI + RBAC automáticos |
+| 6.3 | Deploy Button | Botón en README.md |
+| 6.4 | Installation ID | ID único por instalación |
+| 6.5 | Version Endpoint | `/api/version` |
+
+### v2: Auto-Update (diferido)
+
+| # | Tarea | Descripción |
+|---|-------|-------------|
+| 7.1 | Registry Central | Function App que registra instalaciones |
+| 7.2 | Check Version | Frontend consulta nueva versión |
+| 7.3 | Notificación | Campanita "Nueva versión disponible" |
+| 7.4 | Update ARM | Template que actualiza sin borrar datos |
 
 ---
 
 ## Checklist Pre-Release v1
 
-- [ ] Todos los backups funcionan (MySQL, PostgreSQL, SQL Server)
-- [ ] CRUD completo de databases desde UI
+- [x] Backups funcionan (MySQL, PostgreSQL, SQL Server)
+- [x] CRUD databases desde UI
 - [ ] Scheduler automático funcionando
 - [ ] Cleanup de backups viejos
 - [ ] Azure AD auth en producción
-- [ ] Deploy to Azure button funcional
+- [ ] Deploy to Azure button
 - [ ] Documentación de usuario
+
+---
+
+## Comandos Útiles
+
+```bash
+# Iniciar servicios (automático en post-start.sh)
+cd src/functions/api && func start --port 7071
+cd src/functions/processor && func start --port 7073
+cd src/frontend && npm run dev
+
+# Detener servicios
+pkill -f 'func start' && pkill -f 'vite'
+
+# Test backup manual
+curl -X POST http://localhost:7071/api/databases/{id}/backup
+
+# Ver logs
+ls .devcontainer/logs/
+```

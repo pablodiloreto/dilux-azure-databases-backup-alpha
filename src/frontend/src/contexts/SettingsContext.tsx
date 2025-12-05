@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, useEffect, useMemo } from 'react'
+import { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react'
 import type { ReactNode } from 'react'
+import { settingsApi, type AppSettings as ApiSettings } from '../api'
 
 interface Settings {
   darkMode: boolean
@@ -9,8 +10,11 @@ interface Settings {
 
 interface SettingsContextType {
   settings: Settings
-  updateSettings: (updates: Partial<Settings>) => void
-  toggleDarkMode: () => void
+  isLoading: boolean
+  error: string | null
+  updateSettings: (updates: Partial<Settings>) => Promise<void>
+  toggleDarkMode: () => Promise<void>
+  refetch: () => Promise<void>
 }
 
 const defaultSettings: Settings = {
@@ -19,44 +23,78 @@ const defaultSettings: Settings = {
   defaultCompression: true,
 }
 
-const STORAGE_KEY = 'dilux-backup-settings'
-
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined)
 
+// Convert API format to frontend format
+function apiToFrontend(api: ApiSettings): Settings {
+  return {
+    darkMode: api.dark_mode,
+    defaultRetentionDays: api.default_retention_days,
+    defaultCompression: api.default_compression,
+  }
+}
+
+// Convert frontend format to API format
+function frontendToApi(settings: Partial<Settings>): Partial<Omit<ApiSettings, 'updated_at'>> {
+  const result: Partial<Omit<ApiSettings, 'updated_at'>> = {}
+  if (settings.darkMode !== undefined) result.dark_mode = settings.darkMode
+  if (settings.defaultRetentionDays !== undefined) result.default_retention_days = settings.defaultRetentionDays
+  if (settings.defaultCompression !== undefined) result.default_compression = settings.defaultCompression
+  return result
+}
+
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<Settings>(() => {
-    // Load from localStorage on initial render
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY)
-      if (stored) {
-        return { ...defaultSettings, ...JSON.parse(stored) }
-      }
-    } catch (e) {
-      console.error('Failed to load settings from localStorage:', e)
-    }
-    return defaultSettings
-  })
+  const [settings, setSettings] = useState<Settings>(defaultSettings)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // Persist to localStorage whenever settings change
+  // Load settings from API on mount
+  const fetchSettings = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const apiSettings = await settingsApi.get()
+      setSettings(apiToFrontend(apiSettings))
+    } catch (err) {
+      console.error('Failed to load settings from API:', err)
+      setError('Failed to load settings')
+      // Fall back to defaults on error
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
+    fetchSettings()
+  }, [fetchSettings])
+
+  const updateSettings = useCallback(async (updates: Partial<Settings>) => {
+    setError(null)
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
-    } catch (e) {
-      console.error('Failed to save settings to localStorage:', e)
+      const apiUpdates = frontendToApi(updates)
+      const savedSettings = await settingsApi.update(apiUpdates)
+      setSettings(apiToFrontend(savedSettings))
+    } catch (err) {
+      console.error('Failed to save settings:', err)
+      setError('Failed to save settings')
+      throw err
     }
-  }, [settings])
+  }, [])
 
-  const updateSettings = (updates: Partial<Settings>) => {
-    setSettings((prev) => ({ ...prev, ...updates }))
-  }
-
-  const toggleDarkMode = () => {
-    setSettings((prev) => ({ ...prev, darkMode: !prev.darkMode }))
-  }
+  const toggleDarkMode = useCallback(async () => {
+    await updateSettings({ darkMode: !settings.darkMode })
+  }, [settings.darkMode, updateSettings])
 
   const value = useMemo(
-    () => ({ settings, updateSettings, toggleDarkMode }),
-    [settings]
+    () => ({
+      settings,
+      isLoading,
+      error,
+      updateSettings,
+      toggleDarkMode,
+      refetch: fetchSettings,
+    }),
+    [settings, isLoading, error, updateSettings, toggleDarkMode, fetchSettings]
   )
 
   return (

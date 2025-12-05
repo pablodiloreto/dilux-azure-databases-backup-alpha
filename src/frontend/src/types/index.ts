@@ -86,3 +86,19 @@ export interface PaginatedResponse<T> {
   page?: number
   page_size?: number
 }
+
+export interface BackupsPagedResponse {
+  backups: BackupResult[]
+  count: number
+  continuation_token: string | null
+  has_more: boolean
+}
+
+export interface BackupFilters {
+  databaseId?: string
+  status?: BackupStatus | ''
+  triggeredBy?: 'manual' | 'scheduler' | ''
+  databaseType?: DatabaseType | ''
+  startDate?: string
+  endDate?: string
+}
