@@ -3,7 +3,6 @@ import {
   Storage as StorageIcon,
   CheckCircle as CheckIcon,
   Error as ErrorIcon,
-  Schedule as ScheduleIcon,
 } from '@mui/icons-material'
 import { useDatabases } from '../../hooks/useDatabases'
 import { useBackupHistory } from '../../hooks/useBackups'

@@ -27,8 +27,9 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
 } from '@mui/icons-material'
-import { useDatabases, useDeleteDatabase, useTriggerBackup } from '../../hooks/useDatabases'
-import type { DatabaseConfig } from '../../types'
+import { useDatabases, useDeleteDatabase, useTriggerBackup, useCreateDatabase, useUpdateDatabase } from '../../hooks/useDatabases'
+import type { DatabaseConfig, CreateDatabaseInput } from '../../types'
+import { DatabaseFormDialog } from './DatabaseFormDialog'
 
 function getDatabaseTypeColor(type: string): 'primary' | 'secondary' | 'success' | 'warning' {
   switch (type) {
@@ -49,8 +50,11 @@ export function DatabasesPage() {
   const { data: databases, isLoading, error } = useDatabases()
   const deleteMutation = useDeleteDatabase()
   const triggerBackupMutation = useTriggerBackup()
+  const createMutation = useCreateDatabase()
+  const updateMutation = useUpdateDatabase()
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [formDialogOpen, setFormDialogOpen] = useState(false)
   const [selectedDb, setSelectedDb] = useState<DatabaseConfig | null>(null)
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false,
@@ -85,6 +89,33 @@ export function DatabasesPage() {
     }
   }
 
+  const handleAddClick = () => {
+    setSelectedDb(null)
+    setFormDialogOpen(true)
+  }
+
+  const handleEditClick = (db: DatabaseConfig) => {
+    setSelectedDb(db)
+    setFormDialogOpen(true)
+  }
+
+  const handleFormClose = () => {
+    setFormDialogOpen(false)
+    setSelectedDb(null)
+  }
+
+  const handleFormSubmit = async (data: CreateDatabaseInput) => {
+    if (selectedDb) {
+      // Update existing database
+      await updateMutation.mutateAsync({ id: selectedDb.id, data })
+      setSnackbar({ open: true, message: 'Database updated successfully', severity: 'success' })
+    } else {
+      // Create new database
+      await createMutation.mutateAsync(data)
+      setSnackbar({ open: true, message: 'Database created successfully', severity: 'success' })
+    }
+  }
+
   if (isLoading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
@@ -105,7 +136,7 @@ export function DatabasesPage() {
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4">Databases</Typography>
-        <Button variant="contained" startIcon={<AddIcon />}>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddClick}>
           Add Database
         </Button>
       </Box>
@@ -166,7 +197,7 @@ export function DatabasesPage() {
                         >
                           <PlayIcon />
                         </IconButton>
-                        <IconButton size="small" title="Edit">
+                        <IconButton size="small" title="Edit" onClick={() => handleEditClick(db)}>
                           <EditIcon />
                         </IconButton>
                         <IconButton
@@ -210,6 +241,15 @@ export function DatabasesPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Database Form Dialog */}
+      <DatabaseFormDialog
+        open={formDialogOpen}
+        onClose={handleFormClose}
+        onSubmit={handleFormSubmit}
+        database={selectedDb}
+        isLoading={createMutation.isPending || updateMutation.isPending}
+      />
 
       {/* Snackbar for notifications */}
       <Snackbar

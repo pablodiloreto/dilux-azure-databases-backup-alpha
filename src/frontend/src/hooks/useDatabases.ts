@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { databasesApi } from '../api/databases'
-import type { DatabaseConfig, CreateDatabaseInput, UpdateDatabaseInput } from '../types'
+import type { CreateDatabaseInput, UpdateDatabaseInput } from '../types'
 
 export const DATABASES_QUERY_KEY = ['databases']
 
