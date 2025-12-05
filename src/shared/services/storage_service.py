@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import BinaryIO, Optional
 
 from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
-from azure.storage.blob import BlobSasPermissions, generate_blob_sas
+from azure.storage.blob import BlobSasPermissions, ContentSettings, generate_blob_sas
 
 from ..config import AzureClients, get_settings
 from ..models import BackupResult
@@ -77,7 +77,7 @@ class StorageService:
         blob_client.upload_blob(
             data,
             overwrite=True,
-            content_settings={"content_type": content_type},
+            content_settings=ContentSettings(content_type=content_type),
         )
 
         logger.info(f"Uploaded backup: {blob_name}")

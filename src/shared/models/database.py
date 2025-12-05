@@ -142,9 +142,15 @@ class DatabaseConfig(BaseModel):
         else:
             raise ValueError(f"Unsupported database type: {self.database_type}")
 
-    def to_table_entity(self) -> dict:
-        """Convert to Azure Table Storage entity format."""
-        return {
+    def to_table_entity(self, include_password: bool = False) -> dict:
+        """
+        Convert to Azure Table Storage entity format.
+
+        Args:
+            include_password: If True, includes the password in the entity.
+                              Only use in development environments.
+        """
+        entity = {
             "PartitionKey": "database",
             "RowKey": self.id,
             "name": self.name,
@@ -165,6 +171,12 @@ class DatabaseConfig(BaseModel):
             "created_by": self.created_by or "",
         }
 
+        # Include password only in development mode
+        if include_password and self.password:
+            entity["password"] = self.password
+
+        return entity
+
     @classmethod
     def from_table_entity(cls, entity: dict) -> "DatabaseConfig":
         """Create instance from Azure Table Storage entity."""
@@ -184,6 +196,7 @@ class DatabaseConfig(BaseModel):
             port=entity["port"],
             database_name=entity["database_name"],
             username=entity["username"],
+            password=entity.get("password") or None,  # Restore password if stored (dev only)
             password_secret_name=entity.get("password_secret_name") or None,
             schedule=entity.get("schedule", BackupSchedule.DAILY.value),
             enabled=entity.get("enabled", True),

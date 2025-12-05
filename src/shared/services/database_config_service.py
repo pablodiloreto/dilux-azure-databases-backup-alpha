@@ -75,8 +75,9 @@ class DatabaseConfigService:
         except ResourceNotFoundError:
             pass
 
-        # Create entity
-        entity = config.to_table_entity()
+        # Create entity (include password in dev mode for testing)
+        include_password = self._settings.is_development
+        entity = config.to_table_entity(include_password=include_password)
         table_client.create_entity(entity)
 
         logger.info(f"Created database config: {config.id} ({config.name})")
@@ -175,8 +176,9 @@ class DatabaseConfigService:
         # Update timestamp
         config.updated_at = datetime.utcnow()
 
-        # Update entity
-        entity = config.to_table_entity()
+        # Update entity (include password in dev mode for testing)
+        include_password = self._settings.is_development
+        entity = config.to_table_entity(include_password=include_password)
         table_client.update_entity(entity, mode="replace")
 
         logger.info(f"Updated database config: {config.id} ({config.name})")
