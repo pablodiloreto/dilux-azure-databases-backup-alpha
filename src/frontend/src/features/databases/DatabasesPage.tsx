@@ -161,8 +161,8 @@ export function DatabasesPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {databases && databases.length > 0 ? (
-                  databases.map((db) => (
+                {databases && databases.databases.length > 0 ? (
+                  databases.databases.map((db) => (
                     <TableRow key={db.id} hover>
                       <TableCell>
                         <Typography variant="body1" fontWeight={500}>

@@ -4,10 +4,17 @@ import type { CreateDatabaseInput, UpdateDatabaseInput } from '../types'
 
 export const DATABASES_QUERY_KEY = ['databases']
 
-export function useDatabases(enabledOnly?: boolean, type?: string) {
+interface UseDatabasesOptions {
+  enabledOnly?: boolean
+  type?: string
+  limit?: number
+  search?: string
+}
+
+export function useDatabases(options?: UseDatabasesOptions) {
   return useQuery({
-    queryKey: [...DATABASES_QUERY_KEY, { enabledOnly, type }],
-    queryFn: () => databasesApi.getAll(enabledOnly, type),
+    queryKey: [...DATABASES_QUERY_KEY, options],
+    queryFn: () => databasesApi.getAll(options),
   })
 }
 

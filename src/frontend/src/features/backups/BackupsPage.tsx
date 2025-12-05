@@ -38,7 +38,10 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 import { Dayjs } from 'dayjs'
 import { useDatabases } from '../../hooks/useDatabases'
 import { backupsApi } from '../../api/backups'
+import { databasesApi } from '../../api/databases'
 import type { BackupResult, BackupFilters, DatabaseType, BackupStatus, DatabaseConfig } from '../../types'
+
+const DATABASE_DROPDOWN_LIMIT = 50
 
 function getStatusColor(status: string): 'success' | 'error' | 'warning' | 'info' | 'default' {
   switch (status) {
@@ -115,7 +118,53 @@ export function BackupsPage() {
   const [startDate, setStartDate] = useState<Dayjs | null>(null)
   const [endDate, setEndDate] = useState<Dayjs | null>(null)
 
-  const { data: databases } = useDatabases()
+  // Database autocomplete state
+  const [dbSearchInput, setDbSearchInput] = useState('')
+  const [dbOptions, setDbOptions] = useState<DatabaseConfig[]>([])
+  const [dbTotalCount, setDbTotalCount] = useState(0)
+  const [dbHasMore, setDbHasMore] = useState(false)
+  const [dbLoading, setDbLoading] = useState(false)
+
+  // Initial load: get first 50 databases
+  const { data: initialDbData } = useDatabases({ limit: DATABASE_DROPDOWN_LIMIT })
+
+  // Update options when initial data loads
+  useEffect(() => {
+    if (initialDbData && !dbSearchInput) {
+      setDbOptions(initialDbData.databases)
+      setDbTotalCount(initialDbData.total)
+      setDbHasMore(initialDbData.has_more)
+    }
+  }, [initialDbData, dbSearchInput])
+
+  // Debounced search
+  useEffect(() => {
+    if (!dbSearchInput) {
+      // Reset to initial data when search is cleared
+      if (initialDbData) {
+        setDbOptions(initialDbData.databases)
+        setDbTotalCount(initialDbData.total)
+        setDbHasMore(initialDbData.has_more)
+      }
+      return
+    }
+
+    const timer = setTimeout(async () => {
+      setDbLoading(true)
+      try {
+        const result = await databasesApi.getAll({ search: dbSearchInput })
+        setDbOptions(result.databases)
+        setDbTotalCount(result.total)
+        setDbHasMore(result.has_more)
+      } catch (err) {
+        console.error('Error searching databases:', err)
+      } finally {
+        setDbLoading(false)
+      }
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [dbSearchInput, initialDbData])
 
   // Build filters object
   const buildFilters = useCallback((): BackupFilters => ({
@@ -252,13 +301,28 @@ export function BackupsPage() {
         <Paper sx={{ p: 2, mb: 3 }}>
           <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
             <Autocomplete
-              options={databases || []}
+              options={dbOptions}
               getOptionLabel={(option) => option.name}
               value={databaseFilter}
               onChange={(_, newValue) => setDatabaseFilter(newValue)}
+              onInputChange={(_, value, reason) => {
+                if (reason === 'input') {
+                  setDbSearchInput(value)
+                }
+              }}
+              inputValue={dbSearchInput}
               isOptionEqualToValue={(option, value) => option.id === value.id}
+              loading={dbLoading}
+              filterOptions={(x) => x} // Disable client-side filtering
               renderInput={(params) => (
-                <TextField {...params} label="Database" size="small" placeholder="All Databases" />
+                <TextField
+                  {...params}
+                  label="Database"
+                  size="small"
+                  placeholder="All Databases"
+                  helperText={dbHasMore && !dbSearchInput ? `Showing ${dbOptions.length} of ${dbTotalCount}. Type to search...` : undefined}
+                  FormHelperTextProps={{ sx: { mx: 0, mt: 0.5 } }}
+                />
               )}
               renderOption={(props, option) => (
                 <li {...props} key={option.id}>
@@ -270,7 +334,8 @@ export function BackupsPage() {
                   </Box>
                 </li>
               )}
-              sx={{ minWidth: 220 }}
+              noOptionsText={dbSearchInput ? 'No databases found' : 'No databases'}
+              sx={{ minWidth: 240 }}
               size="small"
             />
 

@@ -101,15 +101,22 @@ class DatabaseConfigService:
         except ResourceNotFoundError:
             return None
 
-    def get_all(self, enabled_only: bool = False) -> list[DatabaseConfig]:
+    def get_all(
+        self,
+        enabled_only: bool = False,
+        limit: Optional[int] = None,
+        search: Optional[str] = None,
+    ) -> tuple[list[DatabaseConfig], int]:
         """
-        Get all database configurations.
+        Get database configurations with optional limit and search.
 
         Args:
             enabled_only: If True, only return enabled databases
+            limit: Maximum number of results to return
+            search: Search term to filter by name (case-insensitive)
 
         Returns:
-            List of DatabaseConfig instances
+            Tuple of (list of DatabaseConfig instances, total count)
         """
         table_client = self._get_table_client()
 
@@ -125,7 +132,22 @@ class DatabaseConfigService:
 
         # Sort by name
         configs.sort(key=lambda x: x.name.lower())
-        return configs
+
+        # Apply search filter (client-side since Table Storage doesn't support LIKE)
+        if search:
+            search_lower = search.lower()
+            configs = [
+                c for c in configs
+                if search_lower in c.name.lower() or search_lower in c.host.lower()
+            ]
+
+        total_count = len(configs)
+
+        # Apply limit
+        if limit and limit < len(configs):
+            configs = configs[:limit]
+
+        return configs, total_count
 
     def get_by_type(self, database_type: DatabaseType) -> list[DatabaseConfig]:
         """

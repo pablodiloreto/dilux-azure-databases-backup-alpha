@@ -77,20 +77,33 @@ def list_databases(req: func.HttpRequest) -> func.HttpResponse:
     Query params:
     - enabled_only: bool - Filter to only enabled databases
     - type: str - Filter by database type
+    - limit: int - Maximum number of results (default: no limit)
+    - search: str - Search term to filter by name or host
     """
     try:
         enabled_only = req.params.get("enabled_only", "false").lower() == "true"
         db_type = req.params.get("type")
+        limit_str = req.params.get("limit")
+        search = req.params.get("search")
+
+        limit = int(limit_str) if limit_str else None
 
         if db_type:
             configs = db_config_service.get_by_type(DatabaseType(db_type))
+            total = len(configs)
         else:
-            configs = db_config_service.get_all(enabled_only=enabled_only)
+            configs, total = db_config_service.get_all(
+                enabled_only=enabled_only,
+                limit=limit,
+                search=search,
+            )
 
         return func.HttpResponse(
             json.dumps({
                 "databases": [config.model_dump(mode="json", exclude={"password"}) for config in configs],
                 "count": len(configs),
+                "total": total,
+                "has_more": len(configs) < total,
             }),
             mimetype="application/json",
             status_code=200,

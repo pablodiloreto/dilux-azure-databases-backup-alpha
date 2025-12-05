@@ -73,8 +73,8 @@ export function DashboardPage() {
     )
   }
 
-  const enabledDatabases = databases?.filter((db) => db.enabled).length || 0
-  const totalDatabases = databases?.length || 0
+  const enabledDatabases = databases?.databases.filter((db) => db.enabled).length || 0
+  const totalDatabases = databases?.total || 0
   const completedBackups = backups?.filter((b) => b.status === 'completed').length || 0
   const failedBackups = backups?.filter((b) => b.status === 'failed').length || 0
 

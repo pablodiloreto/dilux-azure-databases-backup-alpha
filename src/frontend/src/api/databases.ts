@@ -4,6 +4,15 @@ import type { DatabaseConfig, CreateDatabaseInput, UpdateDatabaseInput } from '.
 interface DatabasesResponse {
   databases: DatabaseConfig[]
   count: number
+  total: number
+  has_more: boolean
+}
+
+interface GetAllOptions {
+  enabledOnly?: boolean
+  type?: string
+  limit?: number
+  search?: string
 }
 
 interface DatabaseResponse {
@@ -21,13 +30,15 @@ export const databasesApi = {
   /**
    * Get all database configurations
    */
-  getAll: async (enabledOnly?: boolean, type?: string): Promise<DatabaseConfig[]> => {
+  getAll: async (options?: GetAllOptions): Promise<DatabasesResponse> => {
     const params = new URLSearchParams()
-    if (enabledOnly) params.append('enabled_only', 'true')
-    if (type) params.append('type', type)
+    if (options?.enabledOnly) params.append('enabled_only', 'true')
+    if (options?.type) params.append('type', options.type)
+    if (options?.limit) params.append('limit', options.limit.toString())
+    if (options?.search) params.append('search', options.search)
 
     const response = await apiClient.get<DatabasesResponse>('/databases', { params })
-    return response.data.databases
+    return response.data
   },
 
   /**
