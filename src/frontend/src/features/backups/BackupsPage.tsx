@@ -304,10 +304,15 @@ export function BackupsPage() {
               options={dbOptions}
               getOptionLabel={(option) => option.name}
               value={databaseFilter}
-              onChange={(_, newValue) => setDatabaseFilter(newValue)}
+              onChange={(_, newValue) => {
+                setDatabaseFilter(newValue)
+                setDbSearchInput(newValue?.name || '')
+              }}
               onInputChange={(_, value, reason) => {
                 if (reason === 'input') {
                   setDbSearchInput(value)
+                } else if (reason === 'clear') {
+                  setDbSearchInput('')
                 }
               }}
               inputValue={dbSearchInput}
