@@ -16,6 +16,8 @@
 ### Fixes aplicados
 | Fecha | Fix |
 |-------|-----|
+| 2025-12-05 | Filtro de databases con búsqueda server-side: híbrido (primeras 50 + search API) para escalar a cientos de DBs |
+| 2025-12-05 | Autocomplete Database: Searchable con debounce 300ms, muestra tipo y host en opciones |
 | 2025-12-05 | Backup history ordenado por fecha descendente: inverted timestamp en RowKey (backup.py, migrate_backup_rowkeys.py) |
 | 2025-12-05 | Settings en Table Storage: dark mode, retention, compression persisten en backend (settings.py, function_app.py, SettingsContext.tsx) |
 | 2025-12-05 | Server-side pagination con continuation tokens: eficiencia en Azure Functions (storage_service.py, function_app.py, BackupsPage.tsx) |
