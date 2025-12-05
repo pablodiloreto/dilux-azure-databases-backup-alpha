@@ -7,6 +7,10 @@ export default defineConfig({
   server: {
     port: 3000,
     host: true,  // Listen on all interfaces (required for Codespaces port forwarding)
+    // Required for GitHub Codespaces private ports
+    hmr: {
+      clientPort: 443,  // Codespaces uses HTTPS on port 443
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:7071',

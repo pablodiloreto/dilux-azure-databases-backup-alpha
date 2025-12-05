@@ -41,9 +41,16 @@
 
 #### Sesión 2025-12-05
 
-1. **Frontend 401 en Codespaces**
+1. **Frontend 502 en Codespaces con puerto Private**
    - Archivo: `src/frontend/vite.config.ts`
-   - Fix: Agregar `host: true` para que Vite escuche en todas las interfaces
+   - Problema: Con puerto en modo "Private", Codespaces tiraba error 502
+   - Fix: Agregar configuración HMR para Codespaces:
+     ```typescript
+     hmr: {
+       clientPort: 443,  // Codespaces usa HTTPS en puerto 443
+     }
+     ```
+   - Ya incluía `host: true` para escuchar en todas las interfaces
 
 2. **PostgreSQL backup version mismatch**
    - Archivo: `src/functions/processor/backup_engines/postgres_engine.py`
