@@ -20,6 +20,7 @@ import {
   Stack,
   Paper,
   Tooltip,
+  Autocomplete,
 } from '@mui/material'
 import {
   Download as DownloadIcon,
@@ -37,7 +38,7 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 import { Dayjs } from 'dayjs'
 import { useDatabases } from '../../hooks/useDatabases'
 import { backupsApi } from '../../api/backups'
-import type { BackupResult, BackupFilters, DatabaseType, BackupStatus } from '../../types'
+import type { BackupResult, BackupFilters, DatabaseType, BackupStatus, DatabaseConfig } from '../../types'
 
 function getStatusColor(status: string): 'success' | 'error' | 'warning' | 'info' | 'default' {
   switch (status) {
@@ -107,7 +108,7 @@ export function BackupsPage() {
   const [hasMore, setHasMore] = useState(false)
 
   // Filters
-  const [databaseFilter, setDatabaseFilter] = useState<string>('')
+  const [databaseFilter, setDatabaseFilter] = useState<DatabaseConfig | null>(null)
   const [triggeredByFilter, setTriggeredByFilter] = useState<'manual' | 'scheduler' | ''>('')
   const [statusFilter, setStatusFilter] = useState<BackupStatus | ''>('')
   const [dbTypeFilter, setDbTypeFilter] = useState<DatabaseType | ''>('')
@@ -118,7 +119,7 @@ export function BackupsPage() {
 
   // Build filters object
   const buildFilters = useCallback((): BackupFilters => ({
-    databaseId: databaseFilter || undefined,
+    databaseId: databaseFilter?.id || undefined,
     status: statusFilter || undefined,
     triggeredBy: triggeredByFilter || undefined,
     databaseType: dbTypeFilter || undefined,
@@ -172,7 +173,7 @@ export function BackupsPage() {
   }
 
   const handleClearFilters = () => {
-    setDatabaseFilter('')
+    setDatabaseFilter(null)
     setTriggeredByFilter('')
     setStatusFilter('')
     setDbTypeFilter('')
@@ -250,21 +251,28 @@ export function BackupsPage() {
         {/* Filters */}
         <Paper sx={{ p: 2, mb: 3 }}>
           <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
-            <TextField
-              select
-              label="Database"
+            <Autocomplete
+              options={databases || []}
+              getOptionLabel={(option) => option.name}
               value={databaseFilter}
-              onChange={(e) => setDatabaseFilter(e.target.value)}
+              onChange={(_, newValue) => setDatabaseFilter(newValue)}
+              isOptionEqualToValue={(option, value) => option.id === value.id}
+              renderInput={(params) => (
+                <TextField {...params} label="Database" size="small" placeholder="All Databases" />
+              )}
+              renderOption={(props, option) => (
+                <li {...props} key={option.id}>
+                  <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                    <Typography variant="body2">{option.name}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {option.database_type.toUpperCase()} - {option.host}
+                    </Typography>
+                  </Box>
+                </li>
+              )}
+              sx={{ minWidth: 220 }}
               size="small"
-              sx={{ minWidth: 180 }}
-            >
-              <MenuItem value="">All Databases</MenuItem>
-              {databases?.map((db) => (
-                <MenuItem key={db.id} value={db.id}>
-                  {db.name}
-                </MenuItem>
-              ))}
-            </TextField>
+            />
 
             <TextField
               select
