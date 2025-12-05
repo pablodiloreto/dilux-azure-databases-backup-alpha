@@ -24,7 +24,8 @@
       "visibilityTimeout": "00:05:00",
       "batchSize": 1,
       "maxDequeueCount": 3,
-      "newBatchThreshold": 0
+      "newBatchThreshold": 0,
+      "messageEncoding": "none"
     }
   },
   "functionTimeout": "01:00:00"

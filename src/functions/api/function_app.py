@@ -87,7 +87,7 @@ def list_databases(req: func.HttpRequest) -> func.HttpResponse:
 
         return func.HttpResponse(
             json.dumps({
-                "databases": [config.model_dump(exclude={"password"}) for config in configs],
+                "databases": [config.model_dump(mode="json", exclude={"password"}) for config in configs],
                 "count": len(configs),
             }),
             mimetype="application/json",
@@ -132,7 +132,7 @@ def create_database(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             json.dumps({
                 "message": "Database configuration created",
-                "database": created.model_dump(exclude={"password"}),
+                "database": created.model_dump(mode="json", exclude={"password"}),
             }),
             mimetype="application/json",
             status_code=201,
@@ -167,7 +167,7 @@ def get_database(req: func.HttpRequest) -> func.HttpResponse:
             )
 
         return func.HttpResponse(
-            json.dumps({"database": config.model_dump(exclude={"password"})}),
+            json.dumps({"database": config.model_dump(mode="json", exclude={"password"})}),
             mimetype="application/json",
             status_code=200,
         )
@@ -211,7 +211,7 @@ def update_database(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             json.dumps({
                 "message": "Database configuration updated",
-                "database": updated.model_dump(exclude={"password"}),
+                "database": updated.model_dump(mode="json", exclude={"password"}),
             }),
             mimetype="application/json",
             status_code=200,
