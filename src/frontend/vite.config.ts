@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
+    host: true,  // Listen on all interfaces (required for Codespaces port forwarding)
     proxy: {
       '/api': {
         target: 'http://localhost:7071',
