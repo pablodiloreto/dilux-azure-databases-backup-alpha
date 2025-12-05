@@ -25,7 +25,6 @@ import {
   Backup as BackupIcon,
   Settings as SettingsIcon,
   Logout as LogoutIcon,
-  Person as PersonIcon,
 } from '@mui/icons-material'
 
 // Mock user data (will be replaced with Azure AD auth)

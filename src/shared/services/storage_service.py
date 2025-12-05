@@ -345,15 +345,26 @@ class StorageService:
         filter_str = " and ".join(filters) if filters else None
 
         results = []
-        entities = table_client.query_entities(
-            query_filter=filter_str,
-            select=["*"],
-        )
+        logger.info(f"Querying backup history with filter: {filter_str}")
+
+        try:
+            entities = list(table_client.query_entities(
+                query_filter=filter_str,
+                select=["*"],
+            ))
+            logger.info(f"Found {len(entities)} entities in backup history table")
+        except Exception as e:
+            logger.error(f"Error querying backup history table: {e}")
+            entities = []
 
         for entity in entities:
             if len(results) >= limit:
                 break
-            results.append(BackupResult.from_table_entity(entity))
+            try:
+                results.append(BackupResult.from_table_entity(entity))
+            except (KeyError, ValueError) as e:
+                logger.warning(f"Skipping malformed backup entity: {e}")
+                logger.debug(f"Entity keys: {list(entity.keys())}")
 
         # Sort by created_at descending
         results.sort(key=lambda x: x.created_at, reverse=True)

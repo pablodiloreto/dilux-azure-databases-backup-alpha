@@ -56,6 +56,7 @@ export function DatabasesPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [formDialogOpen, setFormDialogOpen] = useState(false)
   const [selectedDb, setSelectedDb] = useState<DatabaseConfig | null>(null)
+  const [backupInProgress, setBackupInProgress] = useState<string | null>(null)
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false,
     message: '',
@@ -81,11 +82,14 @@ export function DatabasesPage() {
   }
 
   const handleTriggerBackup = async (db: DatabaseConfig) => {
+    setBackupInProgress(db.id)
     try {
       await triggerBackupMutation.mutateAsync(db.id)
-      setSnackbar({ open: true, message: `Backup triggered for ${db.name}`, severity: 'success' })
+      setSnackbar({ open: true, message: `Backup queued for ${db.name}. Check Backups page for status.`, severity: 'success' })
     } catch {
       setSnackbar({ open: true, message: 'Failed to trigger backup', severity: 'error' })
+    } finally {
+      setBackupInProgress(null)
     }
   }
 
@@ -194,8 +198,13 @@ export function DatabasesPage() {
                           color="primary"
                           onClick={() => handleTriggerBackup(db)}
                           title="Trigger Backup"
+                          disabled={backupInProgress === db.id}
                         >
-                          <PlayIcon />
+                          {backupInProgress === db.id ? (
+                            <CircularProgress size={20} color="inherit" />
+                          ) : (
+                            <PlayIcon />
+                          )}
                         </IconButton>
                         <IconButton size="small" title="Edit" onClick={() => handleEditClick(db)}>
                           <EditIcon />

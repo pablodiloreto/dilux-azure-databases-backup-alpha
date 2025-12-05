@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   Dialog,
   DialogTitle,
@@ -21,6 +21,7 @@ import {
 } from '@mui/material'
 import { Visibility, VisibilityOff } from '@mui/icons-material'
 import type { DatabaseConfig, CreateDatabaseInput, DatabaseType } from '../../types'
+import { useSettings } from '../../contexts/SettingsContext'
 
 interface DatabaseFormDialogProps {
   open: boolean
@@ -44,20 +45,6 @@ const SCHEDULE_OPTIONS = [
   { value: '0 0 * * 0', label: 'Weekly (Sunday midnight)' },
 ]
 
-const initialFormState: CreateDatabaseInput = {
-  name: '',
-  database_type: 'mysql',
-  host: '',
-  port: 3306,
-  database_name: '',
-  username: '',
-  password: '',
-  schedule: '0 0 * * *',
-  enabled: true,
-  retention_days: 30,
-  compression: true,
-}
-
 export function DatabaseFormDialog({
   open,
   onClose,
@@ -65,6 +52,23 @@ export function DatabaseFormDialog({
   database,
   isLoading = false,
 }: DatabaseFormDialogProps) {
+  const { settings } = useSettings()
+
+  // Use settings defaults for new databases
+  const initialFormState: CreateDatabaseInput = useMemo(() => ({
+    name: '',
+    database_type: 'mysql',
+    host: '',
+    port: 3306,
+    database_name: '',
+    username: '',
+    password: '',
+    schedule: '0 0 * * *',
+    enabled: true,
+    retention_days: settings.defaultRetentionDays,
+    compression: settings.defaultCompression,
+  }), [settings.defaultRetentionDays, settings.defaultCompression])
+
   const [formData, setFormData] = useState<CreateDatabaseInput>(initialFormState)
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -93,7 +97,7 @@ export function DatabaseFormDialog({
     setError(null)
     setValidationErrors({})
     setShowPassword(false)
-  }, [database, open])
+  }, [database, open, initialFormState])
 
   const handleChange = (field: keyof CreateDatabaseInput, value: unknown) => {
     setFormData((prev) => ({ ...prev, [field]: value }))

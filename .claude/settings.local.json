@@ -48,7 +48,9 @@
       "Bash(sudo sed:*)",
       "Bash(mv:*)",
       "Bash(gh codespace ports visibility:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(sqlcmd:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []

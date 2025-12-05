@@ -1,11 +1,9 @@
-import { useState } from 'react'
 import {
   Box,
   Card,
   CardContent,
   Typography,
   Switch,
-  FormControlLabel,
   Divider,
   TextField,
   Button,
@@ -15,27 +13,26 @@ import {
   ListItemIcon,
   ListItemText,
   ListItemSecondaryAction,
-  Chip,
+  Snackbar,
 } from '@mui/material'
 import {
-  Notifications as NotificationsIcon,
   DarkMode as DarkModeIcon,
   Storage as StorageIcon,
   Schedule as ScheduleIcon,
   Info as InfoIcon,
+  Compress as CompressIcon,
+  EventRepeat as RetentionIcon,
 } from '@mui/icons-material'
+import { useState } from 'react'
+import { useSettings } from '../../contexts/SettingsContext'
 
 export function SettingsPage() {
-  // Mock settings state (will be persisted later)
-  const [settings, setSettings] = useState({
-    darkMode: false,
-    emailNotifications: false,
-    defaultRetentionDays: 30,
-    defaultCompression: true,
-  })
+  const { settings, updateSettings, toggleDarkMode } = useSettings()
+  const [snackbar, setSnackbar] = useState(false)
 
-  const handleToggle = (key: keyof typeof settings) => {
-    setSettings((prev) => ({ ...prev, [key]: !prev[key] }))
+  const handleSave = () => {
+    // Settings are already persisted via context/localStorage
+    setSnackbar(true)
   }
 
   return (
@@ -65,38 +62,8 @@ export function SettingsPage() {
               <ListItemSecondaryAction>
                 <Switch
                   checked={settings.darkMode}
-                  onChange={() => handleToggle('darkMode')}
-                  disabled
+                  onChange={toggleDarkMode}
                 />
-                <Chip label="Coming soon" size="small" sx={{ ml: 1 }} />
-              </ListItemSecondaryAction>
-            </ListItem>
-          </List>
-        </CardContent>
-      </Card>
-
-      {/* Notifications */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            Notifications
-          </Typography>
-          <List disablePadding>
-            <ListItem>
-              <ListItemIcon>
-                <NotificationsIcon />
-              </ListItemIcon>
-              <ListItemText
-                primary="Email Notifications"
-                secondary="Receive email alerts for backup failures"
-              />
-              <ListItemSecondaryAction>
-                <Switch
-                  checked={settings.emailNotifications}
-                  onChange={() => handleToggle('emailNotifications')}
-                  disabled
-                />
-                <Chip label="Coming soon" size="small" sx={{ ml: 1 }} />
               </ListItemSecondaryAction>
             </ListItem>
           </List>
@@ -113,32 +80,51 @@ export function SettingsPage() {
             Default values for new database configurations.
           </Typography>
 
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <TextField
-              label="Default Retention (days)"
-              type="number"
-              value={settings.defaultRetentionDays}
-              onChange={(e) =>
-                setSettings((prev) => ({
-                  ...prev,
-                  defaultRetentionDays: parseInt(e.target.value) || 30,
-                }))
-              }
-              size="small"
-              sx={{ maxWidth: 200 }}
-              helperText="How long to keep backups by default"
-            />
-
-            <FormControlLabel
-              control={
+          <List disablePadding>
+            <ListItem>
+              <ListItemIcon>
+                <RetentionIcon />
+              </ListItemIcon>
+              <ListItemText
+                primary="Default Retention"
+                secondary="How many days to keep backups"
+              />
+              <ListItemSecondaryAction>
+                <TextField
+                  type="number"
+                  value={settings.defaultRetentionDays}
+                  onChange={(e) =>
+                    updateSettings({
+                      defaultRetentionDays: parseInt(e.target.value) || 30,
+                    })
+                  }
+                  size="small"
+                  sx={{ width: 80 }}
+                  inputProps={{ min: 1, max: 365 }}
+                />
+              </ListItemSecondaryAction>
+            </ListItem>
+            <Divider component="li" />
+            <ListItem>
+              <ListItemIcon>
+                <CompressIcon />
+              </ListItemIcon>
+              <ListItemText
+                primary="Enable Compression"
+                secondary="Compress backup files by default (gzip)"
+              />
+              <ListItemSecondaryAction>
                 <Switch
                   checked={settings.defaultCompression}
-                  onChange={() => handleToggle('defaultCompression')}
+                  onChange={() =>
+                    updateSettings({
+                      defaultCompression: !settings.defaultCompression,
+                    })
+                  }
                 />
-              }
-              label="Enable compression by default"
-            />
-          </Box>
+              </ListItemSecondaryAction>
+            </ListItem>
+          </List>
         </CardContent>
       </Card>
 
@@ -179,15 +165,21 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Save Button */}
+      {/* Info Alert */}
       <Alert severity="info" sx={{ mb: 2 }}>
-        Settings are stored locally in this development version. In production,
-        they will be persisted to Azure Table Storage.
+        Settings are automatically saved to your browser's local storage.
       </Alert>
 
-      <Button variant="contained" color="primary">
+      <Button variant="contained" color="primary" onClick={handleSave}>
         Save Settings
       </Button>
+
+      <Snackbar
+        open={snackbar}
+        autoHideDuration={3000}
+        onClose={() => setSnackbar(false)}
+        message="Settings saved successfully"
+      />
     </Box>
   )
 }
