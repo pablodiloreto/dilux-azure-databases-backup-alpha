@@ -99,13 +99,88 @@ cd src/functions/scheduler && func start --port 7072
 
 ## Bases de Datos de Prueba
 
-Todas las bases de datos tienen credenciales de desarrollo:
+Todas las bases de datos tienen credenciales de desarrollo y datos de ejemplo (users, products, orders):
 
-| DB | Host | Usuario | Password | Database |
-|----|------|---------|----------|----------|
-| MySQL | mysql | root | DevPassword123! | testdb |
-| PostgreSQL | postgres | postgres | DevPassword123! | testdb |
-| SQL Server | sqlserver | sa | DevPassword123! | testdb |
+| DB | Host | Puerto | Usuario | Password | Database |
+|----|------|--------|---------|----------|----------|
+| MySQL | mysql | 3306 | root | DevPassword123! | testdb |
+| PostgreSQL | postgres | 5432 | postgres | DevPassword123! | testdb |
+| SQL Server | sqlserver | 1433 | sa | DevPassword123! | testdb |
+
+### Conectar a las bases de datos
+
+```bash
+# MySQL
+mysql -h mysql -u root -pDevPassword123! testdb
+
+# PostgreSQL
+PGPASSWORD=DevPassword123! psql -h postgres -U postgres testdb
+
+# SQL Server
+sqlcmd -S sqlserver,1433 -U sa -P 'DevPassword123!' -d testdb -C
+```
+
+### Crear configuración de backup via API
+
+```bash
+# MySQL
+curl -X POST http://localhost:7071/api/databases \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "MySQL Test DB",
+    "database_type": "mysql",
+    "host": "mysql",
+    "port": 3306,
+    "database_name": "testdb",
+    "username": "root",
+    "password": "DevPassword123!",
+    "schedule": "0 0 * * *",
+    "enabled": true,
+    "retention_days": 7,
+    "compression": true
+  }'
+
+# PostgreSQL
+curl -X POST http://localhost:7071/api/databases \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "PostgreSQL Test DB",
+    "database_type": "postgresql",
+    "host": "postgres",
+    "port": 5432,
+    "database_name": "testdb",
+    "username": "postgres",
+    "password": "DevPassword123!",
+    "schedule": "0 0 * * *",
+    "enabled": true,
+    "retention_days": 7,
+    "compression": true
+  }'
+
+# SQL Server
+curl -X POST http://localhost:7071/api/databases \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "SQL Server Test DB",
+    "database_type": "sqlserver",
+    "host": "sqlserver",
+    "port": 1433,
+    "database_name": "testdb",
+    "username": "sa",
+    "password": "DevPassword123!",
+    "schedule": "0 0 * * *",
+    "enabled": true,
+    "retention_days": 7,
+    "compression": true
+  }'
+```
+
+### Trigger backup manual
+
+```bash
+# Reemplazar {id} con el ID retornado al crear la configuración
+curl -X POST http://localhost:7071/api/databases/{id}/backup
+```
 
 ## API Endpoints
 

@@ -13,6 +13,10 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  Avatar,
+  Menu,
+  MenuItem,
+  Tooltip,
 } from '@mui/material'
 import {
   Menu as MenuIcon,
@@ -20,7 +24,16 @@ import {
   Storage as StorageIcon,
   Backup as BackupIcon,
   Settings as SettingsIcon,
+  Logout as LogoutIcon,
+  Person as PersonIcon,
 } from '@mui/icons-material'
+
+// Mock user data (will be replaced with Azure AD auth)
+const mockUser = {
+  name: 'Pablo Di Loreto',
+  email: 'pablo@dilux.tech',
+  avatar: 'https://ui-avatars.com/api/?name=Pablo+Di+Loreto&background=1976d2&color=fff',
+}
 
 const drawerWidth = 240
 
@@ -36,11 +49,26 @@ const menuItems = [
 
 export function MainLayout({ children }: MainLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const navigate = useNavigate()
   const location = useLocation()
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen)
+  }
+
+  const handleUserMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget)
+  }
+
+  const handleUserMenuClose = () => {
+    setAnchorEl(null)
+  }
+
+  const handleLogout = () => {
+    handleUserMenuClose()
+    // TODO: Implement Azure AD logout
+    console.log('Logout clicked - will implement with Azure AD')
   }
 
   const drawer = (
@@ -100,9 +128,52 @@ export function MainLayout({ children }: MainLayoutProps) {
           >
             <MenuIcon />
           </IconButton>
-          <Typography variant="h6" noWrap component="div">
+          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
             {menuItems.find((item) => item.path === location.pathname)?.text || 'Dilux Database Backup'}
           </Typography>
+
+          {/* User menu */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography variant="body2" sx={{ display: { xs: 'none', md: 'block' } }}>
+              {mockUser.name}
+            </Typography>
+            <Tooltip title="Account settings">
+              <IconButton onClick={handleUserMenuOpen} sx={{ p: 0 }}>
+                <Avatar
+                  alt={mockUser.name}
+                  src={mockUser.avatar}
+                  sx={{ width: 36, height: 36 }}
+                />
+              </IconButton>
+            </Tooltip>
+          </Box>
+          <Menu
+            anchorEl={anchorEl}
+            open={Boolean(anchorEl)}
+            onClose={handleUserMenuClose}
+            onClick={handleUserMenuClose}
+            transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+            anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+            PaperProps={{
+              sx: { mt: 1, minWidth: 200 }
+            }}
+          >
+            <MenuItem disabled>
+              <Box>
+                <Typography variant="body2" fontWeight={600}>{mockUser.name}</Typography>
+                <Typography variant="caption" color="text.secondary">{mockUser.email}</Typography>
+              </Box>
+            </MenuItem>
+            <Divider />
+            <MenuItem onClick={() => { handleUserMenuClose(); navigate('/settings'); }}>
+              <ListItemIcon><SettingsIcon fontSize="small" /></ListItemIcon>
+              Settings
+            </MenuItem>
+            <MenuItem onClick={handleLogout}>
+              <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
+              Logout
+            </MenuItem>
+          </Menu>
         </Toolbar>
       </AppBar>
       <Box
