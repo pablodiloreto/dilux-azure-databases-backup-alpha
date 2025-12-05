@@ -227,3 +227,22 @@ curl -X POST http://localhost:7071/api/databases/{id}/backup
 - Azurite (Azure Storage Emulator)
 - Azure Static Web Apps
 - Azure Functions (Flex Consumption)
+
+## Known Issues / TODO
+
+### Backups no aparecen en /backups después de trigger
+
+**Síntoma:** Al hacer clic en el botón play (trigger backup) en `/databases`, el mensaje dice "Backup queued" pero luego en `/backups` aparece "No backup history found".
+
+**Causa:** El **processor** (Function App que procesa la cola de backups) no está corriendo. El botón play solo encola el job en Azure Queue Storage, pero necesita el processor para ejecutarlo.
+
+**Solución:** Iniciar el processor en una terminal adicional:
+
+```bash
+cd src/functions/processor && func start --port 7073
+```
+
+**Nota:** Para desarrollo completo necesitas 3 terminales:
+1. API (puerto 7071) - CRUD de databases y backups
+2. Frontend (puerto 3000) - UI React
+3. Processor (puerto 7073) - Ejecuta los backups de la cola
