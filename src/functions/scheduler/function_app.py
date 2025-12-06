@@ -146,6 +146,86 @@ def dynamic_scheduler(timer: func.TimerRequest) -> None:
 
 
 @app.timer_trigger(
+    schedule="0 0 2 * * *",  # Daily at 2 AM UTC
+    arg_name="timer",
+    run_on_startup=False,
+)
+def cleanup_old_backups(timer: func.TimerRequest) -> None:
+    """
+    Cleanup timer that deletes backups older than their retention period.
+
+    Runs daily at 2 AM UTC and:
+    1. Gets all database configurations with their retention_days
+    2. For each database, lists backups and deletes those beyond retention
+    3. Also cleans up backup history entries for deleted files
+    """
+    logger.info("Cleanup old backups triggered")
+
+    if timer.past_due:
+        logger.warning("Cleanup timer is past due, running anyway")
+
+    try:
+        from datetime import timedelta
+
+        # Get all database configurations
+        databases, _ = db_config_service.get_all()
+        logger.info(f"Found {len(databases)} databases to check for cleanup")
+
+        total_deleted = 0
+        total_errors = 0
+
+        for db_config in databases:
+            try:
+                retention_days = db_config.retention_days or 30
+                cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+
+                # Build prefix for this database's backups
+                db_type = db_config.database_type.value
+                prefix = f"{db_type}/{db_config.id}/"
+
+                # List all backups for this database
+                backups = storage_service.list_backups(prefix=prefix, max_results=1000)
+                logger.debug(f"Found {len(backups)} backups for database {db_config.name}")
+
+                for backup in backups:
+                    # Parse last_modified date
+                    last_modified_str = backup.get("last_modified")
+                    if not last_modified_str:
+                        continue
+
+                    try:
+                        # Parse ISO format datetime
+                        if last_modified_str.endswith("Z"):
+                            last_modified_str = last_modified_str[:-1] + "+00:00"
+                        last_modified = datetime.fromisoformat(last_modified_str.replace("+00:00", ""))
+
+                        if last_modified < cutoff_date:
+                            blob_name = backup["name"]
+                            logger.info(
+                                f"Deleting old backup: {blob_name} "
+                                f"(age: {(datetime.utcnow() - last_modified).days} days, "
+                                f"retention: {retention_days} days)"
+                            )
+                            if storage_service.delete_backup(blob_name):
+                                total_deleted += 1
+                    except (ValueError, KeyError) as e:
+                        logger.warning(f"Could not parse date for backup {backup.get('name')}: {e}")
+
+            except Exception as e:
+                logger.error(f"Error processing cleanup for database {db_config.name}: {e}")
+                total_errors += 1
+
+        logger.info(
+            f"Cleanup completed. Deleted {total_deleted} old backups. "
+            f"Errors: {total_errors}"
+        )
+
+    except Exception as e:
+        logger.error(f"Cleanup failed: {e}", exc_info=True)
+        raise
+
+
+@app.timer_trigger(
     schedule="0 0 */6 * * *",  # Every 6 hours
     arg_name="timer",
     run_on_startup=False,
