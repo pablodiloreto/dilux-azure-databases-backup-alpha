@@ -30,7 +30,7 @@ if str(shared_path) not in sys.path:
 
 from shared.config import get_settings
 from shared.models import DatabaseConfig, DatabaseType, BackupJob, BackupStatus, AppSettings
-from shared.services import StorageService, DatabaseConfigService
+from shared.services import StorageService, DatabaseConfigService, get_connection_tester
 from shared.exceptions import NotFoundError, ValidationError
 
 # Initialize Function App
@@ -62,6 +62,140 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
         mimetype="application/json",
         status_code=200,
     )
+
+
+@app.route(route="system-status", methods=["GET"])
+def system_status(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Get comprehensive system status including:
+    - Storage usage
+    - Backup statistics (today, success rate)
+    - Service health checks
+
+    Query params:
+    - period: str - Time period for backup stats: 1d, 7d, 30d, all (default: 1d)
+    """
+    from datetime import timedelta
+
+    try:
+        # Get period from query params
+        period = req.params.get("period", "1d")
+        period_days = {"1d": 1, "7d": 7, "30d": 30, "all": 3650}.get(period, 1)
+
+        now = datetime.utcnow()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        period_start = now - timedelta(days=period_days)
+
+        # Initialize response structure
+        status = {
+            "timestamp": now.isoformat(),
+            "storage": {
+                "total_size_bytes": 0,
+                "total_size_formatted": "0 B",
+                "backup_count": 0,
+            },
+            "backups": {
+                "period": period,
+                "today": 0,
+                "completed": 0,
+                "failed": 0,
+                "success_rate": 100.0,
+            },
+            "services": {
+                "api": {"status": "healthy", "message": "Running"},
+                "storage": {"status": "unknown", "message": "Checking..."},
+                "databases": {"status": "unknown", "message": "Checking..."},
+            },
+        }
+
+        # === Storage Stats ===
+        try:
+            # List all backup blobs to calculate total size
+            backups_list = storage_service.list_backups(max_results=10000)
+            total_size = sum(b.get("size", 0) for b in backups_list)
+            status["storage"]["total_size_bytes"] = total_size
+            status["storage"]["total_size_formatted"] = format_bytes(total_size)
+            status["storage"]["backup_count"] = len(backups_list)
+            status["services"]["storage"] = {"status": "healthy", "message": "Connected"}
+        except Exception as e:
+            logger.error(f"Storage check failed: {e}")
+            status["services"]["storage"] = {"status": "unhealthy", "message": str(e)[:100]}
+
+        # === Backup Stats (configurable period) ===
+        try:
+            # Get backups from the specified period
+            recent_backups = storage_service.get_backup_history(
+                start_date=period_start,
+                limit=10000,
+            )
+
+            completed = 0
+            failed = 0
+            today_count = 0
+
+            for backup in recent_backups:
+                if backup.status.value == "completed":
+                    completed += 1
+                elif backup.status.value == "failed":
+                    failed += 1
+
+                # Count today's backups
+                if backup.created_at >= today_start:
+                    today_count += 1
+
+            total = completed + failed
+            success_rate = (completed / total * 100) if total > 0 else 100.0
+
+            status["backups"]["today"] = today_count
+            status["backups"]["completed"] = completed
+            status["backups"]["failed"] = failed
+            status["backups"]["success_rate"] = round(success_rate, 1)
+        except Exception as e:
+            logger.error(f"Backup stats check failed: {e}")
+
+        # === Database Configs Health ===
+        try:
+            configs, total = db_config_service.get_all()
+            enabled_count = len([c for c in configs if c.enabled])
+            status["services"]["databases"] = {
+                "status": "healthy",
+                "message": f"{enabled_count} enabled / {total} total",
+                "total": total,
+                "enabled": enabled_count,
+            }
+        except Exception as e:
+            logger.error(f"Database configs check failed: {e}")
+            status["services"]["databases"] = {"status": "unhealthy", "message": str(e)[:100]}
+
+        return func.HttpResponse(
+            json.dumps(status),
+            mimetype="application/json",
+            status_code=200,
+        )
+
+    except Exception as e:
+        logger.exception("System status check failed")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+def format_bytes(size_bytes: int) -> str:
+    """Format bytes to human readable string."""
+    if size_bytes == 0:
+        return "0 B"
+
+    units = ["B", "KB", "MB", "GB", "TB"]
+    unit_index = 0
+    size = float(size_bytes)
+
+    while size >= 1024 and unit_index < len(units) - 1:
+        size /= 1024
+        unit_index += 1
+
+    return f"{size:.2f} {units[unit_index]}"
 
 
 # ===========================================
@@ -162,6 +296,77 @@ def create_database(req: func.HttpRequest) -> func.HttpResponse:
         logger.exception("Error creating database")
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="databases/test-connection", methods=["POST"])
+def test_connection(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Test database connection without saving configuration.
+
+    Request body:
+    {
+        "database_type": "mysql|postgresql|sqlserver",
+        "host": "hostname",
+        "port": 3306,
+        "database_name": "mydb",
+        "username": "user",
+        "password": "secret"
+    }
+    """
+    try:
+        body = req.get_json()
+
+        # Validate required fields
+        required_fields = ["database_type", "host", "port", "database_name", "username", "password"]
+        missing = [f for f in required_fields if not body.get(f)]
+        if missing:
+            return func.HttpResponse(
+                json.dumps({"error": f"Missing required fields: {', '.join(missing)}"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        # Get connection tester
+        tester = get_connection_tester()
+
+        # Test connection
+        result = tester.test_connection(
+            database_type=DatabaseType(body["database_type"]),
+            host=body["host"],
+            port=int(body["port"]),
+            database=body["database_name"],
+            username=body["username"],
+            password=body["password"],
+        )
+
+        return func.HttpResponse(
+            json.dumps({
+                "success": result.success,
+                "message": result.message,
+                "error_type": result.error_type,
+                "duration_ms": result.duration_ms,
+            }),
+            mimetype="application/json",
+            status_code=200 if result.success else 200,  # Always 200, success in body
+        )
+
+    except ValueError as e:
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=400,
+        )
+    except Exception as e:
+        logger.exception("Error testing connection")
+        return func.HttpResponse(
+            json.dumps({
+                "success": False,
+                "message": str(e),
+                "error_type": type(e).__name__,
+            }),
             mimetype="application/json",
             status_code=500,
         )

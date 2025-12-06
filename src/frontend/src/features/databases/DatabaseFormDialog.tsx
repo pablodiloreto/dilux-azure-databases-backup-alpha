@@ -18,10 +18,12 @@ import {
   Alert,
   Box,
   Typography,
+  CircularProgress,
 } from '@mui/material'
-import { Visibility, VisibilityOff } from '@mui/icons-material'
+import { Visibility, VisibilityOff, CheckCircle, Cable } from '@mui/icons-material'
 import type { DatabaseConfig, CreateDatabaseInput, DatabaseType } from '../../types'
 import { useSettings } from '../../contexts/SettingsContext'
+import { databasesApi } from '../../api'
 
 interface DatabaseFormDialogProps {
   open: boolean
@@ -73,6 +75,12 @@ export function DatabaseFormDialog({
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
+  const [testingConnection, setTestingConnection] = useState(false)
+  const [connectionResult, setConnectionResult] = useState<{
+    success: boolean
+    message: string
+    duration_ms?: number
+  } | null>(null)
 
   const isEditing = !!database
 
@@ -97,6 +105,7 @@ export function DatabaseFormDialog({
     setError(null)
     setValidationErrors({})
     setShowPassword(false)
+    setConnectionResult(null)
   }, [database, open, initialFormState])
 
   const handleChange = (field: keyof CreateDatabaseInput, value: unknown) => {
@@ -144,6 +153,46 @@ export function DatabaseFormDialog({
 
     setValidationErrors(errors)
     return Object.keys(errors).length === 0
+  }
+
+  const canTestConnection = (): boolean => {
+    return !!(
+      formData.host.trim() &&
+      formData.port &&
+      formData.database_name.trim() &&
+      formData.username.trim() &&
+      formData.password.trim()
+    )
+  }
+
+  const handleTestConnection = async () => {
+    if (!canTestConnection()) {
+      setError('Please fill in host, port, database name, username, and password to test connection')
+      return
+    }
+
+    setTestingConnection(true)
+    setConnectionResult(null)
+    setError(null)
+
+    try {
+      const result = await databasesApi.testConnection({
+        database_type: formData.database_type,
+        host: formData.host,
+        port: formData.port,
+        database_name: formData.database_name,
+        username: formData.username,
+        password: formData.password,
+      })
+      setConnectionResult(result)
+    } catch (err) {
+      setConnectionResult({
+        success: false,
+        message: err instanceof Error ? err.message : 'Connection test failed',
+      })
+    } finally {
+      setTestingConnection(false)
+    }
   }
 
   const handleSubmit = async () => {
@@ -293,6 +342,38 @@ export function DatabaseFormDialog({
                   ),
                 }}
               />
+            </Grid>
+
+            {/* Test Connection Button */}
+            <Grid item xs={12}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Button
+                    variant="outlined"
+                    startIcon={testingConnection ? <CircularProgress size={16} /> : <Cable />}
+                    onClick={handleTestConnection}
+                    disabled={testingConnection || !canTestConnection()}
+                    sx={{ flexShrink: 0 }}
+                  >
+                    {testingConnection ? 'Testing...' : 'Test Connection'}
+                  </Button>
+                  {connectionResult?.success && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <CheckCircle color="success" fontSize="small" />
+                      <Typography variant="body2" color="success.main">
+                        Connected{connectionResult.duration_ms && ` (${connectionResult.duration_ms}ms)`}
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
+                {connectionResult && !connectionResult.success && (
+                  <Alert severity="error" sx={{ py: 0.5 }}>
+                    {connectionResult.message.length > 100
+                      ? connectionResult.message.substring(0, 100) + '...'
+                      : connectionResult.message}
+                  </Alert>
+                )}
+              </Box>
             </Grid>
 
             {/* Retention Days */}

@@ -26,6 +26,22 @@ interface TriggerBackupResponse {
   queue_message_id: string
 }
 
+interface TestConnectionRequest {
+  database_type: string
+  host: string
+  port: number
+  database_name: string
+  username: string
+  password: string
+}
+
+interface TestConnectionResponse {
+  success: boolean
+  message: string
+  error_type?: string
+  duration_ms?: number
+}
+
 export const databasesApi = {
   /**
    * Get all database configurations
@@ -77,6 +93,14 @@ export const databasesApi = {
    */
   triggerBackup: async (id: string): Promise<TriggerBackupResponse> => {
     const response = await apiClient.post<TriggerBackupResponse>(`/databases/${id}/backup`)
+    return response.data
+  },
+
+  /**
+   * Test database connection
+   */
+  testConnection: async (data: TestConnectionRequest): Promise<TestConnectionResponse> => {
+    const response = await apiClient.post<TestConnectionResponse>('/databases/test-connection', data)
     return response.data
   },
 }
