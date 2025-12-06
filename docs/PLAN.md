@@ -1,6 +1,6 @@
 # Plan de Implementación - Dilux Database Backup
 
-**Última actualización:** 2025-12-05
+**Última actualización:** 2025-12-06
 
 ---
 
@@ -16,6 +16,10 @@
 ### Fixes aplicados
 | Fecha | Fix |
 |-------|-----|
+| 2025-12-06 | Dashboard: Success Rate con selector de período (1d/7d/30d/all) aislado en su propio componente |
+| 2025-12-06 | Dashboard: Reorden de cards (Databases, Storage, Backups Today, Success Rate) con altura consistente |
+| 2025-12-06 | Test Connection: API endpoint + botón en formulario de DB para probar conectividad antes de guardar |
+| 2025-12-06 | Cleanup Timer: Timer diario a las 2AM que elimina backups según retention_days de cada DB |
 | 2025-12-05 | Filtro de databases con búsqueda server-side: híbrido (primeras 50 + search API) para escalar a cientos de DBs |
 | 2025-12-05 | Autocomplete Database: Searchable con debounce 300ms, muestra tipo y host en opciones |
 | 2025-12-05 | Backup history ordenado por fecha descendente: inverted timestamp en RowKey (backup.py, migrate_backup_rowkeys.py) |
@@ -50,19 +54,28 @@
 
 ## Tareas Pendientes
 
-### Sprint 2: Dashboard y UX (SIGUIENTE)
+### Sprint 2: Dashboard y UX ✅ COMPLETADO
 
-| # | Tarea | Descripción |
-|---|-------|-------------|
-| 1.1.4 | Test Connection UI | Botón que prueba conectividad antes de guardar |
-| 1.2.1 | Test Connection API | `POST /api/databases/test-connection` |
-| 1.2.3 | System Status API | `GET /api/system-status` |
-| 1.4.2 | Scheduler | Timer 15min que evalúa DBs y encola backups |
-| 1.4.3 | Cleanup Timer | Timer diario que borra backups viejos |
-| 2.1 | Storage Used | Stat card con tamaño total de blobs |
-| 2.2 | Success Rate | Ratio completed/(completed+failed) 24h |
-| 2.3 | Backups Today | Contador de backups del día |
-| 2.4 | System Health UI | Panel: API, Processor, Storage, Scheduler |
+| # | Tarea | Descripción | Estado |
+|---|-------|-------------|--------|
+| 1.1.4 | Test Connection UI | Botón que prueba conectividad antes de guardar | ✅ Completado |
+| 1.2.1 | Test Connection API | `POST /api/databases/test-connection` | ✅ Completado |
+| 1.2.3 | System Status API | `GET /api/system-status` | ✅ Completado |
+| 1.4.2 | Scheduler | Timer 15min que evalúa DBs y encola backups | ✅ Ya existía |
+| 1.4.3 | Cleanup Timer | Timer diario 2AM que borra backups viejos | ✅ Completado |
+| 2.1 | Storage Used | Stat card con tamaño total de blobs | ✅ Completado |
+| 2.2 | Success Rate | Ratio completed/(completed+failed) 24h | ✅ Completado |
+| 2.3 | Backups Today | Contador de backups del día | ✅ Completado |
+| 2.4 | System Health UI | Panel: API, Storage, Databases | ✅ Completado |
+
+**Mejoras adicionales (no planificadas):**
+- ✅ Dark mode sin flash (localStorage)
+- ✅ Sidebar colapsable con estado persistente
+- ✅ Breadcrumbs navigation
+- ✅ Favicon (cloud backup icon)
+- ✅ Dark mode toggle en navbar
+- ✅ Success Rate con selector de período (1d/7d/30d/all)
+- ✅ Dashboard cards con altura consistente y orden optimizado
 
 ### Sprint 3: Production Ready
 
@@ -103,8 +116,8 @@
 
 - [x] Backups funcionan (MySQL, PostgreSQL, SQL Server)
 - [x] CRUD databases desde UI
-- [ ] Scheduler automático funcionando
-- [ ] Cleanup de backups viejos
+- [x] Scheduler automático funcionando
+- [x] Cleanup de backups viejos (timer diario 2AM)
 - [ ] Azure AD auth en producción
 - [ ] Deploy to Azure button
 - [ ] Documentación de usuario
