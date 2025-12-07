@@ -107,7 +107,8 @@ export function BackupsPage() {
   const [backups, setBackups] = useState<BackupResult[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [continuationToken, setContinuationToken] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
   const [hasMore, setHasMore] = useState(false)
 
   // Filters
@@ -177,14 +178,14 @@ export function BackupsPage() {
   }), [databaseFilter, statusFilter, triggeredByFilter, dbTypeFilter, startDate, endDate])
 
   // Fetch backups (paged, sorted by date descending from server)
-  const fetchBackups = useCallback(async (token?: string | null, append: boolean = false) => {
+  const fetchBackups = useCallback(async (page: number = 1, append: boolean = false) => {
     setIsLoading(true)
     setError(null)
 
     try {
       const response = await backupsApi.getHistoryPaged({
         pageSize: PAGE_SIZE,
-        continuationToken: token,
+        page,
         filters: buildFilters(),
       })
 
@@ -194,7 +195,8 @@ export function BackupsPage() {
         setBackups(response.backups)
       }
 
-      setContinuationToken(response.continuation_token)
+      setCurrentPage(page)
+      setTotalCount(response.total_count)
       setHasMore(response.has_more)
     } catch (err) {
       setError('Failed to load backup history. Please try again.')
@@ -206,19 +208,19 @@ export function BackupsPage() {
 
   // Load data on mount and when filters change
   useEffect(() => {
-    fetchBackups(null, false)
+    fetchBackups(1, false)
   }, [fetchBackups])
 
   // Load more (next page)
   const handleLoadMore = () => {
-    if (continuationToken && hasMore) {
-      fetchBackups(continuationToken, true)
+    if (hasMore) {
+      fetchBackups(currentPage + 1, true)
     }
   }
 
   // Refresh
   const handleRefresh = () => {
-    fetchBackups(null, false)
+    fetchBackups(1, false)
   }
 
   const handleClearFilters = () => {
@@ -528,16 +530,21 @@ export function BackupsPage() {
               {isLoading ? (
                 <CircularProgress size={24} />
               ) : hasMore ? (
-                <Button
-                  variant="outlined"
-                  endIcon={<NextIcon />}
-                  onClick={handleLoadMore}
-                >
-                  Load More
-                </Button>
+                <>
+                  <Typography variant="caption" color="textSecondary">
+                    Showing {backups.length} of {totalCount} backups
+                  </Typography>
+                  <Button
+                    variant="outlined"
+                    endIcon={<NextIcon />}
+                    onClick={handleLoadMore}
+                  >
+                    Load More
+                  </Button>
+                </>
               ) : backups.length > 0 ? (
                 <Typography variant="caption" color="textSecondary">
-                  Showing all {backups.length} backups
+                  Showing all {totalCount} backups
                 </Typography>
               ) : null}
             </Box>

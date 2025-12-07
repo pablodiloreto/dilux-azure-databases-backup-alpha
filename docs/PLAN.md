@@ -16,6 +16,7 @@
 ### Fixes aplicados
 | Fecha | Fix |
 |-------|-----|
+| 2025-12-07 | Backup history: Orden correcto descendente por fecha (offset pagination en backend) |
 | 2025-12-07 | Dashboard: Backups y Success Rate con selectores de período sincronizados |
 | 2025-12-07 | Success Rate: Muestra "N/A" cuando no hay backups en el período |
 | 2025-12-07 | Dashboard: Cards con etiquetas "(current)", links de navegación |

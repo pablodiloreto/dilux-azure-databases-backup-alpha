@@ -18,14 +18,14 @@ export const backupsApi = {
    */
   getHistoryPaged: async (options?: {
     pageSize?: number
-    continuationToken?: string | null
+    page?: number
     filters?: BackupFilters
   }): Promise<BackupsPagedResponse> => {
     const params = new URLSearchParams()
 
     // Pagination
     if (options?.pageSize) params.append('page_size', options.pageSize.toString())
-    if (options?.continuationToken) params.append('continuation_token', options.continuationToken)
+    if (options?.page) params.append('page', options.page.toString())
 
     // Filters
     if (options?.filters?.databaseId) params.append('database_id', options.filters.databaseId)

@@ -377,23 +377,23 @@ class StorageService:
     def get_backup_history_paged(
         self,
         page_size: int = 25,
-        continuation_token: Optional[str] = None,
+        page: int = 1,
         database_id: Optional[str] = None,
         status: Optional[str] = None,
         triggered_by: Optional[str] = None,
         database_type: Optional[str] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-    ) -> tuple[list[BackupResult], Optional[str]]:
+    ) -> tuple[list[BackupResult], int, bool]:
         """
-        Get backup history with server-side pagination using continuation tokens.
+        Get backup history with offset-based pagination.
 
-        Only fetches the requested page from Table Storage, minimizing memory usage
-        and Azure Functions execution time.
+        Fetches all matching records, sorts by date descending, then returns
+        the requested page. This ensures correct ordering across partition boundaries.
 
         Args:
             page_size: Number of results per page (default 25)
-            continuation_token: Token from previous call to get next page
+            page: Page number (1-based, default 1)
             database_id: Filter by database ID
             status: Filter by backup status (completed, failed, in_progress)
             triggered_by: Filter by trigger type (manual, scheduler)
@@ -402,7 +402,7 @@ class StorageService:
             end_date: Filter until this date
 
         Returns:
-            Tuple of (list of BackupResult, next continuation token or None)
+            Tuple of (list of BackupResult for requested page, total count, has_more)
         """
         table_client = self._clients.get_table_client(
             self._settings.history_table_name
@@ -425,40 +425,37 @@ class StorageService:
 
         filter_str = " and ".join(filters) if filters else None
 
-        logger.info(f"Querying backup history (paged) with filter: {filter_str}, page_size: {page_size}")
+        logger.info(f"Querying backup history with filter: {filter_str}, page: {page}, page_size: {page_size}")
 
-        results = []
-        next_token = None
+        all_results = []
 
         try:
-            # Query with pagination
-            query_iter = table_client.query_entities(
-                query_filter=filter_str,
-                results_per_page=page_size,
-            )
+            # Query all matching entities
+            entities = table_client.query_entities(query_filter=filter_str)
 
-            # Get pages iterator with continuation token
-            pages = query_iter.by_page(continuation_token=continuation_token)
+            for entity in entities:
+                try:
+                    all_results.append(BackupResult.from_table_entity(entity))
+                except (KeyError, ValueError) as e:
+                    logger.warning(f"Skipping malformed backup entity: {e}")
 
-            # Get only the current page
-            current_page = next(pages, None)
+            # Sort by created_at descending (most recent first)
+            all_results.sort(key=lambda x: x.created_at, reverse=True)
 
-            if current_page:
-                for entity in current_page:
-                    try:
-                        results.append(BackupResult.from_table_entity(entity))
-                    except (KeyError, ValueError) as e:
-                        logger.warning(f"Skipping malformed backup entity: {e}")
+            # Calculate pagination
+            total_count = len(all_results)
+            start_idx = (page - 1) * page_size
+            end_idx = start_idx + page_size
+            page_results = all_results[start_idx:end_idx]
+            has_more = end_idx < total_count
 
-                # Get the continuation token for next page
-                next_token = pages.continuation_token
+            logger.info(f"Returned {len(page_results)} of {total_count} results, has_more: {has_more}")
 
-            logger.info(f"Returned {len(results)} results, has_more: {next_token is not None}")
+            return page_results, total_count, has_more
 
         except Exception as e:
             logger.error(f"Error querying backup history table: {e}")
-
-        return results, next_token
+            return [], 0, False
 
     def get_backup_result(self, result_id: str, date: datetime) -> Optional[BackupResult]:
         """

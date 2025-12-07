@@ -90,7 +90,9 @@ export interface PaginatedResponse<T> {
 export interface BackupsPagedResponse {
   backups: BackupResult[]
   count: number
-  continuation_token: string | null
+  total_count: number
+  page: number
+  page_size: number
   has_more: boolean
 }
 

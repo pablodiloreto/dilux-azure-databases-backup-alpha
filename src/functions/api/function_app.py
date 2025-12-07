@@ -542,7 +542,7 @@ def list_backups(req: func.HttpRequest) -> func.HttpResponse:
 
     Query params:
     - page_size: int - Results per page (default 25, max 100)
-    - continuation_token: str - Token for next page (from previous response)
+    - page: int - Page number, 1-based (default 1)
     - database_id: str - Filter by database ID
     - status: str - Filter by status (completed, failed, in_progress)
     - triggered_by: str - Filter by trigger (manual, scheduler)
@@ -551,19 +551,9 @@ def list_backups(req: func.HttpRequest) -> func.HttpResponse:
     - end_date: str - Filter until date (YYYY-MM-DD)
     """
     try:
-        import base64
-
         # Pagination params
         page_size = min(int(req.params.get("page_size", "25")), 100)
-        continuation_token_param = req.params.get("continuation_token")
-
-        # Decode continuation token from base64 JSON
-        continuation_token = None
-        if continuation_token_param:
-            try:
-                continuation_token = json.loads(base64.b64decode(continuation_token_param).decode())
-            except Exception:
-                pass  # Invalid token, start from beginning
+        page = max(int(req.params.get("page", "1")), 1)
 
         # Filter params
         database_id = req.params.get("database_id")
@@ -576,9 +566,9 @@ def list_backups(req: func.HttpRequest) -> func.HttpResponse:
         start_date = datetime.fromisoformat(start_date_str) if start_date_str else None
         end_date = datetime.fromisoformat(end_date_str) if end_date_str else None
 
-        results, next_token = storage_service.get_backup_history_paged(
+        results, total_count, has_more = storage_service.get_backup_history_paged(
             page_size=page_size,
-            continuation_token=continuation_token,
+            page=page,
             database_id=database_id,
             status=status,
             triggered_by=triggered_by,
@@ -587,18 +577,14 @@ def list_backups(req: func.HttpRequest) -> func.HttpResponse:
             end_date=end_date,
         )
 
-        # Encode continuation token as base64 JSON string for URL safety
-        encoded_token = None
-        if next_token:
-            import base64
-            encoded_token = base64.b64encode(json.dumps(next_token).encode()).decode()
-
         return func.HttpResponse(
             json.dumps({
                 "backups": [result.model_dump(mode="json") for result in results],
                 "count": len(results),
-                "continuation_token": encoded_token,
-                "has_more": next_token is not None,
+                "total_count": total_count,
+                "page": page,
+                "page_size": page_size,
+                "has_more": has_more,
             }),
             mimetype="application/json",
             status_code=200,
