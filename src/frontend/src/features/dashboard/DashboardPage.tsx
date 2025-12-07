@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Link as RouterLink } from 'react-router-dom'
 import {
   Grid,
   Card,
@@ -10,6 +11,8 @@ import {
   Skeleton,
   ToggleButtonGroup,
   ToggleButton,
+  Button,
+  Link,
 } from '@mui/material'
 import {
   Storage as StorageIcon,
@@ -19,6 +22,8 @@ import {
   Speed as SpeedIcon,
   Today as TodayIcon,
   Dns as DnsIcon,
+  ArrowForward as ArrowForwardIcon,
+  OpenInNew as OpenInNewIcon,
 } from '@mui/icons-material'
 import { systemApi, type SystemStatus, type ServiceStatus, type TimePeriod } from '../../api'
 import { useBackupHistory } from '../../hooks/useBackups'
@@ -33,15 +38,30 @@ interface StatCardProps {
   icon: React.ReactNode
   color: string
   loading?: boolean
+  linkTo?: string
+  linkLabel?: string
 }
 
-function StatCard({ title, value, subtitle, icon, color, loading }: StatCardProps) {
+function StatCard({ title, value, subtitle, icon, color, loading, linkTo, linkLabel }: StatCardProps) {
   return (
     <Card sx={{ height: CARD_HEIGHT }}>
       <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-        <Typography color="textSecondary" variant="body2" noWrap>
-          {title}
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Typography color="textSecondary" variant="body2" noWrap>
+            {title}
+          </Typography>
+          {linkTo && (
+            <Link
+              component={RouterLink}
+              to={linkTo}
+              variant="caption"
+              sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
+            >
+              {linkLabel || 'View'}
+              <OpenInNewIcon sx={{ fontSize: 12 }} />
+            </Link>
+          )}
+        </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Box sx={{ minWidth: 0, flex: 1 }}>
             {loading ? (
@@ -112,8 +132,8 @@ function SystemHealthCard({ status, loading }: { status?: SystemStatus; loading:
   ] as const
 
   return (
-    <Card>
-      <CardContent>
+    <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <CardContent sx={{ flex: 1 }}>
         <Typography variant="h6" gutterBottom>
           System Health
         </Typography>
@@ -157,6 +177,18 @@ function SystemHealthCard({ status, loading }: { status?: SystemStatus; loading:
           </Box>
         )}
       </CardContent>
+      <Box sx={{ p: 2, pt: 0 }}>
+        <Button
+          component={RouterLink}
+          to="/status"
+          variant="outlined"
+          size="small"
+          fullWidth
+          endIcon={<ArrowForwardIcon />}
+        >
+          View Details
+        </Button>
+      </Box>
     </Card>
   )
 }
@@ -168,44 +200,59 @@ const PERIOD_LABELS: Record<TimePeriod, string> = {
   'all': 'All',
 }
 
-// Separate component for Success Rate to isolate its own data fetching
-function SuccessRateCard() {
-  const [period, setPeriod] = useState<TimePeriod>('1d')
+const PERIOD_SUBTITLES: Record<TimePeriod, string> = {
+  '1d': 'last 24 hours',
+  '7d': 'last 7 days',
+  '30d': 'last 30 days',
+  'all': 'all time',
+}
 
+// Reusable period selector toggle button group styles
+const periodToggleStyles = {
+  '& .MuiToggleButton-root': {
+    py: 0,
+    px: 0.5,
+    fontSize: '0.6rem',
+    minWidth: 24,
+    lineHeight: 1.4,
+  },
+}
+
+interface PeriodCardProps {
+  period: TimePeriod
+  onPeriodChange: (period: TimePeriod) => void
+}
+
+// Component for Backups count with period selector
+function BackupsCard({ period, onPeriodChange }: PeriodCardProps) {
   const { data, isLoading } = useQuery({
-    queryKey: ['success-rate', period],
+    queryKey: ['backups-stats', period],
     queryFn: () => systemApi.getStatus(period),
     refetchInterval: 30000,
-    select: (data) => data.backups, // Only use backups data
+    select: (data) => data.backups,
   })
 
   const handlePeriodChange = (_: React.MouseEvent<HTMLElement>, newPeriod: TimePeriod | null) => {
     if (newPeriod) {
-      setPeriod(newPeriod)
+      onPeriodChange(newPeriod)
     }
   }
+
+  const total = (data?.completed ?? 0) + (data?.failed ?? 0)
 
   return (
     <Card sx={{ height: CARD_HEIGHT }}>
       <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
           <Typography color="textSecondary" variant="body2" noWrap>
-            Success Rate
+            Backups
           </Typography>
           <ToggleButtonGroup
             value={period}
             exclusive
             onChange={handlePeriodChange}
             size="small"
-            sx={{
-              '& .MuiToggleButton-root': {
-                py: 0,
-                px: 0.5,
-                fontSize: '0.6rem',
-                minWidth: 24,
-                lineHeight: 1.4,
-              },
-            }}
+            sx={periodToggleStyles}
           >
             {(['1d', '7d', '30d', 'all'] as TimePeriod[]).map((p) => (
               <ToggleButton key={p} value={p}>
@@ -221,10 +268,83 @@ function SuccessRateCard() {
             ) : (
               <>
                 <Typography variant="h4" component="div" noWrap>
-                  {data?.success_rate ?? 100}%
+                  {total}
                 </Typography>
                 <Typography variant="caption" color="textSecondary" noWrap>
-                  {data?.completed ?? 0} ok, {data?.failed ?? 0} failed
+                  {PERIOD_SUBTITLES[period]}
+                </Typography>
+              </>
+            )}
+          </Box>
+          <Box
+            sx={{
+              backgroundColor: '#9c27b020',
+              borderRadius: '50%',
+              p: 1.5,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              ml: 2,
+            }}
+          >
+            <TodayIcon sx={{ color: '#9c27b0' }} />
+          </Box>
+        </Box>
+      </CardContent>
+    </Card>
+  )
+}
+
+// Component for Success Rate with period selector
+function SuccessRateCard({ period, onPeriodChange }: PeriodCardProps) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['backups-stats', period],
+    queryFn: () => systemApi.getStatus(period),
+    refetchInterval: 30000,
+    select: (data) => data.backups,
+  })
+
+  const handlePeriodChange = (_: React.MouseEvent<HTMLElement>, newPeriod: TimePeriod | null) => {
+    if (newPeriod) {
+      onPeriodChange(newPeriod)
+    }
+  }
+
+  return (
+    <Card sx={{ height: CARD_HEIGHT }}>
+      <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+          <Typography color="textSecondary" variant="body2" noWrap>
+            Success Rate
+          </Typography>
+          <ToggleButtonGroup
+            value={period}
+            exclusive
+            onChange={handlePeriodChange}
+            size="small"
+            sx={periodToggleStyles}
+          >
+            {(['1d', '7d', '30d', 'all'] as TimePeriod[]).map((p) => (
+              <ToggleButton key={p} value={p}>
+                {PERIOD_LABELS[p]}
+              </ToggleButton>
+            ))}
+          </ToggleButtonGroup>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flex: 1 }}>
+          <Box sx={{ minWidth: 0, flex: 1 }}>
+            {isLoading ? (
+              <Skeleton width={80} height={45} />
+            ) : (
+              <>
+                <Typography variant="h4" component="div" noWrap>
+                  {data?.success_rate != null ? `${data.success_rate}%` : 'N/A'}
+                </Typography>
+                <Typography variant="caption" color="textSecondary" noWrap>
+                  {data?.success_rate != null
+                    ? `${data.completed} ok, ${data.failed} failed`
+                    : 'No backups in period'}
                 </Typography>
               </>
             )}
@@ -250,6 +370,9 @@ function SuccessRateCard() {
 }
 
 export function DashboardPage() {
+  // Shared period state for Backups and Success Rate cards
+  const [statsPeriod, setStatsPeriod] = useState<TimePeriod>('1d')
+
   // Main system status (always uses 1d for general stats)
   const { data: systemStatus, isLoading: statusLoading } = useQuery({
     queryKey: ['system-status'],
@@ -267,45 +390,40 @@ export function DashboardPage() {
 
       {/* Stats Cards */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        {/* 1. Databases */}
+        {/* 1. Databases (current) */}
         <Grid item xs={12} sm={6} md={3}>
           <StatCard
-            title="Databases"
+            title="Active Databases"
             value={systemStatus?.services.databases.enabled ?? 0}
-            subtitle={`of ${systemStatus?.services.databases.total ?? 0} total configured`}
+            subtitle={`of ${systemStatus?.services.databases.total ?? 0} configured (current)`}
             icon={<StorageIcon sx={{ color: '#ed6c02' }} />}
             color="#ed6c02"
             loading={statusLoading}
+            linkTo="/databases"
+            linkLabel="Manage"
           />
         </Grid>
 
-        {/* 2. Storage Used */}
+        {/* 2. Storage Used (current) */}
         <Grid item xs={12} sm={6} md={3}>
           <StatCard
             title="Storage Used"
             value={systemStatus?.storage.total_size_formatted || '0 B'}
-            subtitle={`${systemStatus?.storage.backup_count || 0} backup files`}
+            subtitle={`${systemStatus?.storage.backup_count || 0} files (current)`}
             icon={<CloudIcon sx={{ color: '#1976d2' }} />}
             color="#1976d2"
             loading={statusLoading}
           />
         </Grid>
 
-        {/* 3. Backups Today */}
+        {/* 3. Backups (with period selector) */}
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard
-            title="Backups Today"
-            value={systemStatus?.backups.today ?? 0}
-            subtitle="completed today"
-            icon={<TodayIcon sx={{ color: '#9c27b0' }} />}
-            color="#9c27b0"
-            loading={statusLoading}
-          />
+          <BackupsCard period={statsPeriod} onPeriodChange={setStatsPeriod} />
         </Grid>
 
-        {/* 4. Success Rate (separate component with its own period state) */}
+        {/* 4. Success Rate (shares period with Backups) */}
         <Grid item xs={12} sm={6} md={3}>
-          <SuccessRateCard />
+          <SuccessRateCard period={statsPeriod} onPeriodChange={setStatsPeriod} />
         </Grid>
       </Grid>
 
@@ -315,11 +433,22 @@ export function DashboardPage() {
           <SystemHealthCard status={systemStatus} loading={statusLoading} />
         </Grid>
         <Grid item xs={12} md={8}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Recent Backups
-              </Typography>
+          <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <CardContent sx={{ flex: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                <Typography variant="h6">
+                  Recent Backups
+                </Typography>
+                <Link
+                  component={RouterLink}
+                  to="/backups"
+                  variant="body2"
+                  sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
+                >
+                  View all
+                  <ArrowForwardIcon sx={{ fontSize: 16 }} />
+                </Link>
+              </Box>
               {backupsLoading ? (
                 <Box>
                   {[1, 2, 3, 4, 5].map((i) => (
@@ -349,11 +478,17 @@ export function DashboardPage() {
                         </Typography>
                       </Box>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
-                        {backup.file_size_bytes && (
+                        {backup.file_size_bytes != null && backup.file_size_bytes > 0 ? (
                           <Typography variant="body2" color="textSecondary">
-                            {(backup.file_size_bytes / 1024 / 1024).toFixed(2)} MB
+                            {backup.file_size_bytes >= 1024 * 1024
+                              ? `${(backup.file_size_bytes / 1024 / 1024).toFixed(2)} MB`
+                              : `${(backup.file_size_bytes / 1024).toFixed(1)} KB`}
                           </Typography>
-                        )}
+                        ) : backup.status === 'completed' ? (
+                          <Typography variant="body2" color="textSecondary">
+                            --
+                          </Typography>
+                        ) : null}
                         <Chip
                           size="small"
                           label={backup.status}

@@ -99,7 +99,7 @@ def system_status(req: func.HttpRequest) -> func.HttpResponse:
                 "today": 0,
                 "completed": 0,
                 "failed": 0,
-                "success_rate": 100.0,
+                "success_rate": None,  # None when no backups exist
             },
             "services": {
                 "api": {"status": "healthy", "message": "Running"},
@@ -144,12 +144,13 @@ def system_status(req: func.HttpRequest) -> func.HttpResponse:
                     today_count += 1
 
             total = completed + failed
-            success_rate = (completed / total * 100) if total > 0 else 100.0
+            # If no backups, success_rate is None (not 100%)
+            success_rate = round(completed / total * 100, 1) if total > 0 else None
 
             status["backups"]["today"] = today_count
             status["backups"]["completed"] = completed
             status["backups"]["failed"] = failed
-            status["backups"]["success_rate"] = round(success_rate, 1)
+            status["backups"]["success_rate"] = success_rate
         except Exception as e:
             logger.error(f"Backup stats check failed: {e}")
 

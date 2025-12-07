@@ -359,7 +359,13 @@ class StorageService:
             if len(results) >= limit:
                 break
             try:
-                results.append(BackupResult.from_table_entity(entity))
+                backup = BackupResult.from_table_entity(entity)
+                # Apply precise datetime filtering (PartitionKey is date-only)
+                if start_date and backup.created_at < start_date:
+                    continue
+                if end_date and backup.created_at > end_date:
+                    continue
+                results.append(backup)
             except (KeyError, ValueError) as e:
                 logger.warning(f"Skipping malformed backup entity: {e}")
                 logger.debug(f"Entity keys: {list(entity.keys())}")

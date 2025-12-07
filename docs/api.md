@@ -201,15 +201,19 @@ Trigger a manual backup for a database.
 
 #### `GET /api/backups`
 
-Get backup history.
+Get backup history with server-side pagination.
 
 **Query Parameters:**
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `database_id` | string | Filter by database ID |
+| `status` | string | Filter by status (`completed`, `failed`, `in_progress`) |
+| `triggered_by` | string | Filter by trigger (`manual`, `scheduler`) |
+| `database_type` | string | Filter by database type (`mysql`, `postgresql`, `sqlserver`) |
 | `start_date` | string | Filter from date (YYYY-MM-DD) |
 | `end_date` | string | Filter until date (YYYY-MM-DD) |
-| `limit` | integer | Maximum results (default: 100) |
+| `page_size` | integer | Results per page (default: 25) |
+| `continuation_token` | string | Token for next page (from previous response) |
 
 **Response:**
 ```json
@@ -232,7 +236,9 @@ Get backup history.
       "created_at": "2024-01-15T00:00:00.000Z"
     }
   ],
-  "count": 1
+  "count": 1,
+  "continuation_token": "eyJuZXh0UGFnZSI6dHJ1ZX0=",
+  "has_more": true
 }
 ```
 
@@ -375,3 +381,138 @@ All errors return JSON with an `error` field:
 | 400 | Bad Request (validation error) |
 | 404 | Not Found |
 | 500 | Internal Server Error |
+
+---
+
+## Additional Endpoints
+
+### Test Connection
+
+#### `POST /api/databases/test-connection`
+
+Test database connectivity before saving configuration.
+
+**Request Body:**
+```json
+{
+  "database_type": "mysql",
+  "host": "mysql.example.com",
+  "port": 3306,
+  "database_name": "myapp",
+  "username": "backup_user",
+  "password": "secret123"
+}
+```
+
+**Response (Success):**
+```json
+{
+  "success": true,
+  "message": "Connection successful",
+  "details": {
+    "server_version": "8.0.35",
+    "connection_time_ms": 45
+  }
+}
+```
+
+**Response (Failure):**
+```json
+{
+  "success": false,
+  "message": "Connection failed: Access denied for user 'backup_user'",
+  "error_type": "AuthenticationError"
+}
+```
+
+---
+
+### System Status
+
+#### `GET /api/system-status`
+
+Get comprehensive system status and health information.
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `include` | string | Components to include: `all`, `storage`, `databases`, `backups` (default: `all`) |
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "timestamp": "2024-01-15T12:00:00.000Z",
+  "services": {
+    "api": {
+      "status": "healthy",
+      "message": "API is running"
+    },
+    "storage": {
+      "status": "healthy",
+      "message": "Storage is accessible"
+    },
+    "databases": {
+      "status": "healthy",
+      "message": "2 databases configured",
+      "total": 2,
+      "enabled": 2
+    }
+  },
+  "storage": {
+    "total_size_bytes": 157286400,
+    "total_size_formatted": "150.0 MB",
+    "backup_count": 45
+  },
+  "backups": {
+    "completed": 42,
+    "failed": 3,
+    "success_rate": 93.3
+  }
+}
+```
+
+---
+
+### Settings
+
+#### `GET /api/settings`
+
+Get application settings.
+
+**Response:**
+```json
+{
+  "dark_mode": true,
+  "default_retention_days": 30,
+  "default_compression": true,
+  "updated_at": "2024-01-15T12:00:00.000Z"
+}
+```
+
+---
+
+#### `PUT /api/settings`
+
+Update application settings.
+
+**Request Body:**
+```json
+{
+  "dark_mode": true,
+  "default_retention_days": 30,
+  "default_compression": true
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Settings updated",
+  "settings": {
+    "dark_mode": true,
+    "default_retention_days": 30,
+    "default_compression": true,
+    "updated_at": "2024-01-15T12:00:00.000Z"
+  }
+}

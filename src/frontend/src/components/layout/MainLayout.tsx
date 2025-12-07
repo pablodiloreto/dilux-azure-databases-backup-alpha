@@ -35,6 +35,7 @@ import {
   LightMode as LightModeIcon,
   NavigateNext as NavigateNextIcon,
   Home as HomeIcon,
+  MonitorHeart as StatusIcon,
 } from '@mui/icons-material'
 import { useSettings } from '../../contexts/SettingsContext'
 
@@ -72,6 +73,7 @@ const breadcrumbNameMap: Record<string, string> = {
   '/databases': 'Databases',
   '/backups': 'Backups',
   '/settings': 'Settings',
+  '/status': 'System Status',
 }
 
 export function MainLayout({ children }: MainLayoutProps) {
@@ -202,6 +204,35 @@ export function MainLayout({ children }: MainLayoutProps) {
           </Tooltip>
         </ListItem>
 
+        {/* Status */}
+        <ListItem disablePadding sx={{ display: 'block' }}>
+          <Tooltip title={showText ? '' : 'System Status'} placement="right" arrow>
+            <ListItemButton
+              selected={location.pathname === '/status'}
+              onClick={() => {
+                navigate('/status')
+                setMobileOpen(false)
+              }}
+              sx={{
+                minHeight: 48,
+                justifyContent: showText ? 'initial' : 'center',
+                px: 2.5,
+              }}
+            >
+              <ListItemIcon
+                sx={{
+                  minWidth: 0,
+                  mr: showText ? 2 : 'auto',
+                  justifyContent: 'center',
+                }}
+              >
+                <StatusIcon />
+              </ListItemIcon>
+              {showText && <ListItemText primary="Status" />}
+            </ListItemButton>
+          </Tooltip>
+        </ListItem>
+
         {/* Collapse/Expand button - only on desktop */}
         {showCollapseButton && (
           <ListItem disablePadding sx={{ display: 'block' }}>
@@ -210,20 +241,18 @@ export function MainLayout({ children }: MainLayoutProps) {
                 onClick={handleCollapseToggle}
                 sx={{
                   minHeight: 48,
-                  justifyContent: showText ? 'initial' : 'center',
+                  justifyContent: 'center',
                   px: 2.5,
                 }}
               >
                 <ListItemIcon
                   sx={{
                     minWidth: 0,
-                    mr: showText ? 2 : 'auto',
                     justifyContent: 'center',
                   }}
                 >
                   {collapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
                 </ListItemIcon>
-                {showText && <ListItemText primary="Collapse" />}
               </ListItemButton>
             </Tooltip>
           </ListItem>

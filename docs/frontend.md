@@ -35,9 +35,12 @@ src/frontend/
     │   ├── index.ts
     │   ├── client.ts       # Axios instance
     │   ├── databases.ts    # Database API calls
-    │   └── backups.ts      # Backup API calls
+    │   ├── backups.ts      # Backup API calls
+    │   ├── system.ts       # System status API calls
+    │   └── settings.ts     # Settings API calls
     │
-    ├── auth/               # Azure AD authentication (future)
+    ├── contexts/           # React Contexts
+    │   └── SettingsContext.tsx  # Theme and app settings
     │
     ├── components/         # Reusable components
     │   ├── common/         # Buttons, Cards, etc.
@@ -49,8 +52,12 @@ src/frontend/
     │   │   └── DashboardPage.tsx
     │   ├── databases/
     │   │   └── DatabasesPage.tsx
-    │   └── backups/
-    │       └── BackupsPage.tsx
+    │   ├── backups/
+    │   │   └── BackupsPage.tsx
+    │   ├── settings/
+    │   │   └── SettingsPage.tsx
+    │   └── status/
+    │       └── StatusPage.tsx
     │
     ├── hooks/              # Custom React hooks
     │   ├── useDatabases.ts
@@ -145,9 +152,11 @@ export default defineConfig({
 
 | Page | Route | Description |
 |------|-------|-------------|
-| Dashboard | `/dashboard` | Overview with stats and recent backups |
+| Dashboard | `/dashboard` | Overview with stats, recent backups, and system health |
 | Databases | `/databases` | List, create, edit, delete database configs |
-| Backups | `/backups` | View backup history, download files |
+| Backups | `/backups` | View backup history with pagination and filters |
+| Settings | `/settings` | Application settings (dark mode, retention, compression) |
+| Status | `/status` | Detailed system status and health checks |
 
 ### State Management
 
@@ -162,10 +171,9 @@ const createMutation = useCreateDatabase()
 await createMutation.mutateAsync(newDatabase)
 ```
 
-**React Context** for UI state (future):
-- Theme (light/dark)
-- User preferences
-- Notifications
+**React Context** for UI state:
+- `SettingsContext` - Theme (light/dark), retention days, compression settings
+- User preferences are persisted to backend Table Storage
 
 ### API Layer
 
@@ -174,6 +182,8 @@ The `api/` folder contains:
 1. **`client.ts`** - Configured Axios instance with interceptors
 2. **`databases.ts`** - Database CRUD operations
 3. **`backups.ts`** - Backup history and downloads
+4. **`system.ts`** - System status and health checks
+5. **`settings.ts`** - Application settings CRUD
 
 ```typescript
 // Using the API
@@ -215,8 +225,10 @@ export function useCreateDatabase() {
 ### MainLayout
 
 The app shell with:
-- AppBar with title
-- Sidebar navigation
+- AppBar with breadcrumbs navigation
+- Collapsible sidebar with state persistence (localStorage)
+- Dark mode toggle in navbar
+- User menu with settings and logout
 - Responsive drawer (mobile/desktop)
 
 ```tsx
@@ -228,22 +240,50 @@ The app shell with:
 ### DashboardPage
 
 Shows:
-- Stat cards (total DBs, enabled, success/fail counts)
-- Recent backups list
+- **Stat cards** with interactive elements:
+  - Databases (current) - with "Manage" link to /databases
+  - Storage Used (current) - total blob storage size
+  - Backups - with period selector (1d/7d/30d/all)
+  - Success Rate - with synced period selector, shows "N/A" when no backups
+- **Recent Backups** list with "View all" link to /backups
+- **System Health** panel with "View Details" link to /status
+
+**Dashboard Components:**
+- `BackupsCard` - Backup count with period selector
+- `SuccessRateCard` - Success rate with synced period selector
+- Both selectors are synchronized (clicking one updates both)
 
 ### DatabasesPage
 
 Shows:
-- Table of all database configurations
+- Table of all database configurations with search
 - Add/Edit/Delete actions
+- Test Connection button before saving
 - Trigger manual backup button
 
 ### BackupsPage
 
 Shows:
-- Backup history table
-- Filter by database
+- Backup history table with server-side pagination
+- Filter by database (autocomplete with search)
+- Filter by status, trigger type, date range
 - Download buttons for completed backups
+
+### SettingsPage
+
+Shows:
+- Dark mode toggle
+- Default retention days
+- Default compression setting
+- Settings are persisted to backend
+
+### StatusPage
+
+Shows:
+- Overall system status alert
+- Service cards (API, Storage, Databases, Backup Stats)
+- System information table
+- Supported database types
 
 ---
 

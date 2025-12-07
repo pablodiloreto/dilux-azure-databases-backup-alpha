@@ -1,6 +1,6 @@
 # Plan de Implementación - Dilux Database Backup
 
-**Última actualización:** 2025-12-06
+**Última actualización:** 2025-12-07
 
 ---
 
@@ -16,6 +16,11 @@
 ### Fixes aplicados
 | Fecha | Fix |
 |-------|-----|
+| 2025-12-07 | Dashboard: Backups y Success Rate con selectores de período sincronizados |
+| 2025-12-07 | Success Rate: Muestra "N/A" cuando no hay backups en el período |
+| 2025-12-07 | Dashboard: Cards con etiquetas "(current)", links de navegación |
+| 2025-12-07 | Nueva página /status con información detallada del sistema |
+| 2025-12-07 | Sidebar: Menú Status agregado, botón collapse solo con ícono |
 | 2025-12-06 | Dashboard: Success Rate con selector de período (1d/7d/30d/all) aislado en su propio componente |
 | 2025-12-06 | Dashboard: Reorden de cards (Databases, Storage, Backups Today, Success Rate) con altura consistente |
 | 2025-12-06 | Test Connection: API endpoint + botón en formulario de DB para probar conectividad antes de guardar |
@@ -76,6 +81,13 @@
 - ✅ Dark mode toggle en navbar
 - ✅ Success Rate con selector de período (1d/7d/30d/all)
 - ✅ Dashboard cards con altura consistente y orden optimizado
+- ✅ Backups card con selector de período sincronizado con Success Rate
+- ✅ Success Rate muestra "N/A" cuando no hay backups (en lugar de 100%)
+- ✅ Cards con etiquetas "(current)" para Databases y Storage
+- ✅ Links de navegación: "Manage" en Databases, "View all" en Recent Backups
+- ✅ Página /status con información detallada del sistema
+- ✅ Menú "Status" en sidebar debajo de Settings
+- ✅ Botón collapse del sidebar solo con ícono (sin texto)
 
 ### Sprint 3: Production Ready
 
