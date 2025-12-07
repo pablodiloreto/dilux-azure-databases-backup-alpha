@@ -13,6 +13,11 @@ HTTP triggers for managing database backups:
 - GET /api/health - Health check
 - GET /api/settings - Get application settings
 - PUT /api/settings - Update application settings
+- GET /api/users - List all users (admin only)
+- POST /api/users - Create a new user (admin only)
+- GET /api/users/me - Get current user
+- PUT /api/users/{id} - Update a user (admin only)
+- DELETE /api/users/{id} - Delete a user (admin only)
 """
 
 import json
@@ -29,9 +34,10 @@ if str(shared_path) not in sys.path:
     sys.path.insert(0, str(shared_path))
 
 from shared.config import get_settings
-from shared.models import DatabaseConfig, DatabaseType, BackupJob, BackupStatus, AppSettings
+from shared.models import DatabaseConfig, DatabaseType, BackupJob, BackupStatus, AppSettings, User, UserRole
 from shared.services import StorageService, DatabaseConfigService, get_connection_tester
 from shared.exceptions import NotFoundError, ValidationError
+from shared.auth import get_current_user, require_auth, require_role
 
 # Initialize Function App
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
@@ -734,6 +740,375 @@ def update_app_settings(req: func.HttpRequest) -> func.HttpResponse:
         )
     except Exception as e:
         logger.exception("Error updating settings")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+# ===========================================
+# User Management Endpoints
+# ===========================================
+
+
+@app.route(route="users/me", methods=["GET"])
+def get_current_user_endpoint(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Get current authenticated user.
+
+    Returns user info and role, or triggers first-run setup.
+    """
+    try:
+        auth_result = get_current_user(req, storage_service)
+
+        if not auth_result.authenticated:
+            return func.HttpResponse(
+                json.dumps({"error": auth_result.error}),
+                mimetype="application/json",
+                status_code=401,
+            )
+
+        return func.HttpResponse(
+            json.dumps({
+                "user": auth_result.user.model_dump(mode="json"),
+                "is_first_run": auth_result.is_first_run,
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error getting current user")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="users", methods=["GET"])
+def list_users(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    List all users (admin only).
+    """
+    try:
+        # Check auth and role
+        auth_result = get_current_user(req, storage_service)
+
+        if not auth_result.authenticated:
+            return func.HttpResponse(
+                json.dumps({"error": auth_result.error}),
+                mimetype="application/json",
+                status_code=401,
+            )
+
+        if not auth_result.user.can_manage_users():
+            return func.HttpResponse(
+                json.dumps({"error": "Admin access required"}),
+                mimetype="application/json",
+                status_code=403,
+            )
+
+        users = storage_service.get_all_users()
+
+        return func.HttpResponse(
+            json.dumps({
+                "users": [u.model_dump(mode="json") for u in users],
+                "count": len(users),
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error listing users")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="users", methods=["POST"])
+def create_user(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Create a new user (admin only).
+
+    Body:
+    - email: str (required) - must match Azure AD email
+    - name: str (required)
+    - role: str (optional) - admin, operator, viewer (default: viewer)
+    """
+    try:
+        # Check auth and role
+        auth_result = get_current_user(req, storage_service)
+
+        if not auth_result.authenticated:
+            return func.HttpResponse(
+                json.dumps({"error": auth_result.error}),
+                mimetype="application/json",
+                status_code=401,
+            )
+
+        if not auth_result.user.can_manage_users():
+            return func.HttpResponse(
+                json.dumps({"error": "Admin access required"}),
+                mimetype="application/json",
+                status_code=403,
+            )
+
+        body = req.get_json()
+
+        # Validate required fields
+        if not body.get("email"):
+            return func.HttpResponse(
+                json.dumps({"error": "Email is required"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        if not body.get("name"):
+            return func.HttpResponse(
+                json.dumps({"error": "Name is required"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        # Check if user already exists by email
+        existing = storage_service.get_user_by_email(body["email"])
+        if existing:
+            return func.HttpResponse(
+                json.dumps({"error": f"User with email '{body['email']}' already exists"}),
+                mimetype="application/json",
+                status_code=409,
+            )
+
+        # Parse role
+        role_str = body.get("role", "viewer").lower()
+        try:
+            role = UserRole(role_str)
+        except ValueError:
+            return func.HttpResponse(
+                json.dumps({"error": f"Invalid role: {role_str}. Valid roles: admin, operator, viewer"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        # Create user with a placeholder ID (will be replaced when they first login)
+        import uuid
+        user = User(
+            id=f"pending-{uuid.uuid4()}",  # Placeholder until Azure AD login
+            email=body["email"],
+            name=body["name"],
+            role=role,
+            enabled=True,
+            created_by=auth_result.user.id,
+        )
+
+        saved = storage_service.save_user(user)
+
+        return func.HttpResponse(
+            json.dumps({
+                "message": "User created. They will be activated on first Azure AD login.",
+                "user": saved.model_dump(mode="json"),
+            }),
+            mimetype="application/json",
+            status_code=201,
+        )
+    except Exception as e:
+        logger.exception("Error creating user")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="users/{user_id}", methods=["GET"])
+def get_user(req: func.HttpRequest) -> func.HttpResponse:
+    """Get a specific user (admin only)."""
+    try:
+        user_id = req.route_params.get("user_id")
+
+        # Check auth and role
+        auth_result = get_current_user(req, storage_service)
+
+        if not auth_result.authenticated:
+            return func.HttpResponse(
+                json.dumps({"error": auth_result.error}),
+                mimetype="application/json",
+                status_code=401,
+            )
+
+        # Allow users to get their own info
+        if user_id != auth_result.user.id and not auth_result.user.can_manage_users():
+            return func.HttpResponse(
+                json.dumps({"error": "Admin access required"}),
+                mimetype="application/json",
+                status_code=403,
+            )
+
+        user = storage_service.get_user(user_id)
+
+        if not user:
+            return func.HttpResponse(
+                json.dumps({"error": f"User '{user_id}' not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+
+        return func.HttpResponse(
+            json.dumps({"user": user.model_dump(mode="json")}),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error getting user")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="users/{user_id}", methods=["PUT"])
+def update_user(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Update a user (admin only).
+
+    Body:
+    - name: str (optional)
+    - role: str (optional) - admin, operator, viewer
+    - enabled: bool (optional)
+    """
+    try:
+        user_id = req.route_params.get("user_id")
+
+        # Check auth and role
+        auth_result = get_current_user(req, storage_service)
+
+        if not auth_result.authenticated:
+            return func.HttpResponse(
+                json.dumps({"error": auth_result.error}),
+                mimetype="application/json",
+                status_code=401,
+            )
+
+        if not auth_result.user.can_manage_users():
+            return func.HttpResponse(
+                json.dumps({"error": "Admin access required"}),
+                mimetype="application/json",
+                status_code=403,
+            )
+
+        user = storage_service.get_user(user_id)
+
+        if not user:
+            return func.HttpResponse(
+                json.dumps({"error": f"User '{user_id}' not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+
+        body = req.get_json()
+
+        # Prevent admin from demoting themselves
+        if user_id == auth_result.user.id:
+            if body.get("role") and body["role"] != "admin":
+                return func.HttpResponse(
+                    json.dumps({"error": "You cannot demote yourself. Ask another admin."}),
+                    mimetype="application/json",
+                    status_code=400,
+                )
+            if body.get("enabled") is False:
+                return func.HttpResponse(
+                    json.dumps({"error": "You cannot disable yourself. Ask another admin."}),
+                    mimetype="application/json",
+                    status_code=400,
+                )
+
+        # Update fields
+        if "name" in body:
+            user.name = body["name"]
+
+        if "role" in body:
+            try:
+                user.role = UserRole(body["role"].lower())
+            except ValueError:
+                return func.HttpResponse(
+                    json.dumps({"error": f"Invalid role: {body['role']}"}),
+                    mimetype="application/json",
+                    status_code=400,
+                )
+
+        if "enabled" in body:
+            user.enabled = body["enabled"]
+
+        saved = storage_service.save_user(user)
+
+        return func.HttpResponse(
+            json.dumps({
+                "message": "User updated",
+                "user": saved.model_dump(mode="json"),
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error updating user")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="users/{user_id}", methods=["DELETE"])
+def delete_user(req: func.HttpRequest) -> func.HttpResponse:
+    """Delete a user (admin only)."""
+    try:
+        user_id = req.route_params.get("user_id")
+
+        # Check auth and role
+        auth_result = get_current_user(req, storage_service)
+
+        if not auth_result.authenticated:
+            return func.HttpResponse(
+                json.dumps({"error": auth_result.error}),
+                mimetype="application/json",
+                status_code=401,
+            )
+
+        if not auth_result.user.can_manage_users():
+            return func.HttpResponse(
+                json.dumps({"error": "Admin access required"}),
+                mimetype="application/json",
+                status_code=403,
+            )
+
+        # Prevent admin from deleting themselves
+        if user_id == auth_result.user.id:
+            return func.HttpResponse(
+                json.dumps({"error": "You cannot delete yourself. Ask another admin."}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        deleted = storage_service.delete_user(user_id)
+
+        if not deleted:
+            return func.HttpResponse(
+                json.dumps({"error": f"User '{user_id}' not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+
+        return func.HttpResponse(
+            json.dumps({"message": f"User '{user_id}' deleted"}),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error deleting user")
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
             mimetype="application/json",

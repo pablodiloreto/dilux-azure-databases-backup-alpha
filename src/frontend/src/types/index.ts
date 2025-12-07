@@ -104,3 +104,35 @@ export interface BackupFilters {
   startDate?: string
   endDate?: string
 }
+
+// User types
+export type UserRole = 'admin' | 'operator' | 'viewer'
+
+export interface User {
+  id: string
+  email: string
+  name: string
+  role: UserRole
+  enabled: boolean
+  created_at: string
+  updated_at: string
+  last_login: string | null
+  created_by: string | null
+}
+
+export interface CreateUserInput {
+  email: string
+  name: string
+  role?: UserRole
+}
+
+export interface UpdateUserInput {
+  name?: string
+  role?: UserRole
+  enabled?: boolean
+}
+
+export interface CurrentUserResponse {
+  user: User
+  is_first_run: boolean
+}

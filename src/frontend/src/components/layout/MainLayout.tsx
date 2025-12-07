@@ -36,15 +36,10 @@ import {
   NavigateNext as NavigateNextIcon,
   Home as HomeIcon,
   MonitorHeart as StatusIcon,
+  People as UsersIcon,
 } from '@mui/icons-material'
 import { useSettings } from '../../contexts/SettingsContext'
-
-// Mock user data (will be replaced with Azure AD auth)
-const mockUser = {
-  name: 'Admin User',
-  email: 'admin@dilux.tech',
-  avatar: 'https://ui-avatars.com/api/?name=Admin&background=1976d2&color=fff',
-}
+import { useAuth } from '../../contexts/AuthContext'
 
 const DRAWER_WIDTH = 240
 const DRAWER_WIDTH_COLLAPSED = 64
@@ -74,6 +69,7 @@ const breadcrumbNameMap: Record<string, string> = {
   '/backups': 'Backups',
   '/settings': 'Settings',
   '/status': 'System Status',
+  '/users': 'User Management',
 }
 
 export function MainLayout({ children }: MainLayoutProps) {
@@ -85,6 +81,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   const { settings, toggleDarkMode } = useSettings()
+  const { user, canManageUsers } = useAuth()
 
   const drawerWidth = collapsed && !isMobile ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH
 
@@ -233,6 +230,37 @@ export function MainLayout({ children }: MainLayoutProps) {
           </Tooltip>
         </ListItem>
 
+        {/* Users - Admin only */}
+        {canManageUsers && (
+          <ListItem disablePadding sx={{ display: 'block' }}>
+            <Tooltip title={showText ? '' : 'User Management'} placement="right" arrow>
+              <ListItemButton
+                selected={location.pathname === '/users'}
+                onClick={() => {
+                  navigate('/users')
+                  setMobileOpen(false)
+                }}
+                sx={{
+                  minHeight: 48,
+                  justifyContent: showText ? 'initial' : 'center',
+                  px: 2.5,
+                }}
+              >
+                <ListItemIcon
+                  sx={{
+                    minWidth: 0,
+                    mr: showText ? 2 : 'auto',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <UsersIcon />
+                </ListItemIcon>
+                {showText && <ListItemText primary="Users" />}
+              </ListItemButton>
+            </Tooltip>
+          </ListItem>
+        )}
+
         {/* Collapse/Expand button - only on desktop */}
         {showCollapseButton && (
           <ListItem disablePadding sx={{ display: 'block' }}>
@@ -330,13 +358,13 @@ export function MainLayout({ children }: MainLayoutProps) {
           {/* User menu */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography variant="body2" sx={{ display: { xs: 'none', md: 'block' } }}>
-              {mockUser.name}
+              {user?.name || 'Loading...'}
             </Typography>
             <Tooltip title="Account settings">
               <IconButton onClick={handleUserMenuOpen} sx={{ p: 0 }}>
                 <Avatar
-                  alt={mockUser.name}
-                  src={mockUser.avatar}
+                  alt={user?.name || 'User'}
+                  src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'U')}&background=1976d2&color=fff`}
                   sx={{ width: 36, height: 36 }}
                 />
               </IconButton>
@@ -355,8 +383,11 @@ export function MainLayout({ children }: MainLayoutProps) {
           >
             <MenuItem disabled>
               <Box>
-                <Typography variant="body2" fontWeight={600}>{mockUser.name}</Typography>
-                <Typography variant="caption" color="text.secondary">{mockUser.email}</Typography>
+                <Typography variant="body2" fontWeight={600}>{user?.name}</Typography>
+                <Typography variant="caption" color="text.secondary">{user?.email}</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                  Role: {user?.role?.charAt(0).toUpperCase()}{user?.role?.slice(1)}
+                </Typography>
               </Box>
             </MenuItem>
             <Divider />

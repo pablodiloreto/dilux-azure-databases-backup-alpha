@@ -3,6 +3,7 @@
 from .database import DatabaseConfig, DatabaseType
 from .backup import BackupJob, BackupResult, BackupStatus
 from .settings import AppSettings
+from .user import User, UserRole, CreateUserInput, UpdateUserInput
 
 __all__ = [
     "DatabaseConfig",
@@ -11,4 +12,8 @@ __all__ = [
     "BackupResult",
     "BackupStatus",
     "AppSettings",
+    "User",
+    "UserRole",
+    "CreateUserInput",
+    "UpdateUserInput",
 ]

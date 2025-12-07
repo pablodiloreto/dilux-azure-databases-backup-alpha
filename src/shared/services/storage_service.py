@@ -13,7 +13,7 @@ from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
 from azure.storage.blob import BlobSasPermissions, ContentSettings, generate_blob_sas
 
 from ..config import AzureClients, get_settings
-from ..models import BackupResult, AppSettings
+from ..models import BackupResult, AppSettings, User, UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -542,3 +542,202 @@ class StorageService:
         logger.info("Saved application settings")
 
         return settings
+
+    # ===========================================
+    # User Operations
+    # ===========================================
+
+    def _get_users_table(self):
+        """Get or create users table."""
+        table_name = "users"
+        table_client = self._clients.get_table_client(table_name)
+
+        try:
+            self._clients.table_service_client.create_table(table_name)
+        except ResourceExistsError:
+            pass
+
+        return table_client
+
+    def get_user(self, user_id: str) -> Optional[User]:
+        """
+        Get a user by their Azure AD Object ID.
+
+        Args:
+            user_id: Azure AD Object ID
+
+        Returns:
+            User instance or None if not found
+        """
+        table_client = self._get_users_table()
+
+        try:
+            entity = table_client.get_entity(
+                partition_key="users",
+                row_key=user_id,
+            )
+            return User.from_table_entity(entity)
+        except ResourceNotFoundError:
+            return None
+
+    def get_user_by_email(self, email: str) -> Optional[User]:
+        """
+        Get a user by their email address.
+
+        Args:
+            email: User email
+
+        Returns:
+            User instance or None if not found
+        """
+        table_client = self._get_users_table()
+
+        try:
+            entities = table_client.query_entities(
+                query_filter=f"email eq '{email}'"
+            )
+            for entity in entities:
+                return User.from_table_entity(entity)
+            return None
+        except Exception as e:
+            logger.error(f"Error querying user by email: {e}")
+            return None
+
+    def get_all_users(self) -> list[User]:
+        """
+        Get all users.
+
+        Returns:
+            List of User instances
+        """
+        table_client = self._get_users_table()
+
+        users = []
+        try:
+            entities = table_client.query_entities(
+                query_filter="PartitionKey eq 'users'"
+            )
+            for entity in entities:
+                try:
+                    users.append(User.from_table_entity(entity))
+                except (KeyError, ValueError) as e:
+                    logger.warning(f"Skipping malformed user entity: {e}")
+        except Exception as e:
+            logger.error(f"Error listing users: {e}")
+
+        return users
+
+    def get_user_count(self) -> int:
+        """
+        Get total number of users.
+
+        Returns:
+            Number of users
+        """
+        return len(self.get_all_users())
+
+    def has_any_users(self) -> bool:
+        """
+        Check if any users exist (for first-run setup).
+
+        Returns:
+            True if at least one user exists
+        """
+        table_client = self._get_users_table()
+
+        try:
+            entities = table_client.query_entities(
+                query_filter="PartitionKey eq 'users'",
+            )
+            for _ in entities:
+                return True
+            return False
+        except Exception:
+            return False
+
+    def save_user(self, user: User) -> User:
+        """
+        Save or update a user.
+
+        Args:
+            user: User instance to save
+
+        Returns:
+            Saved User instance
+        """
+        table_client = self._get_users_table()
+
+        user.updated_at = datetime.utcnow()
+        entity = user.to_table_entity()
+        table_client.upsert_entity(entity)
+        logger.info(f"Saved user: {user.email} (role: {user.role.value})")
+
+        return user
+
+    def create_first_admin(self, user_id: str, email: str, name: str) -> User:
+        """
+        Create the first admin user (only works if no users exist).
+
+        Args:
+            user_id: Azure AD Object ID
+            email: User email
+            name: Display name
+
+        Returns:
+            Created admin User
+
+        Raises:
+            ValueError: If users already exist
+        """
+        if self.has_any_users():
+            raise ValueError("Cannot create first admin: users already exist")
+
+        user = User(
+            id=user_id,
+            email=email,
+            name=name,
+            role=UserRole.ADMIN,
+            enabled=True,
+            created_at=datetime.utcnow(),
+            last_login=datetime.utcnow(),
+        )
+
+        return self.save_user(user)
+
+    def delete_user(self, user_id: str) -> bool:
+        """
+        Delete a user.
+
+        Args:
+            user_id: Azure AD Object ID
+
+        Returns:
+            True if deleted, False if not found
+        """
+        table_client = self._get_users_table()
+
+        try:
+            table_client.delete_entity(
+                partition_key="users",
+                row_key=user_id,
+            )
+            logger.info(f"Deleted user: {user_id}")
+            return True
+        except ResourceNotFoundError:
+            return False
+
+    def update_last_login(self, user_id: str) -> Optional[User]:
+        """
+        Update user's last login timestamp.
+
+        Args:
+            user_id: Azure AD Object ID
+
+        Returns:
+            Updated User or None if not found
+        """
+        user = self.get_user(user_id)
+        if user:
+            user.last_login = datetime.utcnow()
+            return self.save_user(user)
+        return None
