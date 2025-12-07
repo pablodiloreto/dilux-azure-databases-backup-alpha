@@ -481,6 +481,75 @@ class StorageService:
         except ResourceNotFoundError:
             return None
 
+    def get_backup_alerts(
+        self,
+        consecutive_failures: int = 2,
+    ) -> list[dict]:
+        """
+        Get databases with consecutive backup failures.
+
+        Checks the most recent N backups for each database and identifies
+        databases where the last N backups all failed.
+
+        Args:
+            consecutive_failures: Number of consecutive failures to trigger alert (default: 2)
+
+        Returns:
+            List of alert dictionaries containing database info and failure details
+        """
+        table_client = self._clients.get_table_client(
+            self._settings.history_table_name
+        )
+
+        try:
+            # Get recent backups (sorted by date desc)
+            all_backups: list[BackupResult] = []
+            entities = table_client.query_entities(query_filter=None)
+
+            for entity in entities:
+                try:
+                    all_backups.append(BackupResult.from_table_entity(entity))
+                except (KeyError, ValueError) as e:
+                    logger.warning(f"Skipping malformed backup entity: {e}")
+
+            # Sort by created_at descending
+            all_backups.sort(key=lambda x: x.created_at, reverse=True)
+
+            # Group backups by database_id
+            backups_by_db: dict[str, list[BackupResult]] = {}
+            for backup in all_backups:
+                if backup.database_id not in backups_by_db:
+                    backups_by_db[backup.database_id] = []
+                backups_by_db[backup.database_id].append(backup)
+
+            alerts = []
+
+            for db_id, db_backups in backups_by_db.items():
+                # Check if last N backups are all failures
+                recent = db_backups[:consecutive_failures]
+                if len(recent) >= consecutive_failures:
+                    all_failed = all(b.status.value == "failed" for b in recent)
+                    if all_failed:
+                        last_failure = recent[0]
+                        alerts.append({
+                            "database_id": db_id,
+                            "database_name": last_failure.database_name,
+                            "database_type": last_failure.database_type.value,
+                            "consecutive_failures": len(recent),
+                            "last_failure_at": last_failure.created_at.isoformat(),
+                            "last_error": last_failure.error_message,
+                        })
+
+            # Sort by last_failure_at descending
+            alerts.sort(key=lambda x: x["last_failure_at"], reverse=True)
+
+            logger.info(f"Found {len(alerts)} databases with consecutive failures")
+            return alerts
+
+        except Exception as e:
+            logger.error(f"Error getting backup alerts: {e}")
+            return []
+
     # ===========================================
     # Settings Operations
     # ===========================================

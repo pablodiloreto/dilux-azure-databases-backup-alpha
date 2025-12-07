@@ -24,9 +24,11 @@ import {
   Dns as DnsIcon,
   ArrowForward as ArrowForwardIcon,
   OpenInNew as OpenInNewIcon,
+  Backup as AlertIcon,
 } from '@mui/icons-material'
 import { systemApi, type SystemStatus, type ServiceStatus, type TimePeriod } from '../../api'
 import { useBackupHistory } from '../../hooks/useBackups'
+import { formatFileSize } from '../../utils'
 import type { BackupResult } from '../../types'
 
 const CARD_HEIGHT = 140
@@ -124,12 +126,27 @@ function ServiceStatusChip({ service }: { service: ServiceStatus }) {
   )
 }
 
-function SystemHealthCard({ status, loading }: { status?: SystemStatus; loading: boolean }) {
+interface BackupAlertInfo {
+  count: number
+  names: string[]
+}
+
+function SystemHealthCard({
+  status,
+  loading,
+  backupAlerts,
+}: {
+  status?: SystemStatus
+  loading: boolean
+  backupAlerts?: BackupAlertInfo
+}) {
   const services = [
     { key: 'api', label: 'API', icon: <DnsIcon /> },
     { key: 'storage', label: 'Storage', icon: <CloudIcon /> },
     { key: 'databases', label: 'Databases', icon: <StorageIcon /> },
   ] as const
+
+  const hasAlerts = (backupAlerts?.count ?? 0) > 0
 
   return (
     <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -139,7 +156,7 @@ function SystemHealthCard({ status, loading }: { status?: SystemStatus; loading:
         </Typography>
         {loading ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {[1, 2, 3].map((i) => (
+            {[1, 2, 3, 4].map((i) => (
               <Skeleton key={i} height={40} />
             ))}
           </Box>
@@ -174,6 +191,48 @@ function SystemHealthCard({ status, loading }: { status?: SystemStatus; loading:
                 </Box>
               )
             })}
+            {/* Backups row */}
+            <Box
+              component={hasAlerts ? RouterLink : 'div'}
+              to={hasAlerts ? '/status' : undefined}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                py: 1,
+                borderBottom: '1px solid',
+                borderColor: 'divider',
+                textDecoration: 'none',
+                color: 'inherit',
+                cursor: hasAlerts ? 'pointer' : 'default',
+                '&:hover': hasAlerts ? { bgcolor: 'action.hover' } : {},
+                borderRadius: 1,
+                mx: -1,
+                px: 1,
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <Box sx={{ color: hasAlerts ? 'error.main' : 'text.secondary' }}>
+                  <AlertIcon />
+                </Box>
+                <Box>
+                  <Typography variant="body2" fontWeight={500} color={hasAlerts ? 'error.main' : 'inherit'}>
+                    Backups
+                  </Typography>
+                  <Typography variant="caption" color={hasAlerts ? 'error.main' : 'textSecondary'}>
+                    {hasAlerts
+                      ? `${backupAlerts?.count} alert(s): ${backupAlerts?.names.join(', ')}`
+                      : 'All backups healthy'}
+                  </Typography>
+                </Box>
+              </Box>
+              <Chip
+                size="small"
+                label={hasAlerts ? `${backupAlerts?.count} alerts` : 'healthy'}
+                color={hasAlerts ? 'error' : 'success'}
+                icon={hasAlerts ? <ErrorIcon /> : <CheckIcon />}
+              />
+            </Box>
           </Box>
         )}
       </CardContent>
@@ -380,7 +439,22 @@ export function DashboardPage() {
     refetchInterval: 30000,
   })
 
+  // Backup alerts
+  const { data: alertsData } = useQuery({
+    queryKey: ['backup-alerts'],
+    queryFn: () => systemApi.getBackupAlerts(2),
+    refetchInterval: 30000,
+  })
+
   const { data: backups, isLoading: backupsLoading } = useBackupHistory({ limit: 10 })
+
+  // Prepare backup alerts info for SystemHealthCard
+  const backupAlerts: BackupAlertInfo | undefined = alertsData
+    ? {
+        count: alertsData.count,
+        names: alertsData.alerts.map((a) => a.database_name),
+      }
+    : undefined
 
   return (
     <Box>
@@ -430,7 +504,7 @@ export function DashboardPage() {
       {/* System Health + Recent Backups */}
       <Grid container spacing={3}>
         <Grid item xs={12} md={4}>
-          <SystemHealthCard status={systemStatus} loading={statusLoading} />
+          <SystemHealthCard status={systemStatus} loading={statusLoading} backupAlerts={backupAlerts} />
         </Grid>
         <Grid item xs={12} md={8}>
           <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -480,9 +554,7 @@ export function DashboardPage() {
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
                         {backup.file_size_bytes != null && backup.file_size_bytes > 0 ? (
                           <Typography variant="body2" color="textSecondary">
-                            {backup.file_size_bytes >= 1024 * 1024
-                              ? `${(backup.file_size_bytes / 1024 / 1024).toFixed(2)} MB`
-                              : `${(backup.file_size_bytes / 1024).toFixed(1)} KB`}
+                            {formatFileSize(backup.file_size_bytes)}
                           </Typography>
                         ) : backup.status === 'completed' ? (
                           <Typography variant="body2" color="textSecondary">

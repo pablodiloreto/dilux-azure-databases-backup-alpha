@@ -63,6 +63,9 @@ src/frontend/
     │   ├── useDatabases.ts
     │   └── useBackups.ts
     │
+    ├── utils/              # Utility functions
+    │   └── format.ts       # Formatting helpers (formatFileSize, etc.)
+    │
     └── types/              # TypeScript type definitions
         └── index.ts
 ```
@@ -246,12 +249,17 @@ Shows:
   - Backups - with period selector (1d/7d/30d/all)
   - Success Rate - with synced period selector, shows "N/A" when no backups
 - **Recent Backups** list with "View all" link to /backups
-- **System Health** panel with "View Details" link to /status
+- **System Health** panel with:
+  - Service status indicators (API, Storage, Databases)
+  - **Backup Alerts row** - Shows red alert when databases have consecutive failures
+  - Clickable row links to /status for details
+  - "View Details" link to /status
 
 **Dashboard Components:**
 - `BackupsCard` - Backup count with period selector
 - `SuccessRateCard` - Success rate with synced period selector
-- Both selectors are synchronized (clicking one updates both)
+- `SystemHealthCard` - Service health + backup alerts integration
+- Period selectors are synchronized (clicking one updates both)
 
 ### DatabasesPage
 
@@ -260,6 +268,7 @@ Shows:
 - Add/Edit/Delete actions
 - Test Connection button before saving
 - Trigger manual backup button
+- **Deep linking**: Supports `?edit={database_id}` query param to auto-open edit dialog (used from StatusPage alerts)
 
 ### BackupsPage
 
@@ -281,6 +290,9 @@ Shows:
 
 Shows:
 - Overall system status alert
+- **Backup Alerts section** - Lists databases with consecutive failures (2+)
+  - Shows database name, type, failure count, last error
+  - **Config link** - Each row has a settings icon that links to edit the database config
 - Service cards (API, Storage, Databases, Backup Stats)
 - System information table
 - Supported database types

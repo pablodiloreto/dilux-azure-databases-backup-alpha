@@ -134,7 +134,22 @@ echo "=============================================="
 echo ""
 
 # ==============================================
-# 4. Start Application Services (Background)
+# 4. Initialize Test Data (Access Requests & Backup History)
+# ==============================================
+echo "Initializing test data..."
+
+# Wait for Azurite to be fully ready (table service on port 10002)
+sleep 2
+
+if python3 .devcontainer/scripts/init-test-data.py 2>/dev/null; then
+    echo "  [OK] Test data initialized"
+else
+    echo "  [WARN] Test data initialization failed (will retry on next start)"
+fi
+echo ""
+
+# ==============================================
+# 5. Start Application Services (Background)
 # ==============================================
 echo "Starting application services..."
 echo ""

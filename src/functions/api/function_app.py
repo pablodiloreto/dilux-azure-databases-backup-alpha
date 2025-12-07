@@ -205,6 +205,39 @@ def format_bytes(size_bytes: int) -> str:
     return f"{size:.2f} {units[unit_index]}"
 
 
+@app.route(route="backup-alerts", methods=["GET"])
+def backup_alerts(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Get databases with consecutive backup failures.
+
+    Query params:
+    - consecutive_failures: int - Number of consecutive failures to trigger alert (default: 2)
+    """
+    try:
+        consecutive_failures = int(req.params.get("consecutive_failures", "2"))
+
+        alerts = storage_service.get_backup_alerts(
+            consecutive_failures=consecutive_failures
+        )
+
+        return func.HttpResponse(
+            json.dumps({
+                "alerts": alerts,
+                "count": len(alerts),
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+
+    except Exception as e:
+        logger.exception("Backup alerts check failed")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
 # ===========================================
 # Database Configuration Endpoints
 # ===========================================
@@ -721,6 +754,8 @@ def update_app_settings(req: func.HttpRequest) -> func.HttpResponse:
             current.default_retention_days = body["default_retention_days"]
         if "default_compression" in body:
             current.default_compression = body["default_compression"]
+        if "access_requests_enabled" in body:
+            current.access_requests_enabled = body["access_requests_enabled"]
 
         saved = storage_service.save_settings(current)
 

@@ -45,6 +45,7 @@ import {
   HourglassEmpty as PendingIcon,
 } from '@mui/icons-material'
 import { useAuth } from '../../contexts/AuthContext'
+import { useSettings } from '../../contexts/SettingsContext'
 import { usersApi, accessRequestsApi } from '../../api/users'
 import type { User, UserRole, CreateUserInput, UpdateUserInput, AccessRequest } from '../../types'
 
@@ -79,6 +80,7 @@ type StatusFilter = 'all' | 'active' | 'disabled'
 
 export function UsersPage() {
   const { user: currentUser, canManageUsers, isLoading: authLoading } = useAuth()
+  const { settings } = useSettings()
 
   // Users state
   const [users, setUsers] = useState<User[]>([])
@@ -93,7 +95,7 @@ export function UsersPage() {
   // Access requests state
   const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([])
   const [pendingCount, setPendingCount] = useState(0)
-  const [showPendingRequests, setShowPendingRequests] = useState(true)
+  const [showPendingRequests, setShowPendingRequests] = useState(false) // Collapsed by default
   const [loadingRequests, setLoadingRequests] = useState(false)
 
   // Dialog state
@@ -346,7 +348,7 @@ export function UsersPage() {
       )}
 
       {/* Pending Access Requests */}
-      {pendingCount > 0 && (
+      {settings.accessRequestsEnabled && pendingCount > 0 && (
         <Card sx={{ mb: 3 }}>
           <CardContent sx={{ pb: 1 }}>
             <Box

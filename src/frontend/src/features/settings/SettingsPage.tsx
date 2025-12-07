@@ -23,6 +23,7 @@ import {
   Info as InfoIcon,
   Compress as CompressIcon,
   EventRepeat as RetentionIcon,
+  PersonAdd as AccessRequestIcon,
 } from '@mui/icons-material'
 import { useState } from 'react'
 import { useSettings } from '../../contexts/SettingsContext'
@@ -174,6 +175,41 @@ export function SettingsPage() {
                   onChange={() =>
                     handleUpdateSetting({
                       defaultCompression: !settings.defaultCompression,
+                    })
+                  }
+                  disabled={saving}
+                />
+              </ListItemSecondaryAction>
+            </ListItem>
+          </List>
+        </CardContent>
+      </Card>
+
+      {/* Access Control */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>
+            Access Control
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Control how unauthorized users can request access.
+          </Typography>
+
+          <List disablePadding>
+            <ListItem>
+              <ListItemIcon>
+                <AccessRequestIcon />
+              </ListItemIcon>
+              <ListItemText
+                primary="Allow Access Requests"
+                secondary="Let unauthorized Azure AD users submit access requests for admin approval"
+              />
+              <ListItemSecondaryAction>
+                <Switch
+                  checked={settings.accessRequestsEnabled}
+                  onChange={() =>
+                    handleUpdateSetting({
+                      accessRequestsEnabled: !settings.accessRequestsEnabled,
                     })
                   }
                   disabled={saving}

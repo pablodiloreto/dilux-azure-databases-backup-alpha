@@ -89,6 +89,15 @@
 - ✅ Página /status con información detallada del sistema
 - ✅ Menú "Status" en sidebar debajo de Settings
 - ✅ Botón collapse del sidebar solo con ícono (sin texto)
+- ✅ Rename: "Dilux Backup" → "Dilux DB Backups" en sidebar
+- ✅ Backup Alerts: Sistema de alertas para DBs con fallos consecutivos (2+)
+- ✅ Dashboard System Health: Fila "Backups" integrada, clickeable cuando hay alertas
+- ✅ Status Page: Tabla de alertas con link a config de cada DB
+- ✅ Deep linking: `/databases?edit={id}` abre dialog de edición automáticamente
+- ✅ Utils centralizados: `formatFileSize()` en `src/utils/format.ts`
+- ✅ Backups Page: Botón "Search" para filtros, mejor UX
+- ✅ Settings: Opción access_requests_enabled para gestión de usuarios
+- ✅ Users Page: Paginación, gestión de solicitudes de acceso
 
 ### Sprint 3: Production Ready
 

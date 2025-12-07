@@ -23,6 +23,12 @@ class AppSettings(BaseModel):
         description="Default compression setting for new databases"
     )
 
+    # Access Control Settings
+    access_requests_enabled: bool = Field(
+        default=True,
+        description="Allow unauthorized users to request access"
+    )
+
     # Metadata
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -34,6 +40,7 @@ class AppSettings(BaseModel):
             "dark_mode": self.dark_mode,
             "default_retention_days": self.default_retention_days,
             "default_compression": self.default_compression,
+            "access_requests_enabled": self.access_requests_enabled,
             "updated_at": self.updated_at.isoformat(),
         }
 
@@ -44,6 +51,7 @@ class AppSettings(BaseModel):
             dark_mode=entity.get("dark_mode", False),
             default_retention_days=entity.get("default_retention_days", 30),
             default_compression=entity.get("default_compression", True),
+            access_requests_enabled=entity.get("access_requests_enabled", True),
             updated_at=datetime.fromisoformat(entity["updated_at"])
             if entity.get("updated_at")
             else datetime.utcnow(),

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Box,
   Typography,
@@ -31,6 +31,7 @@ import {
   Error as ErrorIcon,
   Storage as StorageIcon,
   Schedule as ScheduleIcon,
+  Search as SearchIcon,
 } from '@mui/icons-material'
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
@@ -39,6 +40,7 @@ import { Dayjs } from 'dayjs'
 import { useDatabases } from '../../hooks/useDatabases'
 import { backupsApi } from '../../api/backups'
 import { databasesApi } from '../../api/databases'
+import { formatFileSize, formatDuration } from '../../utils'
 import type { BackupResult, BackupFilters, DatabaseType, BackupStatus, DatabaseConfig } from '../../types'
 
 const DATABASE_DROPDOWN_LIMIT = 50
@@ -58,23 +60,8 @@ function getStatusColor(status: string): 'success' | 'error' | 'warning' | 'info
   }
 }
 
-function formatFileSize(bytes?: number): string {
-  if (!bytes) return '-'
-  const mb = bytes / 1024 / 1024
-  if (mb < 1) {
-    return `${(bytes / 1024).toFixed(2)} KB`
-  }
-  return `${mb.toFixed(2)} MB`
-}
-
-function formatDuration(seconds?: number): string {
-  if (!seconds) return '-'
-  if (seconds < 60) {
-    return `${seconds.toFixed(1)}s`
-  }
-  const minutes = Math.floor(seconds / 60)
-  const remainingSeconds = seconds % 60
-  return `${minutes}m ${remainingSeconds.toFixed(0)}s`
+function getTriggeredByColor(triggeredBy: string): 'info' | 'default' {
+  return triggeredBy === 'scheduler' ? 'info' : 'default'
 }
 
 interface StatsCardProps {
@@ -167,18 +154,21 @@ export function BackupsPage() {
     return () => clearTimeout(timer)
   }, [dbSearchInput, initialDbData])
 
-  // Build filters object
-  const buildFilters = useCallback((): BackupFilters => ({
+  // Track if initial load happened
+  const initialLoadDone = useRef(false)
+
+  // Build filters object from current state
+  const buildFilters = (): BackupFilters => ({
     databaseId: databaseFilter?.id || undefined,
     status: statusFilter || undefined,
     triggeredBy: triggeredByFilter || undefined,
     databaseType: dbTypeFilter || undefined,
     startDate: startDate?.format('YYYY-MM-DD'),
     endDate: endDate?.format('YYYY-MM-DD'),
-  }), [databaseFilter, statusFilter, triggeredByFilter, dbTypeFilter, startDate, endDate])
+  })
 
   // Fetch backups (paged, sorted by date descending from server)
-  const fetchBackups = useCallback(async (page: number = 1, append: boolean = false) => {
+  const fetchBackups = useCallback(async (page: number = 1, append: boolean = false, filters?: BackupFilters) => {
     setIsLoading(true)
     setError(null)
 
@@ -186,7 +176,7 @@ export function BackupsPage() {
       const response = await backupsApi.getHistoryPaged({
         pageSize: PAGE_SIZE,
         page,
-        filters: buildFilters(),
+        filters: filters || {},
       })
 
       if (append) {
@@ -204,23 +194,36 @@ export function BackupsPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [buildFilters])
+  }, [])
 
-  // Load data on mount and when filters change
+  // Load data on mount only (no auto-refresh on filter change)
   useEffect(() => {
-    fetchBackups(1, false)
+    if (!initialLoadDone.current) {
+      fetchBackups(1, false)
+      initialLoadDone.current = true
+    }
   }, [fetchBackups])
 
-  // Load more (next page)
+  // Store the last applied filters for Load More to work correctly
+  const lastAppliedFilters = useRef<BackupFilters>({})
+
+  // Load more (next page with same filters)
   const handleLoadMore = () => {
     if (hasMore) {
-      fetchBackups(currentPage + 1, true)
+      fetchBackups(currentPage + 1, true, lastAppliedFilters.current)
     }
   }
 
-  // Refresh
+  // Refresh with current applied filters
   const handleRefresh = () => {
-    fetchBackups(1, false)
+    fetchBackups(1, false, lastAppliedFilters.current)
+  }
+
+  // Search with current filter values
+  const handleSearch = () => {
+    const filters = buildFilters()
+    lastAppliedFilters.current = filters
+    fetchBackups(1, false, filters)
   }
 
   const handleClearFilters = () => {
@@ -230,6 +233,9 @@ export function BackupsPage() {
     setDbTypeFilter('')
     setStartDate(null)
     setEndDate(null)
+    // Also clear applied filters and reload all
+    lastAppliedFilters.current = {}
+    fetchBackups(1, false, {})
   }
 
   const hasActiveFilters = databaseFilter || triggeredByFilter || statusFilter || dbTypeFilter || startDate || endDate
@@ -402,6 +408,15 @@ export function BackupsPage() {
               slotProps={{ textField: { size: 'small', sx: { width: 160 } } }}
             />
 
+            <Button
+              variant="contained"
+              startIcon={<SearchIcon />}
+              onClick={handleSearch}
+              disabled={isLoading}
+            >
+              Search
+            </Button>
+
             {hasActiveFilters && (
               <Button
                 variant="text"
@@ -409,7 +424,7 @@ export function BackupsPage() {
                 onClick={handleClearFilters}
                 color="inherit"
               >
-                Clear Filters
+                Clear
               </Button>
             )}
           </Stack>
@@ -466,6 +481,7 @@ export function BackupsPage() {
                           <Chip
                             size="small"
                             label={backup.triggered_by}
+                            color={getTriggeredByColor(backup.triggered_by)}
                             variant="outlined"
                           />
                         </TableCell>
@@ -489,22 +505,11 @@ export function BackupsPage() {
                               </IconButton>
                             </Tooltip>
                           )}
-                          {backup.status === 'failed' && backup.error_message && (
-                            <Tooltip title={backup.error_message}>
-                              <Typography
-                                variant="caption"
-                                color="error"
-                                sx={{
-                                  display: 'block',
-                                  maxWidth: 120,
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                  cursor: 'help'
-                                }}
-                              >
-                                {backup.error_message}
-                              </Typography>
+                          {backup.status === 'failed' && (
+                            <Tooltip title={backup.error_message || 'Backup failed'}>
+                              <IconButton size="small" color="error" sx={{ cursor: 'help' }}>
+                                <ErrorIcon fontSize="small" />
+                              </IconButton>
                             </Tooltip>
                           )}
                         </TableCell>

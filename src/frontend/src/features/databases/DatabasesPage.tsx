@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Box,
   Typography,
@@ -47,6 +48,7 @@ function getDatabaseTypeColor(type: string): 'primary' | 'secondary' | 'success'
 }
 
 export function DatabasesPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const { data: databases, isLoading, error } = useDatabases()
   const deleteMutation = useDeleteDatabase()
   const triggerBackupMutation = useTriggerBackup()
@@ -62,6 +64,20 @@ export function DatabasesPage() {
     message: '',
     severity: 'success',
   })
+
+  // Handle edit query param - auto-open edit dialog when coming from Status page
+  useEffect(() => {
+    const editId = searchParams.get('edit')
+    if (editId && databases?.databases) {
+      const dbToEdit = databases.databases.find((db) => db.id === editId)
+      if (dbToEdit) {
+        setSelectedDb(dbToEdit)
+        setFormDialogOpen(true)
+        // Clear the query param to avoid re-opening on refresh
+        setSearchParams({}, { replace: true })
+      }
+    }
+  }, [searchParams, databases, setSearchParams])
 
   const handleDeleteClick = (db: DatabaseConfig) => {
     setSelectedDb(db)

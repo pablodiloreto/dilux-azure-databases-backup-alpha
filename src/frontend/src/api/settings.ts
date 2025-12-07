@@ -4,6 +4,7 @@ export interface AppSettings {
   dark_mode: boolean
   default_retention_days: number
   default_compression: boolean
+  access_requests_enabled: boolean
   updated_at: string
 }
 

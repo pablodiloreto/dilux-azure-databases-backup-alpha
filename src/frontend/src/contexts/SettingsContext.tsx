@@ -9,6 +9,7 @@ interface Settings {
   darkMode: boolean
   defaultRetentionDays: number
   defaultCompression: boolean
+  accessRequestsEnabled: boolean
 }
 
 interface SettingsContextType {
@@ -35,6 +36,7 @@ const defaultSettings: Settings = {
   darkMode: getInitialDarkMode(),
   defaultRetentionDays: 30,
   defaultCompression: true,
+  accessRequestsEnabled: true,
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined)
@@ -45,6 +47,7 @@ function apiToFrontend(api: ApiSettings, currentDarkMode: boolean): Settings {
     darkMode: currentDarkMode, // Keep local value
     defaultRetentionDays: api.default_retention_days,
     defaultCompression: api.default_compression,
+    accessRequestsEnabled: api.access_requests_enabled,
   }
 }
 
@@ -53,6 +56,7 @@ function frontendToApi(settings: Partial<Settings>): Partial<Omit<ApiSettings, '
   const result: Partial<Omit<ApiSettings, 'updated_at'>> = {}
   if (settings.defaultRetentionDays !== undefined) result.default_retention_days = settings.defaultRetentionDays
   if (settings.defaultCompression !== undefined) result.default_compression = settings.defaultCompression
+  if (settings.accessRequestsEnabled !== undefined) result.access_requests_enabled = settings.accessRequestsEnabled
   return result
 }
 

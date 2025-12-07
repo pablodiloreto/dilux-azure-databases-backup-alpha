@@ -30,6 +30,20 @@ export interface SystemStatus {
   }
 }
 
+export interface BackupAlert {
+  database_id: string
+  database_name: string
+  database_type: string
+  consecutive_failures: number
+  last_failure_at: string
+  last_error: string | null
+}
+
+export interface BackupAlertsResponse {
+  alerts: BackupAlert[]
+  count: number
+}
+
 export const systemApi = {
   /**
    * Get comprehensive system status
@@ -38,6 +52,17 @@ export const systemApi = {
   getStatus: async (period: TimePeriod = '1d'): Promise<SystemStatus> => {
     const response = await apiClient.get<SystemStatus>('/system-status', {
       params: { period },
+    })
+    return response.data
+  },
+
+  /**
+   * Get backup alerts (databases with consecutive failures)
+   * @param consecutiveFailures - Number of consecutive failures to trigger alert (default: 2)
+   */
+  getBackupAlerts: async (consecutiveFailures: number = 2): Promise<BackupAlertsResponse> => {
+    const response = await apiClient.get<BackupAlertsResponse>('/backup-alerts', {
+      params: { consecutive_failures: consecutiveFailures },
     })
     return response.data
   },

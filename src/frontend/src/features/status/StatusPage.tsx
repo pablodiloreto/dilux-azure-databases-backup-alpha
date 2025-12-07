@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { Link as RouterLink } from 'react-router-dom'
 import {
   Box,
   Card,
@@ -16,6 +17,8 @@ import {
   Paper,
   Alert,
   Button,
+  Tooltip,
+  IconButton,
 } from '@mui/material'
 import {
   CheckCircle as CheckIcon,
@@ -27,8 +30,11 @@ import {
   Dns as DnsIcon,
   Timer as TimerIcon,
   Code as CodeIcon,
+  NotificationsActive as AlertIcon,
+  Settings as SettingsIcon,
 } from '@mui/icons-material'
 import { systemApi } from '../../api'
+import type { BackupAlert } from '../../api'
 
 function StatusChip({ status }: { status: string }) {
   const color = status === 'healthy' ? 'success' : status === 'unhealthy' ? 'error' : 'warning'
@@ -108,6 +114,23 @@ function ServiceCard({
   )
 }
 
+function formatAlertDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleString()
+}
+
+function getDatabaseTypeColor(type: string): 'primary' | 'secondary' | 'warning' {
+  switch (type) {
+    case 'mysql':
+      return 'primary'
+    case 'postgresql':
+      return 'secondary'
+    case 'sqlserver':
+      return 'warning'
+    default:
+      return 'primary'
+  }
+}
+
 export function StatusPage() {
   const { data: status, isLoading, refetch, dataUpdatedAt } = useQuery({
     queryKey: ['system-status-full'],
@@ -115,11 +138,24 @@ export function StatusPage() {
     refetchInterval: 30000,
   })
 
+  const { data: alertsData, isLoading: alertsLoading, refetch: refetchAlerts } = useQuery({
+    queryKey: ['backup-alerts'],
+    queryFn: () => systemApi.getBackupAlerts(2),
+    refetchInterval: 30000,
+  })
+
+  const handleRefresh = () => {
+    refetch()
+    refetchAlerts()
+  }
+
   const lastChecked = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleString() : 'Never'
 
   const allHealthy = status?.services
     ? Object.values(status.services).every((s) => s.status === 'healthy')
     : false
+
+  const hasAlerts = (alertsData?.count ?? 0) > 0
 
   return (
     <Box>
@@ -128,8 +164,8 @@ export function StatusPage() {
         <Button
           variant="outlined"
           startIcon={<RefreshIcon />}
-          onClick={() => refetch()}
-          disabled={isLoading}
+          onClick={handleRefresh}
+          disabled={isLoading || alertsLoading}
         >
           Refresh
         </Button>
@@ -138,19 +174,115 @@ export function StatusPage() {
       {/* Overall Status */}
       {!isLoading && (
         <Alert
-          severity={allHealthy ? 'success' : 'warning'}
+          severity={allHealthy && !hasAlerts ? 'success' : 'warning'}
           sx={{ mb: 3 }}
-          icon={allHealthy ? <CheckIcon /> : <WarningIcon />}
+          icon={allHealthy && !hasAlerts ? <CheckIcon /> : <WarningIcon />}
         >
           <Typography variant="body1" fontWeight={500}>
-            {allHealthy
+            {allHealthy && !hasAlerts
               ? 'All systems operational'
+              : hasAlerts
+              ? `Backup alerts: ${alertsData?.count} database(s) with consecutive failures`
               : 'Some systems may require attention'}
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Last checked: {lastChecked}
           </Typography>
         </Alert>
+      )}
+
+      {/* Backup Alerts */}
+      {!alertsLoading && hasAlerts && (
+        <Card sx={{ mb: 3, borderLeft: 4, borderColor: 'error.main' }}>
+          <CardContent>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <AlertIcon color="error" />
+              <Typography variant="h6" color="error.main">
+                Backup Alerts
+              </Typography>
+              <Chip
+                size="small"
+                label={alertsData?.count}
+                color="error"
+              />
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              The following databases have 2 or more consecutive backup failures and require attention.
+            </Typography>
+            <TableContainer component={Paper} variant="outlined">
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Database</TableCell>
+                    <TableCell>Type</TableCell>
+                    <TableCell>Failures</TableCell>
+                    <TableCell>Last Failure</TableCell>
+                    <TableCell>Error</TableCell>
+                    <TableCell align="center">Config</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {alertsData?.alerts.map((alert: BackupAlert) => (
+                    <TableRow key={alert.database_id} hover>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={500}>
+                          {alert.database_name}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          size="small"
+                          label={alert.database_type}
+                          color={getDatabaseTypeColor(alert.database_type)}
+                          variant="outlined"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          size="small"
+                          label={alert.consecutive_failures}
+                          color="error"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" color="text.secondary">
+                          {formatAlertDate(alert.last_failure_at)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={{ maxWidth: 300 }}>
+                        <Tooltip title={alert.last_error || 'Unknown error'}>
+                          <Typography
+                            variant="body2"
+                            color="error"
+                            sx={{
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {alert.last_error || 'Unknown error'}
+                          </Typography>
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell align="center">
+                        <Tooltip title="Edit database configuration">
+                          <IconButton
+                            component={RouterLink}
+                            to={`/databases?edit=${alert.database_id}`}
+                            size="small"
+                            color="primary"
+                          >
+                            <SettingsIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </CardContent>
+        </Card>
       )}
 
       <Grid container spacing={3}>

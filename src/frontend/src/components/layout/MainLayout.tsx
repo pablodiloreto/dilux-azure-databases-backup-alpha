@@ -126,7 +126,7 @@ export function MainLayout({ children }: MainLayoutProps) {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <BackupIcon color="primary" />
             <Typography variant="h6" noWrap component="div" sx={{ fontWeight: 700 }}>
-              Dilux Backup
+              Dilux DB Backups
             </Typography>
           </Box>
         ) : (
