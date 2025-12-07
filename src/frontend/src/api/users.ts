@@ -1,14 +1,25 @@
 import { apiClient } from './client'
-import type { User, CreateUserInput, UpdateUserInput, CurrentUserResponse } from '../types'
-
-interface UsersResponse {
-  users: User[]
-  count: number
-}
+import type {
+  User,
+  CreateUserInput,
+  UpdateUserInput,
+  CurrentUserResponse,
+  UsersPagedResponse,
+  AccessRequest,
+  AccessRequestsResponse,
+  UserRole,
+} from '../types'
 
 interface UserResponse {
   user: User
   message?: string
+}
+
+interface UsersQueryParams {
+  page?: number
+  page_size?: number
+  search?: string
+  status?: 'active' | 'disabled' | ''
 }
 
 export const usersApi = {
@@ -21,11 +32,11 @@ export const usersApi = {
   },
 
   /**
-   * List all users (admin only)
+   * List users with pagination and filters (admin only)
    */
-  getAll: async (): Promise<User[]> => {
-    const response = await apiClient.get<UsersResponse>('/users')
-    return response.data.users
+  getAll: async (params?: UsersQueryParams): Promise<UsersPagedResponse> => {
+    const response = await apiClient.get<UsersPagedResponse>('/users', { params })
+    return response.data
   },
 
   /**
@@ -57,6 +68,34 @@ export const usersApi = {
    */
   delete: async (userId: string): Promise<void> => {
     await apiClient.delete(`/users/${userId}`)
+  },
+}
+
+export const accessRequestsApi = {
+  /**
+   * List pending access requests (admin only)
+   */
+  getAll: async (): Promise<AccessRequest[]> => {
+    const response = await apiClient.get<AccessRequestsResponse>('/access-requests')
+    return response.data.requests
+  },
+
+  /**
+   * Approve an access request (admin only)
+   */
+  approve: async (requestId: string, role?: UserRole): Promise<User> => {
+    const response = await apiClient.post<{ user: User; message: string }>(
+      `/access-requests/${requestId}/approve`,
+      { role }
+    )
+    return response.data.user
+  },
+
+  /**
+   * Reject an access request (admin only)
+   */
+  reject: async (requestId: string, reason?: string): Promise<void> => {
+    await apiClient.post(`/access-requests/${requestId}/reject`, { reason })
   },
 }
 

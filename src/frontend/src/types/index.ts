@@ -136,3 +136,27 @@ export interface CurrentUserResponse {
   user: User
   is_first_run: boolean
 }
+
+export interface UsersPagedResponse {
+  users: User[]
+  count: number
+  total_count: number
+  page: number
+  page_size: number
+  has_more: boolean
+  pending_requests_count: number
+}
+
+export interface AccessRequest {
+  id: string
+  email: string
+  name: string
+  azure_ad_id: string
+  status: 'pending' | 'approved' | 'rejected'
+  requested_at: string
+}
+
+export interface AccessRequestsResponse {
+  requests: AccessRequest[]
+  count: number
+}

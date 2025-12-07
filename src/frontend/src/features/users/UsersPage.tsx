@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Box,
   Typography,
@@ -24,6 +24,10 @@ import {
   Tooltip,
   Switch,
   FormControlLabel,
+  TablePagination,
+  InputAdornment,
+  Badge,
+  Collapse,
 } from '@mui/material'
 import {
   Add as AddIcon,
@@ -33,10 +37,16 @@ import {
   AdminPanelSettings as AdminIcon,
   Engineering as OperatorIcon,
   Visibility as ViewerIcon,
+  Search as SearchIcon,
+  Check as ApproveIcon,
+  Close as RejectIcon,
+  ExpandMore as ExpandIcon,
+  ExpandLess as CollapseIcon,
+  HourglassEmpty as PendingIcon,
 } from '@mui/icons-material'
 import { useAuth } from '../../contexts/AuthContext'
-import { usersApi } from '../../api/users'
-import type { User, UserRole, CreateUserInput, UpdateUserInput } from '../../types'
+import { usersApi, accessRequestsApi } from '../../api/users'
+import type { User, UserRole, CreateUserInput, UpdateUserInput, AccessRequest } from '../../types'
 
 function getRoleIcon(role: UserRole) {
   switch (role) {
@@ -65,18 +75,40 @@ function formatDate(dateStr: string | null): string {
   return new Date(dateStr).toLocaleString()
 }
 
+type StatusFilter = 'all' | 'active' | 'disabled'
+
 export function UsersPage() {
   const { user: currentUser, canManageUsers, isLoading: authLoading } = useAuth()
 
+  // Users state
   const [users, setUsers] = useState<User[]>([])
+  const [totalCount, setTotalCount] = useState(0)
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(50)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Access requests state
+  const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([])
+  const [pendingCount, setPendingCount] = useState(0)
+  const [showPendingRequests, setShowPendingRequests] = useState(true)
+  const [loadingRequests, setLoadingRequests] = useState(false)
 
   // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [userToDelete, setUserToDelete] = useState<User | null>(null)
+
+  // Approve/Reject dialog state
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false)
+  const [requestToApprove, setRequestToApprove] = useState<AccessRequest | null>(null)
+  const [approveRole, setApproveRole] = useState<UserRole>('viewer')
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
+  const [requestToReject, setRequestToReject] = useState<AccessRequest | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
 
   // Form state
   const [formEmail, setFormEmail] = useState('')
@@ -86,25 +118,50 @@ export function UsersPage() {
   const [formError, setFormError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     setIsLoading(true)
     setError(null)
     try {
-      const data = await usersApi.getAll()
-      setUsers(data)
+      const data = await usersApi.getAll({
+        page: page + 1, // API uses 1-based pages
+        page_size: pageSize,
+        search: searchQuery || undefined,
+        status: statusFilter === 'all' ? '' : statusFilter,
+      })
+      setUsers(data.users)
+      setTotalCount(data.total_count)
+      setPendingCount(data.pending_requests_count)
     } catch (err) {
       console.error('Failed to fetch users:', err)
       setError('Failed to load users')
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [page, pageSize, searchQuery, statusFilter])
+
+  const fetchAccessRequests = useCallback(async () => {
+    setLoadingRequests(true)
+    try {
+      const requests = await accessRequestsApi.getAll()
+      setAccessRequests(requests)
+    } catch (err) {
+      console.error('Failed to fetch access requests:', err)
+    } finally {
+      setLoadingRequests(false)
+    }
+  }, [])
 
   useEffect(() => {
     if (canManageUsers) {
       fetchUsers()
     }
-  }, [canManageUsers])
+  }, [canManageUsers, fetchUsers])
+
+  useEffect(() => {
+    if (canManageUsers && pendingCount > 0) {
+      fetchAccessRequests()
+    }
+  }, [canManageUsers, pendingCount, fetchAccessRequests])
 
   const handleOpenCreate = () => {
     setEditingUser(null)
@@ -138,7 +195,6 @@ export function UsersPage() {
 
     try {
       if (editingUser) {
-        // Update existing user
         const input: UpdateUserInput = {
           name: formName,
           role: formRole,
@@ -146,10 +202,9 @@ export function UsersPage() {
         }
         await usersApi.update(editingUser.id, input)
       } else {
-        // Create new user
         const input: CreateUserInput = {
           email: formEmail,
-          name: formName,
+          name: formName || undefined,
           role: formRole,
         }
         await usersApi.create(input)
@@ -185,6 +240,61 @@ export function UsersPage() {
     }
   }
 
+  // Access request handlers
+  const handleApproveClick = (request: AccessRequest) => {
+    setRequestToApprove(request)
+    setApproveRole('viewer')
+    setApproveDialogOpen(true)
+  }
+
+  const handleApproveConfirm = async () => {
+    if (!requestToApprove) return
+
+    setIsSaving(true)
+    try {
+      await accessRequestsApi.approve(requestToApprove.id, approveRole)
+      setApproveDialogOpen(false)
+      setRequestToApprove(null)
+      fetchUsers()
+      fetchAccessRequests()
+    } catch (err) {
+      console.error('Failed to approve request:', err)
+      setError('Failed to approve request')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleRejectClick = (request: AccessRequest) => {
+    setRequestToReject(request)
+    setRejectReason('')
+    setRejectDialogOpen(true)
+  }
+
+  const handleRejectConfirm = async () => {
+    if (!requestToReject) return
+
+    setIsSaving(true)
+    try {
+      await accessRequestsApi.reject(requestToReject.id, rejectReason || undefined)
+      setRejectDialogOpen(false)
+      setRequestToReject(null)
+      fetchUsers()
+      fetchAccessRequests()
+    } catch (err) {
+      console.error('Failed to reject request:', err)
+      setError('Failed to reject request')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault()
+    setPage(0)
+    fetchUsers()
+  }
+
   // Show access denied if not admin
   if (!authLoading && !canManageUsers) {
     return (
@@ -208,7 +318,7 @@ export function UsersPage() {
           <Button
             variant="outlined"
             startIcon={<RefreshIcon />}
-            onClick={fetchUsers}
+            onClick={() => { fetchUsers(); fetchAccessRequests(); }}
             disabled={isLoading}
           >
             Refresh
@@ -230,104 +340,245 @@ export function UsersPage() {
 
       {/* Error */}
       {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
+        <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
           {error}
         </Alert>
       )}
 
-      {/* Users Table */}
-      <Card>
-        <CardContent sx={{ p: 0 }}>
-          <TableContainer>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Name</TableCell>
-                  <TableCell>Email</TableCell>
-                  <TableCell>Role</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Last Login</TableCell>
-                  <TableCell align="right">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {isLoading ? (
+      {/* Pending Access Requests */}
+      {pendingCount > 0 && (
+        <Card sx={{ mb: 3 }}>
+          <CardContent sx={{ pb: 1 }}>
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                cursor: 'pointer',
+              }}
+              onClick={() => setShowPendingRequests(!showPendingRequests)}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Badge badgeContent={pendingCount} color="warning">
+                  <PendingIcon color="warning" />
+                </Badge>
+                <Typography variant="h6">
+                  Pending Access Requests
+                </Typography>
+              </Box>
+              <IconButton size="small">
+                {showPendingRequests ? <CollapseIcon /> : <ExpandIcon />}
+              </IconButton>
+            </Box>
+          </CardContent>
+          <Collapse in={showPendingRequests}>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
                   <TableRow>
-                    <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
-                      <CircularProgress size={24} />
-                    </TableCell>
+                    <TableCell>Name</TableCell>
+                    <TableCell>Email</TableCell>
+                    <TableCell>Requested</TableCell>
+                    <TableCell align="right">Actions</TableCell>
                   </TableRow>
-                ) : users.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
-                      <Typography color="textSecondary">
-                        No users found. Add your first user above.
-                      </Typography>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  users.map((user) => (
-                    <TableRow key={user.id} hover>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Typography variant="body2" fontWeight={500}>
-                            {user.name}
+                </TableHead>
+                <TableBody>
+                  {loadingRequests ? (
+                    <TableRow>
+                      <TableCell colSpan={4} align="center" sx={{ py: 2 }}>
+                        <CircularProgress size={20} />
+                      </TableCell>
+                    </TableRow>
+                  ) : accessRequests.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} align="center" sx={{ py: 2 }}>
+                        <Typography color="textSecondary">No pending requests</Typography>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    accessRequests.map((request) => (
+                      <TableRow key={request.id} hover>
+                        <TableCell>{request.name}</TableCell>
+                        <TableCell>{request.email}</TableCell>
+                        <TableCell>
+                          <Typography variant="body2" color="textSecondary">
+                            {formatDate(request.requested_at)}
                           </Typography>
-                          {user.id === currentUser?.id && (
-                            <Chip size="small" label="You" color="primary" variant="outlined" />
-                          )}
-                        </Box>
-                      </TableCell>
-                      <TableCell>{user.email}</TableCell>
-                      <TableCell>
-                        <Chip
-                          size="small"
-                          icon={getRoleIcon(user.role)}
-                          label={user.role.charAt(0).toUpperCase() + user.role.slice(1)}
-                          color={getRoleColor(user.role)}
-                          variant="outlined"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          size="small"
-                          label={user.enabled ? 'Active' : 'Disabled'}
-                          color={user.enabled ? 'success' : 'default'}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" color="textSecondary">
-                          {formatDate(user.last_login)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Tooltip title="Edit user">
-                          <IconButton
-                            size="small"
-                            onClick={() => handleOpenEdit(user)}
-                          >
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        {user.id !== currentUser?.id && (
-                          <Tooltip title="Delete user">
+                        </TableCell>
+                        <TableCell align="right">
+                          <Tooltip title="Approve">
+                            <IconButton
+                              size="small"
+                              color="success"
+                              onClick={() => handleApproveClick(request)}
+                            >
+                              <ApproveIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Reject">
                             <IconButton
                               size="small"
                               color="error"
-                              onClick={() => handleDeleteClick(user)}
+                              onClick={() => handleRejectClick(request)}
                             >
-                              <DeleteIcon fontSize="small" />
+                              <RejectIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Collapse>
+        </Card>
+      )}
+
+      {/* Filters */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Box component="form" onSubmit={handleSearch} sx={{ flexGrow: 1, minWidth: 200 }}>
+              <TextField
+                size="small"
+                placeholder="Search by email or name..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                fullWidth
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Box>
+            <TextField
+              select
+              size="small"
+              label="Status"
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value as StatusFilter)
+                setPage(0)
+              }}
+              sx={{ minWidth: 120 }}
+            >
+              <MenuItem value="all">All</MenuItem>
+              <MenuItem value="active">Active</MenuItem>
+              <MenuItem value="disabled">Disabled</MenuItem>
+            </TextField>
+          </Box>
         </CardContent>
+      </Card>
+
+      {/* Users Table */}
+      <Card>
+        <TableContainer>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Name</TableCell>
+                <TableCell>Email</TableCell>
+                <TableCell>Role</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Last Login</TableCell>
+                <TableCell align="right">Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                    <CircularProgress size={24} />
+                  </TableCell>
+                </TableRow>
+              ) : users.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                    <Typography color="textSecondary">
+                      {searchQuery || statusFilter !== 'all'
+                        ? 'No users match your filters.'
+                        : 'No users found. Add your first user above.'}
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                users.map((user) => (
+                  <TableRow key={user.id} hover>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body2" fontWeight={500}>
+                          {user.name}
+                        </Typography>
+                        {user.id === currentUser?.id && (
+                          <Chip size="small" label="You" color="primary" variant="outlined" />
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell>{user.email}</TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        icon={getRoleIcon(user.role)}
+                        label={user.role.charAt(0).toUpperCase() + user.role.slice(1)}
+                        color={getRoleColor(user.role)}
+                        variant="outlined"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        label={user.enabled ? 'Active' : 'Disabled'}
+                        color={user.enabled ? 'success' : 'default'}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" color="textSecondary">
+                        {formatDate(user.last_login)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Tooltip title="Edit user">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleOpenEdit(user)}
+                        >
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      {user.id !== currentUser?.id && (
+                        <Tooltip title="Delete user">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleDeleteClick(user)}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+        <TablePagination
+          component="div"
+          count={totalCount}
+          page={page}
+          onPageChange={(_, newPage) => setPage(newPage)}
+          rowsPerPage={pageSize}
+          onRowsPerPageChange={(e) => {
+            setPageSize(parseInt(e.target.value, 10))
+            setPage(0)
+          }}
+          rowsPerPageOptions={[25, 50, 100]}
+        />
       </Card>
 
       {/* Create/Edit Dialog */}
@@ -347,7 +598,7 @@ export function UsersPage() {
               type="email"
               value={formEmail}
               onChange={(e) => setFormEmail(e.target.value)}
-              disabled={!!editingUser} // Can't change email after creation
+              disabled={!!editingUser}
               required
               fullWidth
               helperText={editingUser ? 'Email cannot be changed' : 'Must match their Azure AD email'}
@@ -425,6 +676,65 @@ export function UsersPage() {
           <Button onClick={() => setDeleteConfirmOpen(false)}>Cancel</Button>
           <Button onClick={handleDeleteConfirm} color="error" variant="contained">
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Approve Request Dialog */}
+      <Dialog open={approveDialogOpen} onClose={() => setApproveDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Approve Access Request</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ mb: 2 }}>
+            Approve access for <strong>{requestToApprove?.name}</strong> ({requestToApprove?.email})?
+          </Typography>
+          <TextField
+            select
+            label="Role"
+            value={approveRole}
+            onChange={(e) => setApproveRole(e.target.value as UserRole)}
+            fullWidth
+            helperText={
+              approveRole === 'admin'
+                ? 'Full access: manage users, databases, backups, settings'
+                : approveRole === 'operator'
+                ? 'Can trigger backups and manage databases, but not users'
+                : 'Read-only access to dashboards and backup history'
+            }
+          >
+            <MenuItem value="admin">Admin</MenuItem>
+            <MenuItem value="operator">Operator</MenuItem>
+            <MenuItem value="viewer">Viewer</MenuItem>
+          </TextField>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setApproveDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleApproveConfirm} color="success" variant="contained" disabled={isSaving}>
+            {isSaving ? <CircularProgress size={20} /> : 'Approve'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Reject Request Dialog */}
+      <Dialog open={rejectDialogOpen} onClose={() => setRejectDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Reject Access Request</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ mb: 2 }}>
+            Reject access for <strong>{requestToReject?.name}</strong> ({requestToReject?.email})?
+          </Typography>
+          <TextField
+            label="Reason (optional)"
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            fullWidth
+            multiline
+            rows={2}
+            placeholder="Enter a reason for rejection..."
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleRejectConfirm} color="error" variant="contained" disabled={isSaving}>
+            {isSaving ? <CircularProgress size={20} /> : 'Reject'}
           </Button>
         </DialogActions>
       </Dialog>

@@ -108,3 +108,67 @@ class UpdateUserInput(BaseModel):
     name: Optional[str] = None
     role: Optional[UserRole] = None
     enabled: Optional[bool] = None
+
+
+class AccessRequestStatus(str, Enum):
+    """Status of an access request."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class AccessRequest(BaseModel):
+    """
+    Access request from unauthorized users.
+
+    When a user with a valid Azure AD account tries to access
+    the app but isn't pre-registered, they can submit a request.
+    """
+
+    id: str = Field(..., description="Unique request ID")
+    email: str = Field(..., description="User email from Azure AD")
+    name: str = Field(..., description="Display name from Azure AD")
+    azure_ad_id: str = Field(..., description="Azure AD Object ID")
+
+    status: AccessRequestStatus = Field(default=AccessRequestStatus.PENDING)
+    requested_at: datetime = Field(default_factory=datetime.utcnow)
+
+    # Resolution info
+    resolved_at: Optional[datetime] = Field(default=None)
+    resolved_by: Optional[str] = Field(default=None, description="ID of admin who resolved")
+    rejection_reason: Optional[str] = Field(default=None)
+
+    def to_table_entity(self) -> dict:
+        """Convert to Azure Table Storage entity."""
+        return {
+            "PartitionKey": "access_requests",
+            "RowKey": self.id,
+            "email": self.email,
+            "name": self.name,
+            "azure_ad_id": self.azure_ad_id,
+            "status": self.status.value,
+            "requested_at": self.requested_at.isoformat(),
+            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
+            "resolved_by": self.resolved_by,
+            "rejection_reason": self.rejection_reason,
+        }
+
+    @classmethod
+    def from_table_entity(cls, entity: dict) -> "AccessRequest":
+        """Create from Azure Table Storage entity."""
+        return cls(
+            id=entity["RowKey"],
+            email=entity["email"],
+            name=entity["name"],
+            azure_ad_id=entity["azure_ad_id"],
+            status=AccessRequestStatus(entity.get("status", "pending")),
+            requested_at=datetime.fromisoformat(entity["requested_at"])
+            if entity.get("requested_at")
+            else datetime.utcnow(),
+            resolved_at=datetime.fromisoformat(entity["resolved_at"])
+            if entity.get("resolved_at")
+            else None,
+            resolved_by=entity.get("resolved_by"),
+            rejection_reason=entity.get("rejection_reason"),
+        )

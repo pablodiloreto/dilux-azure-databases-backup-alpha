@@ -741,3 +741,207 @@ class StorageService:
             user.last_login = datetime.utcnow()
             return self.save_user(user)
         return None
+
+    def get_users_paged(
+        self,
+        page_size: int = 50,
+        page: int = 1,
+        search: Optional[str] = None,
+        status: Optional[str] = None,  # 'active', 'disabled', or None for all
+    ) -> tuple[list[User], int, bool]:
+        """
+        Get users with pagination and filtering.
+
+        Args:
+            page_size: Number of results per page (default 50)
+            page: Page number (1-based, default 1)
+            search: Search by email (case-insensitive contains)
+            status: Filter by status ('active', 'disabled', or None for all)
+
+        Returns:
+            Tuple of (list of Users for requested page, total count, has_more)
+        """
+        table_client = self._get_users_table()
+
+        # Get all users first (Azure Table doesn't support complex queries well)
+        all_users = []
+        try:
+            entities = table_client.query_entities(
+                query_filter="PartitionKey eq 'users'"
+            )
+            for entity in entities:
+                try:
+                    all_users.append(User.from_table_entity(entity))
+                except (KeyError, ValueError) as e:
+                    logger.warning(f"Skipping malformed user entity: {e}")
+        except Exception as e:
+            logger.error(f"Error listing users: {e}")
+
+        # Apply filters in memory
+        filtered_users = all_users
+
+        if search:
+            search_lower = search.lower()
+            filtered_users = [
+                u for u in filtered_users
+                if search_lower in u.email.lower() or search_lower in u.name.lower()
+            ]
+
+        if status == 'active':
+            filtered_users = [u for u in filtered_users if u.enabled]
+        elif status == 'disabled':
+            filtered_users = [u for u in filtered_users if not u.enabled]
+
+        # Sort by email
+        filtered_users.sort(key=lambda u: u.email.lower())
+
+        # Paginate
+        total_count = len(filtered_users)
+        offset = (page - 1) * page_size
+        page_users = filtered_users[offset:offset + page_size]
+        has_more = offset + len(page_users) < total_count
+
+        return page_users, total_count, has_more
+
+    # ===========================================
+    # Access Request Operations
+    # ===========================================
+
+    def _get_access_requests_table(self):
+        """Get or create access_requests table."""
+        table_name = "accessrequests"
+        table_client = self._clients.get_table_client(table_name)
+
+        try:
+            self._clients.table_service_client.create_table(table_name)
+        except ResourceExistsError:
+            pass
+
+        return table_client
+
+    def save_access_request(self, request: "AccessRequest") -> "AccessRequest":
+        """
+        Save an access request.
+
+        Args:
+            request: AccessRequest instance to save
+
+        Returns:
+            Saved AccessRequest instance
+        """
+        from ..models import AccessRequest
+
+        table_client = self._get_access_requests_table()
+
+        entity = request.to_table_entity()
+        table_client.upsert_entity(entity)
+        logger.info(f"Saved access request: {request.email} (status: {request.status.value})")
+
+        return request
+
+    def get_access_request(self, request_id: str) -> Optional["AccessRequest"]:
+        """
+        Get an access request by ID.
+
+        Args:
+            request_id: Request ID
+
+        Returns:
+            AccessRequest instance or None if not found
+        """
+        from ..models import AccessRequest
+
+        table_client = self._get_access_requests_table()
+
+        try:
+            entity = table_client.get_entity(
+                partition_key="access_requests",
+                row_key=request_id,
+            )
+            return AccessRequest.from_table_entity(entity)
+        except ResourceNotFoundError:
+            return None
+
+    def get_access_request_by_email(self, email: str) -> Optional["AccessRequest"]:
+        """
+        Get a pending access request by email.
+
+        Args:
+            email: User email
+
+        Returns:
+            AccessRequest instance or None if not found
+        """
+        from ..models import AccessRequest, AccessRequestStatus
+
+        table_client = self._get_access_requests_table()
+
+        try:
+            entities = table_client.query_entities(
+                query_filter=f"email eq '{email}' and status eq 'pending'"
+            )
+            for entity in entities:
+                return AccessRequest.from_table_entity(entity)
+            return None
+        except Exception as e:
+            logger.error(f"Error querying access request by email: {e}")
+            return None
+
+    def get_pending_access_requests(self) -> list["AccessRequest"]:
+        """
+        Get all pending access requests.
+
+        Returns:
+            List of pending AccessRequest instances
+        """
+        from ..models import AccessRequest
+
+        table_client = self._get_access_requests_table()
+
+        requests = []
+        try:
+            entities = table_client.query_entities(
+                query_filter="status eq 'pending'"
+            )
+            for entity in entities:
+                try:
+                    requests.append(AccessRequest.from_table_entity(entity))
+                except (KeyError, ValueError) as e:
+                    logger.warning(f"Skipping malformed access request entity: {e}")
+        except Exception as e:
+            logger.error(f"Error listing pending access requests: {e}")
+
+        # Sort by requested_at descending (newest first)
+        requests.sort(key=lambda r: r.requested_at, reverse=True)
+        return requests
+
+    def get_pending_access_requests_count(self) -> int:
+        """
+        Get count of pending access requests.
+
+        Returns:
+            Number of pending requests
+        """
+        return len(self.get_pending_access_requests())
+
+    def delete_access_request(self, request_id: str) -> bool:
+        """
+        Delete an access request.
+
+        Args:
+            request_id: Request ID
+
+        Returns:
+            True if deleted, False if not found
+        """
+        table_client = self._get_access_requests_table()
+
+        try:
+            table_client.delete_entity(
+                partition_key="access_requests",
+                row_key=request_id,
+            )
+            logger.info(f"Deleted access request: {request_id}")
+            return True
+        except ResourceNotFoundError:
+            return False

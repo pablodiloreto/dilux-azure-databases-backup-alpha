@@ -790,6 +790,12 @@ def get_current_user_endpoint(req: func.HttpRequest) -> func.HttpResponse:
 def list_users(req: func.HttpRequest) -> func.HttpResponse:
     """
     List all users (admin only).
+
+    Query params:
+    - page: Page number (default 1)
+    - page_size: Results per page (default 50)
+    - search: Search by email or name
+    - status: Filter by status ('active', 'disabled')
     """
     try:
         # Check auth and role
@@ -809,12 +815,31 @@ def list_users(req: func.HttpRequest) -> func.HttpResponse:
                 status_code=403,
             )
 
-        users = storage_service.get_all_users()
+        # Parse query params
+        page = int(req.params.get("page", 1))
+        page_size = int(req.params.get("page_size", 50))
+        search = req.params.get("search")
+        status = req.params.get("status")
+
+        users, total_count, has_more = storage_service.get_users_paged(
+            page_size=page_size,
+            page=page,
+            search=search,
+            status=status,
+        )
+
+        # Also get pending access requests count for badge
+        pending_requests_count = storage_service.get_pending_access_requests_count()
 
         return func.HttpResponse(
             json.dumps({
                 "users": [u.model_dump(mode="json") for u in users],
                 "count": len(users),
+                "total_count": total_count,
+                "page": page,
+                "page_size": page_size,
+                "has_more": has_more,
+                "pending_requests_count": pending_requests_count,
             }),
             mimetype="application/json",
             status_code=200,
@@ -1104,6 +1129,239 @@ def delete_user(req: func.HttpRequest) -> func.HttpResponse:
         )
     except Exception as e:
         logger.exception("Error deleting user")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+# ==============================================================================
+# Access Requests API
+# ==============================================================================
+
+
+@app.route(route="access-requests", methods=["GET"])
+def list_access_requests(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    List pending access requests (admin only).
+    """
+    try:
+        # Check auth and role
+        auth_result = get_current_user(req, storage_service)
+
+        if not auth_result.authenticated:
+            return func.HttpResponse(
+                json.dumps({"error": auth_result.error}),
+                mimetype="application/json",
+                status_code=401,
+            )
+
+        if not auth_result.user.can_manage_users():
+            return func.HttpResponse(
+                json.dumps({"error": "Admin access required"}),
+                mimetype="application/json",
+                status_code=403,
+            )
+
+        requests = storage_service.get_pending_access_requests()
+
+        return func.HttpResponse(
+            json.dumps({
+                "requests": [
+                    {
+                        "id": r.id,
+                        "email": r.email,
+                        "name": r.name,
+                        "azure_ad_id": r.azure_ad_id,
+                        "status": r.status.value,
+                        "requested_at": r.requested_at.isoformat(),
+                    }
+                    for r in requests
+                ],
+                "count": len(requests),
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error listing access requests")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="access-requests/{request_id}/approve", methods=["POST"])
+def approve_access_request(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Approve an access request (admin only).
+
+    Body:
+    - role: str (optional) - admin, operator, viewer (default: viewer)
+    """
+    try:
+        request_id = req.route_params.get("request_id")
+
+        # Check auth and role
+        auth_result = get_current_user(req, storage_service)
+
+        if not auth_result.authenticated:
+            return func.HttpResponse(
+                json.dumps({"error": auth_result.error}),
+                mimetype="application/json",
+                status_code=401,
+            )
+
+        if not auth_result.user.can_manage_users():
+            return func.HttpResponse(
+                json.dumps({"error": "Admin access required"}),
+                mimetype="application/json",
+                status_code=403,
+            )
+
+        # Get access request
+        access_request = storage_service.get_access_request(request_id)
+        if not access_request:
+            return func.HttpResponse(
+                json.dumps({"error": f"Access request '{request_id}' not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+
+        # Check if already resolved
+        from shared.models import AccessRequestStatus
+        if access_request.status != AccessRequestStatus.PENDING:
+            return func.HttpResponse(
+                json.dumps({"error": "Access request has already been resolved"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        # Parse role from body
+        body = {}
+        try:
+            body = req.get_json()
+        except ValueError:
+            pass
+
+        role_str = body.get("role", "viewer").lower()
+        try:
+            role = UserRole(role_str)
+        except ValueError:
+            return func.HttpResponse(
+                json.dumps({"error": f"Invalid role: {role_str}"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        # Create user from access request
+        user = User(
+            id=access_request.azure_ad_id,
+            email=access_request.email,
+            name=access_request.name,
+            role=role,
+            enabled=True,
+            created_by=auth_result.user.id,
+            last_login=datetime.utcnow(),
+        )
+        storage_service.save_user(user)
+
+        # Update access request status
+        access_request.status = AccessRequestStatus.APPROVED
+        access_request.resolved_at = datetime.utcnow()
+        access_request.resolved_by = auth_result.user.id
+        storage_service.save_access_request(access_request)
+
+        return func.HttpResponse(
+            json.dumps({
+                "message": f"Access request approved. User '{access_request.email}' created with role '{role.value}'",
+                "user": user.model_dump(mode="json"),
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error approving access request")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="access-requests/{request_id}/reject", methods=["POST"])
+def reject_access_request(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Reject an access request (admin only).
+
+    Body:
+    - reason: str (optional) - rejection reason
+    """
+    try:
+        request_id = req.route_params.get("request_id")
+
+        # Check auth and role
+        auth_result = get_current_user(req, storage_service)
+
+        if not auth_result.authenticated:
+            return func.HttpResponse(
+                json.dumps({"error": auth_result.error}),
+                mimetype="application/json",
+                status_code=401,
+            )
+
+        if not auth_result.user.can_manage_users():
+            return func.HttpResponse(
+                json.dumps({"error": "Admin access required"}),
+                mimetype="application/json",
+                status_code=403,
+            )
+
+        # Get access request
+        access_request = storage_service.get_access_request(request_id)
+        if not access_request:
+            return func.HttpResponse(
+                json.dumps({"error": f"Access request '{request_id}' not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+
+        # Check if already resolved
+        from shared.models import AccessRequestStatus
+        if access_request.status != AccessRequestStatus.PENDING:
+            return func.HttpResponse(
+                json.dumps({"error": "Access request has already been resolved"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        # Parse reason from body
+        body = {}
+        try:
+            body = req.get_json()
+        except ValueError:
+            pass
+
+        reason = body.get("reason", "")
+
+        # Update access request status
+        access_request.status = AccessRequestStatus.REJECTED
+        access_request.resolved_at = datetime.utcnow()
+        access_request.resolved_by = auth_result.user.id
+        access_request.rejection_reason = reason
+        storage_service.save_access_request(access_request)
+
+        return func.HttpResponse(
+            json.dumps({
+                "message": f"Access request for '{access_request.email}' rejected",
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error rejecting access request")
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
             mimetype="application/json",
