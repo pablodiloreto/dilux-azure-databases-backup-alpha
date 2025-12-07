@@ -52,18 +52,24 @@ def backup_processor(msg: func.QueueMessage) -> None:
 
     # Parse the job
     try:
-        job = BackupJob.from_queue_message(msg.get_body().decode("utf-8"))
+        msg_body = msg.get_body().decode("utf-8")
+        job = BackupJob.from_queue_message(msg_body)
+
+        # Extract tier from message if present (added by scheduler)
+        msg_data = json.loads(msg_body)
+        tier = msg_data.get("tier")  # hourly, daily, weekly, monthly, yearly
     except Exception as e:
         logger.error(f"Failed to parse backup job: {e}")
         return
 
-    # Create result record
+    # Create result record with tier
     result = BackupResult(
         job_id=job.id,
         database_id=job.database_id,
         database_name=job.database_name,
         database_type=job.database_type,
         triggered_by=job.triggered_by,
+        tier=tier,  # Store the tier for retention management
     )
 
     try:

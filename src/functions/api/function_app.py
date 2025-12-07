@@ -34,7 +34,7 @@ if str(shared_path) not in sys.path:
     sys.path.insert(0, str(shared_path))
 
 from shared.config import get_settings
-from shared.models import DatabaseConfig, DatabaseType, BackupJob, BackupStatus, AppSettings, User, UserRole
+from shared.models import DatabaseConfig, DatabaseType, BackupJob, BackupStatus, AppSettings, User, UserRole, BackupPolicy, TierConfig
 from shared.services import StorageService, DatabaseConfigService, get_connection_tester
 from shared.exceptions import NotFoundError, ValidationError
 from shared.auth import get_current_user, require_auth, require_role
@@ -308,9 +308,8 @@ def create_database(req: func.HttpRequest) -> func.HttpResponse:
             username=body["username"],
             password=body.get("password"),
             password_secret_name=body.get("password_secret_name"),
-            schedule=body.get("schedule", "0 0 * * *"),
+            policy_id=body.get("policy_id", "production-standard"),
             enabled=body.get("enabled", True),
-            retention_days=body.get("retention_days", 30),
             backup_destination=body.get("backup_destination"),
             compression=body.get("compression", True),
             tags=body.get("tags", {}),
@@ -458,7 +457,7 @@ def update_database(req: func.HttpRequest) -> func.HttpResponse:
 
         # Update fields
         for field in ["name", "host", "port", "database_name", "username",
-                      "schedule", "enabled", "retention_days", "backup_destination",
+                      "policy_id", "enabled", "backup_destination",
                       "compression", "tags", "password_secret_name"]:
             if field in body:
                 setattr(existing, field, body[field])
@@ -1397,6 +1396,275 @@ def reject_access_request(req: func.HttpRequest) -> func.HttpResponse:
         )
     except Exception as e:
         logger.exception("Error rejecting access request")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+# ==============================================================================
+# Backup Policies API
+# ==============================================================================
+
+
+@app.route(route="backup-policies", methods=["GET"])
+def list_backup_policies(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    List all backup policies.
+
+    Returns system policies first, then custom policies, sorted by name.
+    """
+    try:
+        policies = storage_service.get_all_backup_policies()
+
+        return func.HttpResponse(
+            json.dumps({
+                "policies": [p.model_dump(mode="json") for p in policies],
+                "count": len(policies),
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error listing backup policies")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="backup-policies", methods=["POST"])
+def create_backup_policy(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Create a new backup policy.
+
+    Body:
+    {
+        "name": "My Policy",
+        "description": "Optional description",
+        "hourly": { "enabled": true, "keep_count": 24, "interval_hours": 1 },
+        "daily": { "enabled": true, "keep_count": 15, "time": "02:00" },
+        "weekly": { "enabled": true, "keep_count": 4, "day_of_week": 0, "time": "03:00" },
+        "monthly": { "enabled": true, "keep_count": 6, "day_of_month": 1, "time": "04:00" },
+        "yearly": { "enabled": true, "keep_count": 2, "month": 1, "day_of_month": 1, "time": "05:00" }
+    }
+    """
+    try:
+        body = req.get_json()
+
+        # Validate required fields
+        if not body.get("name"):
+            return func.HttpResponse(
+                json.dumps({"error": "Name is required"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        # Generate ID from name
+        import re
+        policy_id = re.sub(r'[^a-z0-9]+', '-', body["name"].lower()).strip('-')
+
+        # Check if already exists
+        existing = storage_service.get_backup_policy(policy_id)
+        if existing:
+            return func.HttpResponse(
+                json.dumps({"error": f"Policy with ID '{policy_id}' already exists"}),
+                mimetype="application/json",
+                status_code=409,
+            )
+
+        # Build policy
+        policy = BackupPolicy(
+            id=policy_id,
+            name=body["name"],
+            description=body.get("description"),
+            is_system=False,  # User-created policies are not system
+            hourly=TierConfig(**body["hourly"]) if body.get("hourly") else TierConfig(),
+            daily=TierConfig(**body["daily"]) if body.get("daily") else TierConfig(),
+            weekly=TierConfig(**body["weekly"]) if body.get("weekly") else TierConfig(),
+            monthly=TierConfig(**body["monthly"]) if body.get("monthly") else TierConfig(),
+            yearly=TierConfig(**body["yearly"]) if body.get("yearly") else TierConfig(),
+        )
+
+        saved = storage_service.save_backup_policy(policy)
+
+        return func.HttpResponse(
+            json.dumps({
+                "message": "Backup policy created",
+                "policy": saved.model_dump(mode="json"),
+            }),
+            mimetype="application/json",
+            status_code=201,
+        )
+    except ValueError as e:
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=400,
+        )
+    except Exception as e:
+        logger.exception("Error creating backup policy")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="backup-policies/{policy_id}", methods=["GET"])
+def get_backup_policy(req: func.HttpRequest) -> func.HttpResponse:
+    """Get a specific backup policy."""
+    try:
+        policy_id = req.route_params.get("policy_id")
+        policy = storage_service.get_backup_policy(policy_id)
+
+        if not policy:
+            return func.HttpResponse(
+                json.dumps({"error": f"Policy '{policy_id}' not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+
+        # Get usage count
+        usage_count = storage_service.get_databases_using_policy(policy_id)
+
+        return func.HttpResponse(
+            json.dumps({
+                "policy": policy.model_dump(mode="json"),
+                "usage_count": usage_count,
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error getting backup policy")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="backup-policies/{policy_id}", methods=["PUT"])
+def update_backup_policy(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Update a backup policy.
+
+    System policies can be updated but not deleted.
+    """
+    try:
+        policy_id = req.route_params.get("policy_id")
+        body = req.get_json()
+
+        # Get existing policy
+        existing = storage_service.get_backup_policy(policy_id)
+        if not existing:
+            return func.HttpResponse(
+                json.dumps({"error": f"Policy '{policy_id}' not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+
+        # Update fields
+        if "name" in body:
+            existing.name = body["name"]
+        if "description" in body:
+            existing.description = body["description"]
+
+        # Update tier configs
+        if "hourly" in body:
+            existing.hourly = TierConfig(**body["hourly"])
+        if "daily" in body:
+            existing.daily = TierConfig(**body["daily"])
+        if "weekly" in body:
+            existing.weekly = TierConfig(**body["weekly"])
+        if "monthly" in body:
+            existing.monthly = TierConfig(**body["monthly"])
+        if "yearly" in body:
+            existing.yearly = TierConfig(**body["yearly"])
+
+        saved = storage_service.save_backup_policy(existing)
+
+        return func.HttpResponse(
+            json.dumps({
+                "message": "Backup policy updated",
+                "policy": saved.model_dump(mode="json"),
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except ValueError as e:
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=400,
+        )
+    except Exception as e:
+        logger.exception("Error updating backup policy")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="backup-policies/{policy_id}", methods=["DELETE"])
+def delete_backup_policy(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Delete a backup policy.
+
+    System policies cannot be deleted.
+    Policies in use by databases cannot be deleted.
+    """
+    try:
+        policy_id = req.route_params.get("policy_id")
+
+        # Check if policy exists
+        policy = storage_service.get_backup_policy(policy_id)
+        if not policy:
+            return func.HttpResponse(
+                json.dumps({"error": f"Policy '{policy_id}' not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+
+        # Check if it's a system policy
+        if policy.is_system:
+            return func.HttpResponse(
+                json.dumps({"error": "System policies cannot be deleted"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        # Check if in use
+        usage_count = storage_service.get_databases_using_policy(policy_id)
+        if usage_count > 0:
+            return func.HttpResponse(
+                json.dumps({
+                    "error": f"Policy is in use by {usage_count} database(s). Reassign them first."
+                }),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        deleted = storage_service.delete_backup_policy(policy_id)
+
+        if not deleted:
+            return func.HttpResponse(
+                json.dumps({"error": f"Policy '{policy_id}' could not be deleted"}),
+                mimetype="application/json",
+                status_code=500,
+            )
+
+        return func.HttpResponse(
+            json.dumps({"message": f"Policy '{policy_id}' deleted"}),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error deleting backup policy")
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
             mimetype="application/json",

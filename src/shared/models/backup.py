@@ -24,6 +24,16 @@ class BackupStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class BackupTier(str, Enum):
+    """Backup tier levels for retention."""
+
+    HOURLY = "hourly"
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+    YEARLY = "yearly"
+
+
 class BackupJob(BaseModel):
     """
     Represents a backup job to be processed.
@@ -111,6 +121,10 @@ class BackupResult(BaseModel):
 
     # Metadata
     triggered_by: str = Field(default="scheduler")
+    tier: Optional[str] = Field(
+        default=None,
+        description="Backup tier: hourly, daily, weekly, monthly, yearly"
+    )
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     def mark_started(self) -> None:
@@ -182,6 +196,7 @@ class BackupResult(BaseModel):
             "error_details": self.error_details or "",
             "retry_count": self.retry_count,
             "triggered_by": self.triggered_by,
+            "tier": self.tier or "",
             "created_at": self.created_at.isoformat(),
         }
 
@@ -221,5 +236,6 @@ class BackupResult(BaseModel):
             error_details=entity.get("error_details") or None,
             retry_count=entity.get("retry_count", 0),
             triggered_by=entity.get("triggered_by", "scheduler"),
+            tier=entity.get("tier") or None,
             created_at=parse_datetime(entity["created_at"]) or datetime.utcnow(),
         )

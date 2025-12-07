@@ -127,3 +127,4 @@ temp/
 .cache/
 .parcel-cache/
 .devcontainer/logs/
+.devcontainer/pids/

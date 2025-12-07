@@ -10,14 +10,16 @@ export interface DatabaseConfig {
   port: number
   database_name: string
   username: string
-  schedule: string
+  policy_id: string
   enabled: boolean
-  retention_days: number
   backup_destination?: string
   compression: boolean
   tags: Record<string, string>
   created_at: string
   updated_at: string
+  // Legacy fields (deprecated)
+  schedule?: string
+  retention_days?: number
 }
 
 export interface BackupResult {
@@ -55,9 +57,8 @@ export interface CreateDatabaseInput {
   database_name: string
   username: string
   password: string
-  schedule?: string
+  policy_id?: string
   enabled?: boolean
-  retention_days?: number
   compression?: boolean
 }
 
@@ -67,10 +68,51 @@ export interface UpdateDatabaseInput {
   port?: number
   database_name?: string
   username?: string
-  schedule?: string
+  policy_id?: string
   enabled?: boolean
-  retention_days?: number
   compression?: boolean
+}
+
+// Backup Policy types
+export type BackupTier = 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly'
+
+export interface TierConfig {
+  enabled: boolean
+  keep_count: number
+  interval_hours?: number  // for hourly tier
+  time?: string            // HH:MM format for daily/weekly/monthly/yearly
+  day_of_week?: number     // 0-6 (0=Sunday) for weekly
+  day_of_month?: number    // 1-28 for monthly/yearly
+  month?: number           // 1-12 for yearly
+}
+
+export interface BackupPolicy {
+  id: string
+  name: string
+  description?: string
+  is_system: boolean
+  hourly: TierConfig
+  daily: TierConfig
+  weekly: TierConfig
+  monthly: TierConfig
+  yearly: TierConfig
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateBackupPolicyInput {
+  name: string
+  description?: string
+  hourly?: Partial<TierConfig>
+  daily?: Partial<TierConfig>
+  weekly?: Partial<TierConfig>
+  monthly?: Partial<TierConfig>
+  yearly?: Partial<TierConfig>
+}
+
+export interface BackupPoliciesResponse {
+  policies: BackupPolicy[]
+  count: number
 }
 
 export interface ApiResponse<T> {

@@ -62,14 +62,20 @@ class DatabaseConfig(BaseModel):
     )
 
     # Backup configuration
-    schedule: str = Field(
-        default=BackupSchedule.DAILY.value,
-        description="Cron expression for backup schedule"
+    policy_id: str = Field(
+        default="production-standard",
+        description="ID of the backup policy to use"
     )
     enabled: bool = Field(default=True, description="Whether backups are enabled")
-    retention_days: int = Field(
-        default=30,
-        description="Number of days to retain backups"
+
+    # Legacy fields - kept for backward compatibility during migration
+    schedule: Optional[str] = Field(
+        default=None,
+        description="[DEPRECATED] Use policy_id instead"
+    )
+    retention_days: Optional[int] = Field(
+        default=None,
+        description="[DEPRECATED] Use policy_id instead"
     )
 
     # Optional settings
@@ -97,14 +103,6 @@ class DatabaseConfig(BaseModel):
         """Validate port is in valid range."""
         if not 1 <= v <= 65535:
             raise ValueError("Port must be between 1 and 65535")
-        return v
-
-    @field_validator("retention_days")
-    @classmethod
-    def validate_retention(cls, v: int) -> int:
-        """Validate retention days is reasonable."""
-        if not 1 <= v <= 365:
-            raise ValueError("Retention days must be between 1 and 365")
         return v
 
     def get_connection_string(self) -> str:
@@ -160,9 +158,11 @@ class DatabaseConfig(BaseModel):
             "database_name": self.database_name,
             "username": self.username,
             "password_secret_name": self.password_secret_name or "",
-            "schedule": self.schedule,
+            "policy_id": self.policy_id,
             "enabled": self.enabled,
-            "retention_days": self.retention_days,
+            # Legacy fields - keep for backward compatibility
+            "schedule": self.schedule or "",
+            "retention_days": self.retention_days or 0,
             "backup_destination": self.backup_destination or "",
             "compression": self.compression,
             "tags": str(self.tags),
@@ -188,6 +188,9 @@ class DatabaseConfig(BaseModel):
         except (ValueError, SyntaxError):
             tags = {}
 
+        # Handle migration: if policy_id doesn't exist, default to production-standard
+        policy_id = entity.get("policy_id", "production-standard")
+
         return cls(
             id=entity["RowKey"],
             name=entity["name"],
@@ -198,9 +201,11 @@ class DatabaseConfig(BaseModel):
             username=entity["username"],
             password=entity.get("password") or None,  # Restore password if stored (dev only)
             password_secret_name=entity.get("password_secret_name") or None,
-            schedule=entity.get("schedule", BackupSchedule.DAILY.value),
+            policy_id=policy_id,
             enabled=entity.get("enabled", True),
-            retention_days=entity.get("retention_days", 30),
+            # Legacy fields
+            schedule=entity.get("schedule") or None,
+            retention_days=entity.get("retention_days") or None,
             backup_destination=entity.get("backup_destination") or None,
             compression=entity.get("compression", True),
             tags=tags,

@@ -7,11 +7,12 @@
 ## Estado Actual
 
 ### Qué funciona
-- **API Function App** (puerto 7071): Health, CRUD databases, trigger backup manual
-- **Processor Function App** (puerto 7073): Queue trigger, backup MySQL/PostgreSQL/SQL Server
-- **Frontend** (puerto 3000): Dashboard, lista DBs, forms crear/editar, historial backups
+- **API Function App** (puerto 7071): Health, CRUD databases, CRUD backup policies, trigger backup manual
+- **Processor Function App** (puerto 7073): Queue trigger con tier info, backup MySQL/PostgreSQL/SQL Server
+- **Scheduler Function App** (puerto 7072): Timer 15min evalúa tiers por policy, cleanup por tier
+- **Frontend** (puerto 3000): Dashboard, DBs, Backups, Policies, Users, Settings, Status
 - **Servicios Docker**: Azurite, MySQL 8.0, PostgreSQL 15, SQL Server 2022
-- **Arranque automático**: Configurado en `post-start.sh`
+- **Arranque automático**: Configurado en `post-start.sh` con `setsid`
 
 ### Fixes aplicados
 | Fecha | Fix |
@@ -98,6 +99,28 @@
 - ✅ Backups Page: Botón "Search" para filtros, mejor UX
 - ✅ Settings: Opción access_requests_enabled para gestión de usuarios
 - ✅ Users Page: Paginación, gestión de solicitudes de acceso
+
+### Sprint 2.5: Backup Policies ✅ COMPLETADO
+
+| # | Tarea | Descripción | Estado |
+|---|-------|-------------|--------|
+| P.1 | BackupPolicy Model | Modelo con 5 tiers (hourly/daily/weekly/monthly/yearly) | ✅ Completado |
+| P.2 | TierConfig | Cada tier: enabled, keep_count, schedule config | ✅ Completado |
+| P.3 | Policies API | CRUD endpoints `/api/backup-policies` | ✅ Completado |
+| P.4 | Policies Page | Nueva sección "Policies" en sidebar | ✅ Completado |
+| P.5 | Policies UI | Tabla con crear/editar/eliminar policies | ✅ Completado |
+| P.6 | Database Form | Dropdown dinámico que carga policies desde API | ✅ Completado |
+| P.7 | Seed Defaults | 3 políticas predefinidas (Production Critical, Standard, Development) | ✅ Completado |
+| P.8 | Scheduler Refactor | Evaluación por tier con should_run_tier() | ✅ Completado |
+| P.9 | Cleanup Refactor | Retención por tier según keep_count | ✅ Completado |
+| P.10 | BackupResult.tier | Campo tier para identificar backups por nivel | ✅ Completado |
+
+**Políticas predefinidas:**
+- **Production Critical:** 24h/15d/8w/4m/2y
+- **Production Standard:** 12h/7d/4w/2m/1y
+- **Development:** 0h/7d/2w/0m/0y
+
+**Objetivo:** Sistema completo de políticas de backup con retención granular por tier, reemplazando el campo schedule/retention_days anterior.
 
 ### Sprint 3: Production Ready
 

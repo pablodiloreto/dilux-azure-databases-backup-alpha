@@ -13,7 +13,7 @@ from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
 from azure.storage.blob import BlobSasPermissions, ContentSettings, generate_blob_sas
 
 from ..config import AzureClients, get_settings
-from ..models import BackupResult, AppSettings, User, UserRole
+from ..models import BackupResult, AppSettings, User, UserRole, BackupPolicy, get_default_policies
 
 logger = logging.getLogger(__name__)
 
@@ -1014,3 +1014,171 @@ class StorageService:
             return True
         except ResourceNotFoundError:
             return False
+
+    # ===========================================
+    # Backup Policy Operations
+    # ===========================================
+
+    def _get_policies_table(self):
+        """Get or create backup_policies table."""
+        table_name = "backuppolicies"
+        table_client = self._clients.get_table_client(table_name)
+
+        try:
+            self._clients.table_service_client.create_table(table_name)
+        except ResourceExistsError:
+            pass
+
+        return table_client
+
+    def seed_default_policies(self) -> list[BackupPolicy]:
+        """
+        Seed the default backup policies if they don't exist.
+
+        Returns:
+            List of seeded/existing policies
+        """
+        table_client = self._get_policies_table()
+        seeded = []
+
+        for policy in get_default_policies():
+            try:
+                # Check if exists
+                table_client.get_entity(
+                    partition_key="backup_policy",
+                    row_key=policy.id,
+                )
+                logger.debug(f"Policy already exists: {policy.id}")
+            except ResourceNotFoundError:
+                # Create it
+                entity = policy.to_table_entity()
+                table_client.upsert_entity(entity)
+                logger.info(f"Seeded default policy: {policy.id}")
+            seeded.append(policy)
+
+        return seeded
+
+    def get_backup_policy(self, policy_id: str) -> Optional[BackupPolicy]:
+        """
+        Get a backup policy by ID.
+
+        Args:
+            policy_id: Policy ID
+
+        Returns:
+            BackupPolicy instance or None if not found
+        """
+        table_client = self._get_policies_table()
+
+        try:
+            entity = table_client.get_entity(
+                partition_key="backup_policy",
+                row_key=policy_id,
+            )
+            return BackupPolicy.from_table_entity(entity)
+        except ResourceNotFoundError:
+            return None
+
+    def get_all_backup_policies(self) -> list[BackupPolicy]:
+        """
+        Get all backup policies.
+
+        Returns:
+            List of BackupPolicy instances
+        """
+        table_client = self._get_policies_table()
+
+        # Ensure defaults exist
+        self.seed_default_policies()
+
+        policies = []
+        try:
+            entities = table_client.query_entities(
+                query_filter="PartitionKey eq 'backup_policy'"
+            )
+            for entity in entities:
+                try:
+                    policies.append(BackupPolicy.from_table_entity(entity))
+                except (KeyError, ValueError) as e:
+                    logger.warning(f"Skipping malformed policy entity: {e}")
+        except Exception as e:
+            logger.error(f"Error listing policies: {e}")
+
+        # Sort: system policies first, then by name
+        policies.sort(key=lambda p: (not p.is_system, p.name.lower()))
+        return policies
+
+    def save_backup_policy(self, policy: BackupPolicy) -> BackupPolicy:
+        """
+        Save or update a backup policy.
+
+        Args:
+            policy: BackupPolicy instance to save
+
+        Returns:
+            Saved BackupPolicy instance
+        """
+        table_client = self._get_policies_table()
+
+        policy.updated_at = datetime.utcnow()
+        entity = policy.to_table_entity()
+        table_client.upsert_entity(entity)
+        logger.info(f"Saved backup policy: {policy.name} ({policy.id})")
+
+        return policy
+
+    def delete_backup_policy(self, policy_id: str) -> bool:
+        """
+        Delete a backup policy.
+
+        System policies cannot be deleted.
+
+        Args:
+            policy_id: Policy ID
+
+        Returns:
+            True if deleted, False if not found or is system policy
+        """
+        # Check if it's a system policy
+        policy = self.get_backup_policy(policy_id)
+        if policy and policy.is_system:
+            logger.warning(f"Cannot delete system policy: {policy_id}")
+            return False
+
+        table_client = self._get_policies_table()
+
+        try:
+            table_client.delete_entity(
+                partition_key="backup_policy",
+                row_key=policy_id,
+            )
+            logger.info(f"Deleted backup policy: {policy_id}")
+            return True
+        except ResourceNotFoundError:
+            return False
+
+    def get_databases_using_policy(self, policy_id: str) -> int:
+        """
+        Count how many databases are using a specific policy.
+
+        Args:
+            policy_id: Policy ID
+
+        Returns:
+            Number of databases using this policy
+        """
+        table_client = self._clients.get_table_client(
+            self._settings.config_table_name
+        )
+
+        count = 0
+        try:
+            entities = table_client.query_entities(
+                query_filter=f"PartitionKey eq 'database' and policy_id eq '{policy_id}'"
+            )
+            for _ in entities:
+                count += 1
+        except Exception as e:
+            logger.error(f"Error counting databases for policy: {e}")
+
+        return count

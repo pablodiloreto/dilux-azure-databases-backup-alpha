@@ -27,6 +27,7 @@ import {
   Dashboard as DashboardIcon,
   Storage as StorageIcon,
   Backup as BackupIcon,
+  Policy as PolicyIcon,
   Settings as SettingsIcon,
   Logout as LogoutIcon,
   ChevronLeft as ChevronLeftIcon,
@@ -60,6 +61,7 @@ const menuItems = [
   { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
   { text: 'Databases', icon: <StorageIcon />, path: '/databases' },
   { text: 'Backups', icon: <BackupIcon />, path: '/backups' },
+  { text: 'Policies', icon: <PolicyIcon />, path: '/policies' },
 ]
 
 // Breadcrumb config
@@ -67,6 +69,7 @@ const breadcrumbNameMap: Record<string, string> = {
   '/dashboard': 'Dashboard',
   '/databases': 'Databases',
   '/backups': 'Backups',
+  '/policies': 'Backup Policies',
   '/settings': 'Settings',
   '/status': 'System Status',
   '/users': 'User Management',

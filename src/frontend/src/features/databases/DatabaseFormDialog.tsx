@@ -19,11 +19,13 @@ import {
   Box,
   Typography,
   CircularProgress,
+  Chip,
 } from '@mui/material'
 import { Visibility, VisibilityOff, CheckCircle, Cable } from '@mui/icons-material'
-import type { DatabaseConfig, CreateDatabaseInput, DatabaseType } from '../../types'
+import type { DatabaseConfig, CreateDatabaseInput, DatabaseType, BackupPolicy } from '../../types'
 import { useSettings } from '../../contexts/SettingsContext'
 import { databasesApi } from '../../api'
+import { apiClient } from '../../api/client'
 
 interface DatabaseFormDialogProps {
   open: boolean
@@ -39,13 +41,16 @@ const DATABASE_TYPES: { value: DatabaseType; label: string; defaultPort: number 
   { value: 'sqlserver', label: 'SQL Server', defaultPort: 1433 },
 ]
 
-const SCHEDULE_OPTIONS = [
-  { value: '*/15 * * * *', label: 'Every 15 minutes' },
-  { value: '0 * * * *', label: 'Every hour' },
-  { value: '0 */6 * * *', label: 'Every 6 hours' },
-  { value: '0 0 * * *', label: 'Daily (midnight)' },
-  { value: '0 0 * * 0', label: 'Weekly (Sunday midnight)' },
-]
+// Helper to get policy summary
+function getPolicySummary(policy: BackupPolicy): string {
+  const parts: string[] = []
+  if (policy.hourly.enabled && policy.hourly.keep_count > 0) parts.push(`${policy.hourly.keep_count}h`)
+  if (policy.daily.enabled && policy.daily.keep_count > 0) parts.push(`${policy.daily.keep_count}d`)
+  if (policy.weekly.enabled && policy.weekly.keep_count > 0) parts.push(`${policy.weekly.keep_count}w`)
+  if (policy.monthly.enabled && policy.monthly.keep_count > 0) parts.push(`${policy.monthly.keep_count}m`)
+  if (policy.yearly.enabled && policy.yearly.keep_count > 0) parts.push(`${policy.yearly.keep_count}y`)
+  return parts.join('/') || 'No retention'
+}
 
 export function DatabaseFormDialog({
   open,
@@ -56,6 +61,10 @@ export function DatabaseFormDialog({
 }: DatabaseFormDialogProps) {
   const { settings } = useSettings()
 
+  // Policies state
+  const [policies, setPolicies] = useState<BackupPolicy[]>([])
+  const [loadingPolicies, setLoadingPolicies] = useState(true)
+
   // Use settings defaults for new databases
   const initialFormState: CreateDatabaseInput = useMemo(() => ({
     name: '',
@@ -65,11 +74,10 @@ export function DatabaseFormDialog({
     database_name: '',
     username: '',
     password: '',
-    schedule: '0 0 * * *',
+    policy_id: 'production-standard',
     enabled: true,
-    retention_days: settings.defaultRetentionDays,
     compression: settings.defaultCompression,
-  }), [settings.defaultRetentionDays, settings.defaultCompression])
+  }), [settings.defaultCompression])
 
   const [formData, setFormData] = useState<CreateDatabaseInput>(initialFormState)
   const [showPassword, setShowPassword] = useState(false)
@@ -84,6 +92,24 @@ export function DatabaseFormDialog({
 
   const isEditing = !!database
 
+  // Fetch policies on open
+  useEffect(() => {
+    if (open) {
+      setLoadingPolicies(true)
+      apiClient.get('/backup-policies')
+        .then((response) => {
+          setPolicies(response.data.policies || [])
+        })
+        .catch((err) => {
+          console.error('Failed to load policies:', err)
+          setPolicies([])
+        })
+        .finally(() => {
+          setLoadingPolicies(false)
+        })
+    }
+  }, [open])
+
   useEffect(() => {
     if (database) {
       setFormData({
@@ -94,9 +120,8 @@ export function DatabaseFormDialog({
         database_name: database.database_name,
         username: database.username,
         password: '', // Password is not returned from API
-        schedule: database.schedule,
+        policy_id: database.policy_id || 'production-standard',
         enabled: database.enabled,
-        retention_days: database.retention_days,
         compression: database.compression,
       })
     } else {
@@ -207,6 +232,9 @@ export function DatabaseFormDialog({
     }
   }
 
+  // Get selected policy details
+  const selectedPolicy = policies.find(p => p.id === formData.policy_id)
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>{isEditing ? 'Edit Database' : 'Add Database'}</DialogTitle>
@@ -250,23 +278,49 @@ export function DatabaseFormDialog({
               </FormControl>
             </Grid>
 
-            {/* Schedule */}
+            {/* Backup Policy */}
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
-                <InputLabel>Backup Schedule</InputLabel>
+                <InputLabel>Backup Policy</InputLabel>
                 <Select
-                  value={formData.schedule}
-                  label="Backup Schedule"
-                  onChange={(e) => handleChange('schedule', e.target.value)}
+                  value={formData.policy_id || 'production-standard'}
+                  label="Backup Policy"
+                  onChange={(e) => handleChange('policy_id', e.target.value)}
+                  disabled={loadingPolicies}
                 >
-                  {SCHEDULE_OPTIONS.map((opt) => (
-                    <MenuItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </MenuItem>
-                  ))}
+                  {loadingPolicies ? (
+                    <MenuItem value="production-standard">Loading...</MenuItem>
+                  ) : (
+                    policies.map((policy) => (
+                      <MenuItem key={policy.id} value={policy.id}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+                          <span>{policy.name}</span>
+                          {policy.is_system && (
+                            <Chip label="System" size="small" variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
+                          )}
+                        </Box>
+                      </MenuItem>
+                    ))
+                  )}
                 </Select>
               </FormControl>
             </Grid>
+
+            {/* Policy Summary */}
+            {selectedPolicy && (
+              <Grid item xs={12}>
+                <Box sx={{ p: 1.5, bgcolor: 'action.hover', borderRadius: 1 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Policy retention: <strong>{getPolicySummary(selectedPolicy)}</strong>
+                  </Typography>
+                  {selectedPolicy.description && (
+                    <Typography variant="caption" color="text.secondary">
+                      {selectedPolicy.description}
+                    </Typography>
+                  )}
+                </Box>
+              </Grid>
+            )}
 
             {/* Host */}
             <Grid item xs={12} sm={8}>
@@ -376,24 +430,9 @@ export function DatabaseFormDialog({
               </Box>
             </Grid>
 
-            {/* Retention Days */}
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Retention Days"
-                type="number"
-                value={formData.retention_days}
-                onChange={(e) => handleChange('retention_days', parseInt(e.target.value) || 7)}
-                InputProps={{
-                  inputProps: { min: 1, max: 365 },
-                }}
-                helperText="How long to keep backups"
-              />
-            </Grid>
-
             {/* Switches */}
-            <Grid item xs={12} sm={6}>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Grid item xs={12}>
+              <Box sx={{ display: 'flex', gap: 3 }}>
                 <FormControlLabel
                   control={
                     <Switch

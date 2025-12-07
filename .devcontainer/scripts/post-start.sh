@@ -156,22 +156,27 @@ echo ""
 
 PROJECT_DIR="/workspaces/dilux-azure-databases-backup-alpha"
 LOG_DIR="$PROJECT_DIR/.devcontainer/logs"
-mkdir -p "$LOG_DIR"
+PID_DIR="$PROJECT_DIR/.devcontainer/pids"
+mkdir -p "$LOG_DIR" "$PID_DIR"
 
 # Function to start a service if not already running
+# Uses setsid to create a new session so processes don't become zombies
 start_service() {
     local name=$1
     local port=$2
     local dir=$3
     local cmd=$4
     local log_file="$LOG_DIR/$name.log"
+    local pid_file="$PID_DIR/$name.pid"
 
     if lsof -i :$port >/dev/null 2>&1; then
         echo "  [OK] $name already running on port $port"
     else
         echo -n "  Starting $name on port $port... "
-        cd "$dir"
-        nohup $cmd > "$log_file" 2>&1 &
+
+        # Use setsid to create a new session, preventing zombie processes
+        # The process runs completely independent of the parent shell
+        setsid bash -c "cd '$dir' && $cmd > '$log_file' 2>&1 & echo \$! > '$pid_file'" &
 
         # Wait for service to be ready (max 30 seconds)
         local count=0
@@ -185,7 +190,6 @@ start_service() {
         else
             echo "[FAILED - check $log_file]"
         fi
-        cd "$PROJECT_DIR"
     fi
 }
 
