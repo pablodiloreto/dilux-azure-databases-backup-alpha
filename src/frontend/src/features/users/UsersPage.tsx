@@ -356,8 +356,8 @@ export function UsersPage() {
               label="Name"
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
-              required
               fullWidth
+              helperText={!editingUser ? 'Optional - will be set from Azure AD on first login' : undefined}
             />
             <TextField
               select
@@ -365,8 +365,11 @@ export function UsersPage() {
               value={formRole}
               onChange={(e) => setFormRole(e.target.value as UserRole)}
               fullWidth
+              disabled={editingUser?.id === currentUser?.id}
               helperText={
-                formRole === 'admin'
+                editingUser?.id === currentUser?.id
+                  ? 'You cannot change your own role'
+                  : formRole === 'admin'
                   ? 'Full access: manage users, databases, backups, settings'
                   : formRole === 'operator'
                   ? 'Can trigger backups and manage databases, but not users'
@@ -386,7 +389,11 @@ export function UsersPage() {
                     disabled={editingUser.id === currentUser?.id}
                   />
                 }
-                label="Account enabled"
+                label={
+                  editingUser.id === currentUser?.id
+                    ? 'Account enabled (you cannot disable yourself)'
+                    : 'Account enabled'
+                }
               />
             )}
           </Box>
@@ -396,7 +403,7 @@ export function UsersPage() {
           <Button
             onClick={handleSave}
             variant="contained"
-            disabled={isSaving || !formEmail || !formName}
+            disabled={isSaving || !formEmail}
           >
             {isSaving ? <CircularProgress size={20} /> : editingUser ? 'Save' : 'Add User'}
           </Button>

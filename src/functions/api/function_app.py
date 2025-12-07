@@ -835,7 +835,7 @@ def create_user(req: func.HttpRequest) -> func.HttpResponse:
 
     Body:
     - email: str (required) - must match Azure AD email
-    - name: str (required)
+    - name: str (optional) - will be set from Azure AD on first login if not provided
     - role: str (optional) - admin, operator, viewer (default: viewer)
     """
     try:
@@ -866,13 +866,6 @@ def create_user(req: func.HttpRequest) -> func.HttpResponse:
                 status_code=400,
             )
 
-        if not body.get("name"):
-            return func.HttpResponse(
-                json.dumps({"error": "Name is required"}),
-                mimetype="application/json",
-                status_code=400,
-            )
-
         # Check if user already exists by email
         existing = storage_service.get_user_by_email(body["email"])
         if existing:
@@ -895,10 +888,12 @@ def create_user(req: func.HttpRequest) -> func.HttpResponse:
 
         # Create user with a placeholder ID (will be replaced when they first login)
         import uuid
+        # Use provided name or email username as placeholder (will be updated from Azure AD on first login)
+        name = body.get("name") or body["email"].split("@")[0]
         user = User(
             id=f"pending-{uuid.uuid4()}",  # Placeholder until Azure AD login
             email=body["email"],
-            name=body["name"],
+            name=name,
             role=role,
             enabled=True,
             created_by=auth_result.user.id,

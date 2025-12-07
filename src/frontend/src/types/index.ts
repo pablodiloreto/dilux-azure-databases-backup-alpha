@@ -122,7 +122,7 @@ export interface User {
 
 export interface CreateUserInput {
   email: string
-  name: string
+  name?: string
   role?: UserRole
 }
 
