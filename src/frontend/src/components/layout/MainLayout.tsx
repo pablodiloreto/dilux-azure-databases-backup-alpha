@@ -38,6 +38,7 @@ import {
   Home as HomeIcon,
   MonitorHeart as StatusIcon,
   People as UsersIcon,
+  Inventory as StorageStatsIcon,
 } from '@mui/icons-material'
 import { useSettings } from '../../contexts/SettingsContext'
 import { useAuth } from '../../contexts/AuthContext'
@@ -62,6 +63,7 @@ const menuItems = [
   { text: 'Databases', icon: <StorageIcon />, path: '/databases' },
   { text: 'Backups', icon: <BackupIcon />, path: '/backups' },
   { text: 'Policies', icon: <PolicyIcon />, path: '/policies' },
+  { text: 'Storage', icon: <StorageStatsIcon />, path: '/storage' },
 ]
 
 // Breadcrumb config
@@ -70,6 +72,7 @@ const breadcrumbNameMap: Record<string, string> = {
   '/databases': 'Databases',
   '/backups': 'Backups',
   '/policies': 'Backup Policies',
+  '/storage': 'Storage',
   '/settings': 'Settings',
   '/status': 'System Status',
   '/users': 'User Management',
@@ -461,10 +464,12 @@ export function MainLayout({ children }: MainLayoutProps) {
         component="main"
         sx={{
           flexGrow: 1,
-          p: 3,
-          width: { sm: `calc(100% - ${drawerWidth}px)` },
+          p: { xs: 2, sm: 3 },
+          width: { xs: '100%', sm: `calc(100% - ${drawerWidth}px)` },
+          maxWidth: '100%',
           minHeight: '100vh',
           backgroundColor: 'background.default',
+          overflow: 'hidden',
           transition: theme.transitions.create(['width', 'margin'], {
             easing: theme.transitions.easing.sharp,
             duration: theme.transitions.duration.leavingScreen,
@@ -472,7 +477,9 @@ export function MainLayout({ children }: MainLayoutProps) {
         }}
       >
         <Toolbar />
-        {children}
+        <Box sx={{ overflow: 'auto', maxWidth: '100%' }}>
+          {children}
+        </Box>
       </Box>
     </Box>
   )

@@ -1,15 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Box,
   Typography,
   Card,
   CardContent,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   IconButton,
   Chip,
   Button,
@@ -29,6 +23,7 @@ import {
   Badge,
   Collapse,
 } from '@mui/material'
+import { ResponsiveTable, Column } from '../../components/common'
 import {
   Add as AddIcon,
   Edit as EditIcon,
@@ -297,6 +292,94 @@ export function UsersPage() {
     fetchUsers()
   }
 
+  // Table columns for Access Requests
+  const accessRequestColumns: Column<AccessRequest>[] = useMemo(() => [
+    {
+      id: 'name',
+      label: 'Name',
+      render: (request) => (
+        <Typography variant="body2" fontWeight={500}>
+          {request.name}
+        </Typography>
+      ),
+      hideInMobileSummary: true,
+    },
+    {
+      id: 'email',
+      label: 'Email',
+      render: (request) => request.email,
+    },
+    {
+      id: 'requested',
+      label: 'Requested',
+      render: (request) => (
+        <Typography variant="body2" color="textSecondary">
+          {formatDate(request.requested_at)}
+        </Typography>
+      ),
+      hideInMobileSummary: true,
+    },
+  ], [])
+
+  // Table columns for ResponsiveTable
+  const tableColumns: Column<User>[] = useMemo(() => [
+    {
+      id: 'name',
+      label: 'Name',
+      render: (user) => (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography variant="body2" fontWeight={500}>
+            {user.name}
+          </Typography>
+          {user.id === currentUser?.id && (
+            <Chip size="small" label="You" color="primary" variant="outlined" />
+          )}
+        </Box>
+      ),
+      hideInMobileSummary: true, // shown as title
+    },
+    {
+      id: 'email',
+      label: 'Email',
+      render: (user) => user.email,
+      hideInMobileSummary: true, // too long for summary
+    },
+    {
+      id: 'role',
+      label: 'Role',
+      render: (user) => (
+        <Chip
+          size="small"
+          icon={getRoleIcon(user.role)}
+          label={user.role.charAt(0).toUpperCase() + user.role.slice(1)}
+          color={getRoleColor(user.role)}
+          variant="outlined"
+        />
+      ),
+    },
+    {
+      id: 'status',
+      label: 'Status',
+      render: (user) => (
+        <Chip
+          size="small"
+          label={user.enabled ? 'Active' : 'Disabled'}
+          color={user.enabled ? 'success' : 'default'}
+        />
+      ),
+    },
+    {
+      id: 'lastLogin',
+      label: 'Last Login',
+      render: (user) => (
+        <Typography variant="body2" color="textSecondary">
+          {formatDate(user.last_login)}
+        </Typography>
+      ),
+      hideInMobileSummary: true,
+    },
+  ], [currentUser?.id])
+
   // Show access denied if not admin
   if (!authLoading && !canManageUsers) {
     return (
@@ -312,11 +395,11 @@ export function UsersPage() {
   }
 
   return (
-    <Box>
+    <Box sx={{ maxWidth: '100%', overflow: 'hidden' }}>
       {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1 }}>
         <Typography variant="h4">User Management</Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
           <Button
             variant="outlined"
             startIcon={<RefreshIcon />}
@@ -374,65 +457,45 @@ export function UsersPage() {
             </Box>
           </CardContent>
           <Collapse in={showPendingRequests}>
-            <TableContainer>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Name</TableCell>
-                    <TableCell>Email</TableCell>
-                    <TableCell>Requested</TableCell>
-                    <TableCell align="right">Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {loadingRequests ? (
-                    <TableRow>
-                      <TableCell colSpan={4} align="center" sx={{ py: 2 }}>
-                        <CircularProgress size={20} />
-                      </TableCell>
-                    </TableRow>
-                  ) : accessRequests.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={4} align="center" sx={{ py: 2 }}>
-                        <Typography color="textSecondary">No pending requests</Typography>
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    accessRequests.map((request) => (
-                      <TableRow key={request.id} hover>
-                        <TableCell>{request.name}</TableCell>
-                        <TableCell>{request.email}</TableCell>
-                        <TableCell>
-                          <Typography variant="body2" color="textSecondary">
-                            {formatDate(request.requested_at)}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="right">
-                          <Tooltip title="Approve">
-                            <IconButton
-                              size="small"
-                              color="success"
-                              onClick={() => handleApproveClick(request)}
-                            >
-                              <ApproveIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Reject">
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => handleRejectClick(request)}
-                            >
-                              <RejectIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </TableCell>
-                      </TableRow>
-                    ))
+            <Box sx={{ px: { xs: 0, sm: 0 } }}>
+              {loadingRequests ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                  <CircularProgress size={20} />
+                </Box>
+              ) : (
+                <ResponsiveTable
+                  columns={accessRequestColumns}
+                  data={accessRequests}
+                  keyExtractor={(request) => request.id}
+                  mobileTitle={(request) => request.name}
+                  mobileSummaryColumns={['email']}
+                  actions={(request) => (
+                    <>
+                      <Tooltip title="Approve">
+                        <IconButton
+                          size="small"
+                          color="success"
+                          onClick={() => handleApproveClick(request)}
+                        >
+                          <ApproveIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Reject">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => handleRejectClick(request)}
+                        >
+                          <RejectIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </>
                   )}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                  emptyMessage="No pending requests"
+                  size="small"
+                />
+              )}
+            </Box>
           </Collapse>
         </Card>
       )}
@@ -477,98 +540,55 @@ export function UsersPage() {
       </Card>
 
       {/* Users Table */}
-      <Card>
-        <TableContainer>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Name</TableCell>
-                <TableCell>Email</TableCell>
-                <TableCell>Role</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Last Login</TableCell>
-                <TableCell align="right">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
-                    <CircularProgress size={24} />
-                  </TableCell>
-                </TableRow>
-              ) : users.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
-                    <Typography color="textSecondary">
-                      {searchQuery || statusFilter !== 'all'
-                        ? 'No users match your filters.'
-                        : 'No users found. Add your first user above.'}
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                users.map((user) => (
-                  <TableRow key={user.id} hover>
-                    <TableCell>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="body2" fontWeight={500}>
-                          {user.name}
-                        </Typography>
-                        {user.id === currentUser?.id && (
-                          <Chip size="small" label="You" color="primary" variant="outlined" />
-                        )}
-                      </Box>
-                    </TableCell>
-                    <TableCell>{user.email}</TableCell>
-                    <TableCell>
-                      <Chip
-                        size="small"
-                        icon={getRoleIcon(user.role)}
-                        label={user.role.charAt(0).toUpperCase() + user.role.slice(1)}
-                        color={getRoleColor(user.role)}
-                        variant="outlined"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        size="small"
-                        label={user.enabled ? 'Active' : 'Disabled'}
-                        color={user.enabled ? 'success' : 'default'}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color="textSecondary">
-                        {formatDate(user.last_login)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Tooltip title="Edit user">
-                        <IconButton
-                          size="small"
-                          onClick={() => handleOpenEdit(user)}
-                        >
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      {user.id !== currentUser?.id && (
-                        <Tooltip title="Delete user">
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => handleDeleteClick(user)}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
+      <Card sx={{ overflow: 'hidden' }}>
+        {isLoading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <CircularProgress size={24} />
+          </Box>
+        ) : (
+          <ResponsiveTable
+            columns={tableColumns}
+            data={users}
+            keyExtractor={(user) => user.id}
+            mobileTitle={(user) => (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                {user.name}
+                {user.id === currentUser?.id && (
+                  <Chip size="small" label="You" color="primary" variant="outlined" />
+                )}
+              </Box>
+            )}
+            mobileSummaryColumns={['role', 'status']}
+            actions={(user) => (
+              <>
+                <Tooltip title="Edit user">
+                  <IconButton
+                    size="small"
+                    onClick={() => handleOpenEdit(user)}
+                  >
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                {user.id !== currentUser?.id && (
+                  <Tooltip title="Delete user">
+                    <IconButton
+                      size="small"
+                      color="error"
+                      onClick={() => handleDeleteClick(user)}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </>
+            )}
+            emptyMessage={
+              searchQuery || statusFilter !== 'all'
+                ? 'No users match your filters.'
+                : 'No users found. Add your first user above.'
+            }
+          />
+        )}
         <TablePagination
           component="div"
           count={totalCount}

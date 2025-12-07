@@ -42,13 +42,18 @@ Check if the API is running.
 
 #### `GET /api/databases`
 
-List all database configurations.
+List database configurations with filtering and pagination.
 
 **Query Parameters:**
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `enabled_only` | boolean | Filter to only enabled databases |
 | `type` | string | Filter by database type (`mysql`, `postgresql`, `sqlserver`, `azure_sql`) |
+| `search` | string | Search in name, host, and database_name |
+| `host` | string | Filter by host |
+| `policy_id` | string | Filter by backup policy ID |
+| `limit` | integer | Results per page (default: 25) |
+| `offset` | integer | Skip N results for pagination (default: 0) |
 
 **Response:**
 ```json
@@ -62,15 +67,15 @@ List all database configurations.
       "port": 3306,
       "database_name": "myapp",
       "username": "backup_user",
-      "schedule": "0 0 * * *",
+      "policy_id": "policy-default",
       "enabled": true,
-      "retention_days": 30,
-      "compression": true,
       "created_at": "2024-01-01T00:00:00.000Z",
       "updated_at": "2024-01-15T00:00:00.000Z"
     }
   ],
-  "count": 1
+  "count": 1,
+  "total": 15,
+  "has_more": true
 }
 ```
 
@@ -516,3 +521,117 @@ Update application settings.
     "updated_at": "2024-01-15T12:00:00.000Z"
   }
 }
+```
+
+---
+
+### Backup Policies
+
+#### `GET /api/backup-policies`
+
+List all backup policies.
+
+**Response:**
+```json
+{
+  "policies": [
+    {
+      "id": "policy-default",
+      "name": "Default Policy",
+      "description": "Standard backup retention",
+      "is_system": true,
+      "hourly": { "enabled": false, "keep_count": 0 },
+      "daily": { "enabled": true, "keep_count": 7, "time": "02:00" },
+      "weekly": { "enabled": true, "keep_count": 4, "time": "02:00", "day_of_week": 0 },
+      "monthly": { "enabled": true, "keep_count": 12, "time": "02:00", "day_of_month": 1 },
+      "yearly": { "enabled": false, "keep_count": 0 },
+      "created_at": "2024-01-01T00:00:00.000Z",
+      "updated_at": "2024-01-15T00:00:00.000Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+---
+
+#### `POST /api/backup-policies`
+
+Create a new backup policy.
+
+**Request Body:**
+```json
+{
+  "name": "High Retention Policy",
+  "description": "For critical databases",
+  "hourly": { "enabled": true, "keep_count": 24, "interval_hours": 1 },
+  "daily": { "enabled": true, "keep_count": 30, "time": "02:00" },
+  "weekly": { "enabled": true, "keep_count": 8, "time": "02:00", "day_of_week": 0 },
+  "monthly": { "enabled": true, "keep_count": 24, "time": "02:00", "day_of_month": 1 },
+  "yearly": { "enabled": true, "keep_count": 5, "time": "02:00", "day_of_month": 1, "month": 1 }
+}
+```
+
+**Response:** `201 Created`
+```json
+{
+  "message": "Backup policy created",
+  "policy": { ... }
+}
+```
+
+---
+
+#### `GET /api/backup-policies/{policy_id}`
+
+Get a specific backup policy.
+
+**Response:**
+```json
+{
+  "policy": {
+    "id": "policy-001",
+    "name": "High Retention Policy",
+    ...
+  }
+}
+```
+
+---
+
+#### `PUT /api/backup-policies/{policy_id}`
+
+Update a backup policy.
+
+**Request Body:** (all fields optional)
+```json
+{
+  "name": "Updated Policy Name",
+  "daily": { "enabled": true, "keep_count": 14, "time": "03:00" }
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Backup policy updated",
+  "policy": { ... }
+}
+```
+
+---
+
+#### `DELETE /api/backup-policies/{policy_id}`
+
+Delete a backup policy. System policies cannot be deleted.
+
+**Response:**
+```json
+{
+  "message": "Backup policy 'policy-001' deleted"
+}
+```
+
+**Errors:**
+- `400 Bad Request` - Cannot delete system policy
+- `404 Not Found` - Policy not found

@@ -156,51 +156,83 @@ echo ""
 
 PROJECT_DIR="/workspaces/dilux-azure-databases-backup-alpha"
 LOG_DIR="$PROJECT_DIR/.devcontainer/logs"
-PID_DIR="$PROJECT_DIR/.devcontainer/pids"
-mkdir -p "$LOG_DIR" "$PID_DIR"
+mkdir -p "$LOG_DIR"
 
-# Function to start a service if not already running
-# Uses setsid to create a new session so processes don't become zombies
+# Function to check if a service is actually responding (not zombie)
+check_service_healthy() {
+    local port=$1
+    local check_url=$2
+
+    if [ -n "$check_url" ]; then
+        # For HTTP services, check if they respond
+        curl -s -o /dev/null -w "%{http_code}" "$check_url" 2>/dev/null | grep -q "200\|404"
+    else
+        # For non-HTTP services, just check if port is listening
+        lsof -i :$port >/dev/null 2>&1
+    fi
+}
+
+# Function to kill any process on a port
+kill_port() {
+    local port=$1
+    local pid=$(lsof -t -i :$port 2>/dev/null)
+    if [ -n "$pid" ]; then
+        kill -9 $pid 2>/dev/null
+        sleep 1
+    fi
+}
+
+# Function to start a service, killing zombies if needed
 start_service() {
     local name=$1
     local port=$2
     local dir=$3
     local cmd=$4
-    local log_file="$LOG_DIR/$name.log"
-    local pid_file="$PID_DIR/$name.pid"
+    local health_url=$5
+    local log_file="$LOG_DIR/${name,,}.log"
 
+    echo -n "  $name (port $port): "
+
+    # Check if service is running AND healthy
     if lsof -i :$port >/dev/null 2>&1; then
-        echo "  [OK] $name already running on port $port"
-    else
-        echo -n "  Starting $name on port $port... "
-
-        # Use setsid to create a new session, preventing zombie processes
-        # The process runs completely independent of the parent shell
-        setsid bash -c "cd '$dir' && $cmd > '$log_file' 2>&1 & echo \$! > '$pid_file'" &
-
-        # Wait for service to be ready (max 30 seconds)
-        local count=0
-        while ! lsof -i :$port >/dev/null 2>&1 && [ $count -lt 30 ]; do
-            sleep 1
-            count=$((count + 1))
-        done
-
-        if lsof -i :$port >/dev/null 2>&1; then
-            echo "[OK]"
+        if check_service_healthy "$port" "$health_url"; then
+            echo "[OK] running"
+            return 0
         else
-            echo "[FAILED - check $log_file]"
+            # Port occupied but not responding = zombie
+            echo -n "[ZOMBIE] killing... "
+            kill_port $port
         fi
     fi
+
+    # Start the service
+    echo -n "starting... "
+
+    # Use setsid for process independence, redirect output to log
+    cd "$dir" && setsid bash -c "$cmd > '$log_file' 2>&1" &
+
+    # Wait for service to be ready (max 20 seconds)
+    local count=0
+    while [ $count -lt 20 ]; do
+        sleep 1
+        count=$((count + 1))
+        if check_service_healthy "$port" "$health_url"; then
+            echo "[OK]"
+            return 0
+        fi
+    done
+
+    echo "[FAILED - check $log_file]"
+    return 1
 }
 
-# Start API (required for frontend proxy)
-start_service "API" 7071 "$PROJECT_DIR/src/functions/api" "func start --port 7071"
+# Start services with health check URLs (5th param)
+# Health URL is used to verify service is responding, not just port open
 
-# Start Processor (handles backup jobs from queue)
-start_service "Processor" 7073 "$PROJECT_DIR/src/functions/processor" "func start --port 7073"
-
-# Start Frontend
-start_service "Frontend" 3000 "$PROJECT_DIR/src/frontend" "npm run dev"
+start_service "API" 7071 "$PROJECT_DIR/src/functions/api" "func start --port 7071" "http://localhost:7071/api/health"
+start_service "Scheduler" 7072 "$PROJECT_DIR/src/functions/scheduler" "func start --port 7072" ""
+start_service "Processor" 7073 "$PROJECT_DIR/src/functions/processor" "func start --port 7073" ""
+start_service "Frontend" 3000 "$PROJECT_DIR/src/frontend" "npm run dev" "http://localhost:3000"
 
 echo ""
 echo "=============================================="
@@ -210,6 +242,7 @@ echo ""
 echo " Service URLs:"
 echo "   Frontend:  http://localhost:3000"
 echo "   API:       http://localhost:7071/api/health"
+echo "   Scheduler: http://localhost:7072 (timer triggers)"
 echo "   Processor: http://localhost:7073 (queue trigger)"
 echo ""
 echo " Logs: $LOG_DIR/"

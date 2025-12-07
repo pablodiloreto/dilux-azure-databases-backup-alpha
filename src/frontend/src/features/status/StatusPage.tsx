@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useMemo } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import {
   Box,
@@ -20,6 +21,7 @@ import {
   Tooltip,
   IconButton,
 } from '@mui/material'
+import { ResponsiveTable, Column } from '../../components/common'
 import {
   CheckCircle as CheckIcon,
   Error as ErrorIcon,
@@ -157,9 +159,74 @@ export function StatusPage() {
 
   const hasAlerts = (alertsData?.count ?? 0) > 0
 
+  // Table columns for Backup Alerts
+  const alertColumns: Column<BackupAlert>[] = useMemo(() => [
+    {
+      id: 'database',
+      label: 'Database',
+      render: (alert) => (
+        <Typography variant="body2" fontWeight={500}>
+          {alert.database_name}
+        </Typography>
+      ),
+      hideInMobileSummary: true,
+    },
+    {
+      id: 'type',
+      label: 'Type',
+      render: (alert) => (
+        <Chip
+          size="small"
+          label={alert.database_type}
+          color={getDatabaseTypeColor(alert.database_type)}
+          variant="outlined"
+        />
+      ),
+      hideInMobileSummary: true,
+    },
+    {
+      id: 'failures',
+      label: 'Failures',
+      render: (alert) => (
+        <Chip size="small" label={alert.consecutive_failures} color="error" />
+      ),
+    },
+    {
+      id: 'lastFailure',
+      label: 'Last Failure',
+      render: (alert) => (
+        <Typography variant="body2" color="text.secondary">
+          {formatAlertDate(alert.last_failure_at)}
+        </Typography>
+      ),
+      hideInMobileSummary: true,
+    },
+    {
+      id: 'error',
+      label: 'Error',
+      render: (alert) => (
+        <Tooltip title={alert.last_error || 'Unknown error'}>
+          <Typography
+            variant="body2"
+            color="error"
+            sx={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              maxWidth: 250,
+            }}
+          >
+            {alert.last_error || 'Unknown error'}
+          </Typography>
+        </Tooltip>
+      ),
+      hideInMobileSummary: true,
+    },
+  ], [])
+
   return (
-    <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+    <Box sx={{ maxWidth: '100%', overflow: 'hidden' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3, flexWrap: 'wrap', gap: 1 }}>
         <Typography variant="h4">System Status</Typography>
         <Button
           variant="outlined"
@@ -209,78 +276,26 @@ export function StatusPage() {
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
               The following databases have 2 or more consecutive backup failures and require attention.
             </Typography>
-            <TableContainer component={Paper} variant="outlined">
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Database</TableCell>
-                    <TableCell>Type</TableCell>
-                    <TableCell>Failures</TableCell>
-                    <TableCell>Last Failure</TableCell>
-                    <TableCell>Error</TableCell>
-                    <TableCell align="center">Config</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {alertsData?.alerts.map((alert: BackupAlert) => (
-                    <TableRow key={alert.database_id} hover>
-                      <TableCell>
-                        <Typography variant="body2" fontWeight={500}>
-                          {alert.database_name}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          size="small"
-                          label={alert.database_type}
-                          color={getDatabaseTypeColor(alert.database_type)}
-                          variant="outlined"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          size="small"
-                          label={alert.consecutive_failures}
-                          color="error"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" color="text.secondary">
-                          {formatAlertDate(alert.last_failure_at)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell sx={{ maxWidth: 300 }}>
-                        <Tooltip title={alert.last_error || 'Unknown error'}>
-                          <Typography
-                            variant="body2"
-                            color="error"
-                            sx={{
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {alert.last_error || 'Unknown error'}
-                          </Typography>
-                        </Tooltip>
-                      </TableCell>
-                      <TableCell align="center">
-                        <Tooltip title="Edit database configuration">
-                          <IconButton
-                            component={RouterLink}
-                            to={`/databases?edit=${alert.database_id}`}
-                            size="small"
-                            color="primary"
-                          >
-                            <SettingsIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+            <ResponsiveTable
+              columns={alertColumns}
+              data={alertsData?.alerts || []}
+              keyExtractor={(alert) => alert.database_id}
+              mobileTitle={(alert) => alert.database_name}
+              mobileSummaryColumns={['failures']}
+              actions={(alert) => (
+                <Tooltip title="Edit database configuration">
+                  <IconButton
+                    component={RouterLink}
+                    to={`/databases?edit=${alert.database_id}`}
+                    size="small"
+                    color="primary"
+                  >
+                    <SettingsIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+              size="small"
+            />
           </CardContent>
         </Card>
       )}

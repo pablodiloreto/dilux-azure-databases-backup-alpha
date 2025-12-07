@@ -156,6 +156,10 @@ export interface User {
   name: string
   role: UserRole
   enabled: boolean
+  // User preferences (per-user settings)
+  dark_mode: boolean
+  page_size: number
+  // Metadata
   created_at: string
   updated_at: string
   last_login: string | null

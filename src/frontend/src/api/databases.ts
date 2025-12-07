@@ -12,7 +12,10 @@ interface GetAllOptions {
   enabledOnly?: boolean
   type?: string
   limit?: number
+  offset?: number
   search?: string
+  host?: string
+  policyId?: string
 }
 
 interface DatabaseResponse {
@@ -51,7 +54,10 @@ export const databasesApi = {
     if (options?.enabledOnly) params.append('enabled_only', 'true')
     if (options?.type) params.append('type', options.type)
     if (options?.limit) params.append('limit', options.limit.toString())
+    if (options?.offset) params.append('offset', options.offset.toString())
     if (options?.search) params.append('search', options.search)
+    if (options?.host) params.append('host', options.host)
+    if (options?.policyId) params.append('policy_id', options.policyId)
 
     const response = await apiClient.get<DatabasesResponse>('/databases', { params })
     return response.data

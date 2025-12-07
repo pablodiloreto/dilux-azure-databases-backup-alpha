@@ -43,7 +43,11 @@ src/frontend/
     │   └── SettingsContext.tsx  # Theme and app settings
     │
     ├── components/         # Reusable components
-    │   ├── common/         # Buttons, Cards, etc.
+    │   ├── common/
+    │   │   ├── FilterBar.tsx       # Filter container with Search/Clear
+    │   │   ├── FilterSelect.tsx    # Dropdown with "All X" default
+    │   │   ├── LoadMore.tsx        # Pagination component
+    │   │   └── ResponsiveTable.tsx # Mobile-friendly table/cards component
     │   └── layout/
     │       └── MainLayout.tsx  # App shell with sidebar
     │
@@ -54,10 +58,16 @@ src/frontend/
     │   │   └── DatabasesPage.tsx
     │   ├── backups/
     │   │   └── BackupsPage.tsx
+    │   ├── policies/
+    │   │   └── PoliciesPage.tsx
     │   ├── settings/
     │   │   └── SettingsPage.tsx
-    │   └── status/
-    │       └── StatusPage.tsx
+    │   ├── status/
+    │   │   └── StatusPage.tsx
+    │   ├── storage/
+    │   │   └── StoragePage.tsx
+    │   └── users/
+    │       └── UsersPage.tsx
     │
     ├── hooks/              # Custom React hooks
     │   ├── useDatabases.ts
@@ -156,9 +166,12 @@ export default defineConfig({
 | Page | Route | Description |
 |------|-------|-------------|
 | Dashboard | `/dashboard` | Overview with stats, recent backups, and system health |
-| Databases | `/databases` | List, create, edit, delete database configs |
+| Databases | `/databases` | List, create, edit, delete database configs with filters |
 | Backups | `/backups` | View backup history with pagination and filters |
-| Settings | `/settings` | Application settings (dark mode, retention, compression) |
+| Policies | `/policies` | Configure backup policies with tiered schedules |
+| Storage | `/storage` | Storage statistics with charts and blob details |
+| Users | `/users` | User management and access requests |
+| Settings | `/settings` | Application settings (display, defaults) |
 | Status | `/status` | Detailed system status and health checks |
 
 ### State Management
@@ -225,6 +238,127 @@ export function useCreateDatabase() {
 
 ## Components
 
+### Common Components
+
+#### FilterBar
+
+Reusable container for page filters with consistent behavior:
+
+```tsx
+import { FilterBar, FilterSelect } from '../components/common/FilterBar'
+
+<FilterBar
+  hasActiveFilters={type !== '' || host !== ''}  // True if any filter is set
+  hasChanges={filtersHaveChanged}                // True if filters changed since last search
+  onSearch={handleSearch}                        // Apply filters
+  onClear={handleClear}                          // Reset and reload
+  isLoading={isLoading}
+>
+  <FilterSelect ... />
+  <TextField ... />
+</FilterBar>
+```
+
+**Filter Behavior:**
+- **Search button** - Disabled until filters change from applied values
+- **Clear filters** - Only visible when filters are active, resets and reloads immediately
+- **hasChanges vs hasActiveFilters** - Different purposes:
+  - `hasActiveFilters`: Shows/hides Clear button
+  - `hasChanges`: Enables/disables Search button
+
+#### FilterSelect
+
+Dropdown select with "All X" default display (no floating label):
+
+```tsx
+<FilterSelect
+  value={selectedType}
+  options={[
+    { value: 'mysql', label: 'MySQL' },
+    { value: 'postgresql', label: 'PostgreSQL' },
+  ]}
+  allLabel="All Types"
+  onChange={setSelectedType}
+  minWidth={140}
+/>
+```
+
+Uses MUI Select with `displayEmpty` to always show the selected value or "All X" placeholder.
+
+#### LoadMore
+
+Pagination component showing count with "Load More" button:
+
+```tsx
+<LoadMore
+  shown={databases.length}
+  total={totalCount}
+  hasMore={hasMore}
+  onLoadMore={loadMore}
+  isLoading={isLoadingMore}
+/>
+// Renders: "Showing 25 of 150" with Load More button
+```
+
+#### ResponsiveTable
+
+Mobile-friendly table component that displays as a standard table on desktop and as expandable cards on mobile:
+
+```tsx
+import { ResponsiveTable, Column } from '../components/common'
+
+// Define columns
+const columns: Column<User>[] = [
+  {
+    id: 'name',
+    label: 'Name',
+    render: (user) => <Typography fontWeight={500}>{user.name}</Typography>,
+    hideInMobileSummary: true,  // Show only when expanded on mobile
+  },
+  {
+    id: 'email',
+    label: 'Email',
+    render: (user) => user.email,
+  },
+  {
+    id: 'role',
+    label: 'Role',
+    render: (user) => <Chip label={user.role} size="small" />,
+  },
+]
+
+<ResponsiveTable
+  columns={columns}
+  data={users}
+  keyExtractor={(user) => user.id}
+  mobileTitle={(user) => user.name}              // Card title on mobile
+  mobileSummaryColumns={['role']}                 // Columns visible in collapsed card
+  actions={(user) => (                            // Action buttons
+    <IconButton onClick={() => handleEdit(user)}>
+      <EditIcon />
+    </IconButton>
+  )}
+  emptyMessage="No users found"
+  size="small"
+/>
+```
+
+**Props:**
+- `columns` - Array of column definitions with `id`, `label`, `render`, and optional `hideInMobileSummary`
+- `data` - Array of data items
+- `keyExtractor` - Function to extract unique key from each item
+- `mobileTitle` - Function returning the title shown on mobile cards
+- `mobileSummaryColumns` - Column IDs to show in collapsed mobile view
+- `actions` - Function returning action buttons for each row
+- `emptyMessage` - Message shown when data is empty
+- `size` - Table size ('small' | 'medium')
+
+**Mobile Behavior:**
+- Shows as expandable cards below `md` breakpoint
+- Card header shows `mobileTitle` and columns in `mobileSummaryColumns`
+- Tap to expand/collapse to see all columns
+- Actions always visible in card header
+
 ### MainLayout
 
 The app shell with:
@@ -264,38 +398,88 @@ Shows:
 ### DatabasesPage
 
 Shows:
-- Table of all database configurations with search
+- **ResponsiveTable** of database configurations (cards on mobile)
+- **FilterBar** with:
+  - Text search (name, host, database name)
+  - Filter by database type (All Types, MySQL, PostgreSQL, SQL Server)
+  - Filter by host
+  - Filter by backup policy
+- **Load More pagination** - Uses `pageSize` setting (default 25)
 - Add/Edit/Delete actions
 - Test Connection button before saving
 - Trigger manual backup button
 - **Deep linking**: Supports `?edit={database_id}` query param to auto-open edit dialog (used from StatusPage alerts)
+- **Mobile**: Shows name as card title, type/status in summary, policy on expand
 
 ### BackupsPage
 
 Shows:
-- Backup history table with server-side pagination
-- Filter by database (autocomplete with search)
-- Filter by status, trigger type, date range
+- **ResponsiveTable** of backup history (cards on mobile)
+- **Stats bar** with Loaded count, Success Rate, Failed count, Total Size (2x2 grid on mobile)
+- **FilterBar** with:
+  - Filter by database (autocomplete with search)
+  - Filter by status (All Statuses, Completed, Failed, etc.)
+  - Filter by type (All Types, MySQL, PostgreSQL, SQL Server)
+  - Date range picker
+- **Load More pagination** - Uses `pageSize` setting (default 25)
 - Download buttons for completed backups
+- Clear filters resets and reloads immediately
+- **Mobile**: Shows database name as card title, status/date in summary, details on expand
+
+### PoliciesPage
+
+Shows:
+- **ResponsiveTable** of backup policies (cards on mobile)
+- Tier columns: Hourly, Daily, Weekly, Monthly, Yearly
+- Create/Edit/Delete policies
+- Tier configuration with:
+  - Enable/disable toggle
+  - Keep count
+  - Schedule time
+  - Day of week (weekly), Day of month (monthly/yearly), Month (yearly)
+- System policies cannot be deleted
+- Shows policy count: "Showing X policies"
+- **Mobile**: Shows policy name as card title, summary chip visible, tier details on expand
 
 ### SettingsPage
 
 Shows:
-- Dark mode toggle
-- Default retention days
-- Default compression setting
-- Settings are persisted to backend
+- **Your Preferences** (per-user, stored in Table Storage):
+  - Dark mode toggle
+  - Items per page (10, 25, 50, 100) - configurable page size for all list views
+- **Backup Defaults** (system-wide):
+  - Default retention days
+  - Default compression setting
+- **Access Control** (system-wide):
+  - Allow Access Requests toggle
+- **Mobile**: Settings rows stack vertically (title/description above, control below)
 
 ### StatusPage
 
 Shows:
 - Overall system status alert
-- **Backup Alerts section** - Lists databases with consecutive failures (2+)
+- **Backup Alerts section** with **ResponsiveTable** (cards on mobile)
+  - Lists databases with consecutive failures (2+)
   - Shows database name, type, failure count, last error
   - **Config link** - Each row has a settings icon that links to edit the database config
+  - **Mobile**: Shows database name as card title, failure count in summary
 - Service cards (API, Storage, Databases, Backup Stats)
 - System information table
 - Supported database types
+
+### UsersPage
+
+Shows:
+- **ResponsiveTable** of registered users (cards on mobile)
+- **Pending Access Requests** collapsible section with **ResponsiveTable**
+  - Lists users who requested access (when access requests enabled in settings)
+  - Approve/Reject actions
+  - **Mobile**: Shows name as card title, email in summary
+- Search by email or name
+- Filter by status (All, Active, Disabled)
+- Add/Edit/Delete users
+- Server-side pagination with MUI TablePagination
+- **Mobile**: Shows user name as card title, role/status in summary, email/last login on expand
 
 ---
 

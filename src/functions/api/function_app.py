@@ -252,32 +252,39 @@ def list_databases(req: func.HttpRequest) -> func.HttpResponse:
     - enabled_only: bool - Filter to only enabled databases
     - type: str - Filter by database type
     - limit: int - Maximum number of results (default: no limit)
+    - offset: int - Number of results to skip (for pagination)
     - search: str - Search term to filter by name or host
+    - host: str - Filter by host
+    - policy_id: str - Filter by policy ID
     """
     try:
         enabled_only = req.params.get("enabled_only", "false").lower() == "true"
         db_type = req.params.get("type")
         limit_str = req.params.get("limit")
+        offset_str = req.params.get("offset")
         search = req.params.get("search")
+        host = req.params.get("host")
+        policy_id = req.params.get("policy_id")
 
         limit = int(limit_str) if limit_str else None
+        offset = int(offset_str) if offset_str else 0
 
-        if db_type:
-            configs = db_config_service.get_by_type(DatabaseType(db_type))
-            total = len(configs)
-        else:
-            configs, total = db_config_service.get_all(
-                enabled_only=enabled_only,
-                limit=limit,
-                search=search,
-            )
+        configs, total = db_config_service.get_all(
+            enabled_only=enabled_only,
+            limit=limit,
+            offset=offset,
+            search=search,
+            database_type=db_type,
+            host=host,
+            policy_id=policy_id,
+        )
 
         return func.HttpResponse(
             json.dumps({
                 "databases": [config.model_dump(mode="json", exclude={"password"}) for config in configs],
                 "count": len(configs),
                 "total": total,
-                "has_more": len(configs) < total,
+                "has_more": (offset + len(configs)) < total,
             }),
             mimetype="application/json",
             status_code=200,
@@ -712,6 +719,95 @@ def download_backup(req: func.HttpRequest) -> func.HttpResponse:
 
 
 # ===========================================
+# Storage Stats Endpoints
+# ===========================================
+
+
+@app.route(route="storage-stats", methods=["GET"])
+def get_storage_stats(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Get storage statistics with breakdown by database and type.
+
+    Returns:
+    - total storage used
+    - storage per database
+    - storage per database type
+    - backup counts
+    """
+    try:
+        # Get all backup files
+        files = storage_service.list_backups(max_results=10000)
+
+        # Get all databases for name mapping
+        databases, _ = db_config_service.get_all()
+        db_map = {db.id: db for db in databases}
+
+        # Calculate stats
+        total_size = sum(f.get("size", 0) for f in files)
+
+        # Group by database
+        by_database: dict = {}
+        by_type: dict = {"mysql": 0, "postgresql": 0, "sqlserver": 0, "azure_sql": 0}
+        by_database_count: dict = {}
+
+        for f in files:
+            # Parse blob name: {db_type}/{db_id}/{filename}
+            parts = f.get("name", "").split("/")
+            if len(parts) >= 2:
+                db_type = parts[0]
+                db_id = parts[1]
+                size = f.get("size", 0)
+
+                # By type
+                if db_type in by_type:
+                    by_type[db_type] += size
+
+                # By database
+                if db_id not in by_database:
+                    db = db_map.get(db_id)
+                    by_database[db_id] = {
+                        "database_id": db_id,
+                        "database_name": db.name if db else "Unknown",
+                        "database_type": db.database_type if db else db_type,
+                        "size_bytes": 0,
+                        "backup_count": 0,
+                    }
+                by_database[db_id]["size_bytes"] += size
+                by_database[db_id]["backup_count"] += 1
+
+        # Sort by size descending
+        databases_list = sorted(by_database.values(), key=lambda x: x["size_bytes"], reverse=True)
+
+        # Format sizes
+        for db in databases_list:
+            db["size_formatted"] = format_bytes(db["size_bytes"])
+
+        return func.HttpResponse(
+            json.dumps({
+                "total_size_bytes": total_size,
+                "total_size_formatted": format_bytes(total_size),
+                "total_backup_count": len(files),
+                "by_database": databases_list,
+                "by_type": {
+                    "mysql": {"size_bytes": by_type["mysql"], "size_formatted": format_bytes(by_type["mysql"])},
+                    "postgresql": {"size_bytes": by_type["postgresql"], "size_formatted": format_bytes(by_type["postgresql"])},
+                    "sqlserver": {"size_bytes": by_type["sqlserver"], "size_formatted": format_bytes(by_type["sqlserver"])},
+                    "azure_sql": {"size_bytes": by_type["azure_sql"], "size_formatted": format_bytes(by_type["azure_sql"])},
+                },
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error getting storage stats")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+# ===========================================
 # Settings Endpoints
 # ===========================================
 
@@ -813,6 +909,73 @@ def get_current_user_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         )
     except Exception as e:
         logger.exception("Error getting current user")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="users/me/preferences", methods=["PUT"])
+def update_current_user_preferences(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Update current user's preferences (dark_mode, page_size).
+
+    Body:
+    {
+        "dark_mode": true,
+        "page_size": 25
+    }
+    """
+    try:
+        auth_result = get_current_user(req, storage_service)
+
+        if not auth_result.authenticated:
+            return func.HttpResponse(
+                json.dumps({"error": auth_result.error}),
+                mimetype="application/json",
+                status_code=401,
+            )
+
+        try:
+            data = req.get_json()
+        except ValueError:
+            return func.HttpResponse(
+                json.dumps({"error": "Invalid JSON"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        user = auth_result.user
+
+        # Update only preference fields
+        if "dark_mode" in data:
+            user.dark_mode = bool(data["dark_mode"])
+        if "page_size" in data:
+            page_size = int(data["page_size"])
+            if page_size < 10 or page_size > 100:
+                return func.HttpResponse(
+                    json.dumps({"error": "page_size must be between 10 and 100"}),
+                    mimetype="application/json",
+                    status_code=400,
+                )
+            user.page_size = page_size
+
+        user.updated_at = datetime.utcnow()
+
+        # Save to storage
+        storage_service.save_user(user)
+
+        return func.HttpResponse(
+            json.dumps({
+                "message": "Preferences updated",
+                "user": user.model_dump(mode="json"),
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error updating user preferences")
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
             mimetype="application/json",

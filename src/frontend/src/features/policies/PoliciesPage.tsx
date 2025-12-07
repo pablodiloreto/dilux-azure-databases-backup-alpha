@@ -1,14 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   Box,
   Typography,
   Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   IconButton,
   Chip,
   Button,
@@ -29,6 +23,7 @@ import {
   FormControl,
   InputLabel,
 } from '@mui/material'
+import { ResponsiveTable, Column } from '../../components/common'
 import {
   Edit as EditIcon,
   Delete as DeleteIcon,
@@ -38,40 +33,10 @@ import {
 } from '@mui/icons-material'
 import { apiClient } from '../../api/client'
 import { BackupPolicy, TierConfig, BackupPoliciesResponse } from '../../types'
+import { getPolicySummary } from '../../utils/format'
 
 const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-
-// Helper to get policy summary string
-function getPolicySummary(policy: BackupPolicy): string {
-  const parts: string[] = []
-  if (policy.hourly.enabled && policy.hourly.keep_count > 0) parts.push(`${policy.hourly.keep_count}h`)
-  if (policy.daily.enabled && policy.daily.keep_count > 0) parts.push(`${policy.daily.keep_count}d`)
-  if (policy.weekly.enabled && policy.weekly.keep_count > 0) parts.push(`${policy.weekly.keep_count}w`)
-  if (policy.monthly.enabled && policy.monthly.keep_count > 0) parts.push(`${policy.monthly.keep_count}m`)
-  if (policy.yearly.enabled && policy.yearly.keep_count > 0) parts.push(`${policy.yearly.keep_count}y`)
-  return parts.join('/') || 'No retention'
-}
-
-// Helper to get tier schedule description
-function getTierScheduleDesc(tier: string, config: TierConfig): string {
-  if (!config.enabled) return 'Disabled'
-
-  switch (tier) {
-    case 'hourly':
-      return config.interval_hours === 1 ? 'Every hour' : `Every ${config.interval_hours} hours`
-    case 'daily':
-      return `Daily at ${config.time}`
-    case 'weekly':
-      return `${DAYS_OF_WEEK[config.day_of_week || 0]} at ${config.time}`
-    case 'monthly':
-      return `Day ${config.day_of_month} at ${config.time}`
-    case 'yearly':
-      return `${MONTHS[config.month || 1]} ${config.day_of_month} at ${config.time}`
-    default:
-      return 'Unknown'
-  }
-}
 
 // Default tier config
 const defaultTierConfig: TierConfig = {
@@ -317,6 +282,108 @@ export function PoliciesPage() {
     </Box>
   )
 
+  // Table columns for ResponsiveTable
+  const tableColumns: Column<BackupPolicy>[] = useMemo(() => [
+    {
+      id: 'name',
+      label: 'Name',
+      render: (policy) => (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <PolicyIcon fontSize="small" color="action" />
+          <Box>
+            <Typography variant="body2" fontWeight={500}>
+              {policy.name}
+              {policy.is_system && (
+                <Chip
+                  label="System"
+                  size="small"
+                  color="primary"
+                  variant="outlined"
+                  sx={{ ml: 1, height: 20 }}
+                />
+              )}
+            </Typography>
+            {policy.description && (
+              <Typography variant="caption" color="text.secondary">
+                {policy.description}
+              </Typography>
+            )}
+          </Box>
+        </Box>
+      ),
+      hideInMobileSummary: true, // shown as title
+    },
+    {
+      id: 'hourly',
+      label: 'Hourly',
+      render: (policy) =>
+        policy.hourly.enabled ? (
+          <Chip label={`${policy.hourly.keep_count}`} size="small" color="info" />
+        ) : (
+          <Typography variant="caption" color="text.disabled">-</Typography>
+        ),
+      hideInMobileSummary: true,
+    },
+    {
+      id: 'daily',
+      label: 'Daily',
+      render: (policy) =>
+        policy.daily.enabled ? (
+          <Chip label={`${policy.daily.keep_count}`} size="small" color="success" />
+        ) : (
+          <Typography variant="caption" color="text.disabled">-</Typography>
+        ),
+      hideInMobileSummary: true,
+    },
+    {
+      id: 'weekly',
+      label: 'Weekly',
+      render: (policy) =>
+        policy.weekly.enabled ? (
+          <Chip label={`${policy.weekly.keep_count}`} size="small" color="warning" />
+        ) : (
+          <Typography variant="caption" color="text.disabled">-</Typography>
+        ),
+      hideInMobileSummary: true,
+    },
+    {
+      id: 'monthly',
+      label: 'Monthly',
+      render: (policy) =>
+        policy.monthly.enabled ? (
+          <Chip label={`${policy.monthly.keep_count}`} size="small" color="secondary" />
+        ) : (
+          <Typography variant="caption" color="text.disabled">-</Typography>
+        ),
+      hideInMobileSummary: true,
+    },
+    {
+      id: 'yearly',
+      label: 'Yearly',
+      render: (policy) =>
+        policy.yearly.enabled ? (
+          <Chip label={`${policy.yearly.keep_count}`} size="small" color="error" />
+        ) : (
+          <Typography variant="caption" color="text.disabled">-</Typography>
+        ),
+      hideInMobileSummary: true,
+    },
+    {
+      id: 'summary',
+      label: 'Summary',
+      render: (policy) => (
+        <Tooltip title="Retention: hourly/daily/weekly/monthly/yearly">
+          <Chip
+            label={getPolicySummary(policy)}
+            size="small"
+            variant="outlined"
+            icon={<InfoIcon />}
+          />
+        </Tooltip>
+      ),
+    },
+  ], [])
+
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
@@ -326,9 +393,9 @@ export function PoliciesPage() {
   }
 
   return (
-    <Box>
+    <Box sx={{ maxWidth: '100%', overflow: 'hidden' }}>
       {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3, flexWrap: 'wrap', gap: 1 }}>
         <Box>
           <Typography variant="h4" gutterBottom>
             Backup Policies
@@ -352,119 +419,54 @@ export function PoliciesPage() {
         </Alert>
       )}
 
+      {/* Policies count */}
+      {policies.length > 0 && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Showing {policies.length} {policies.length === 1 ? 'policy' : 'policies'}
+        </Typography>
+      )}
+
       {/* Policies Table */}
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>Hourly</TableCell>
-              <TableCell>Daily</TableCell>
-              <TableCell>Weekly</TableCell>
-              <TableCell>Monthly</TableCell>
-              <TableCell>Yearly</TableCell>
-              <TableCell>Summary</TableCell>
-              <TableCell align="right">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {policies.map((policy) => (
-              <TableRow key={policy.id} hover>
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <PolicyIcon fontSize="small" color="action" />
-                    <Box>
-                      <Typography variant="body2" fontWeight={500}>
-                        {policy.name}
-                        {policy.is_system && (
-                          <Chip
-                            label="System"
-                            size="small"
-                            color="primary"
-                            variant="outlined"
-                            sx={{ ml: 1, height: 20 }}
-                          />
-                        )}
-                      </Typography>
-                      {policy.description && (
-                        <Typography variant="caption" color="text.secondary">
-                          {policy.description}
-                        </Typography>
-                      )}
-                    </Box>
-                  </Box>
-                </TableCell>
-                <TableCell>
-                  {policy.hourly.enabled ? (
-                    <Chip label={`${policy.hourly.keep_count}`} size="small" color="info" />
-                  ) : (
-                    <Typography variant="caption" color="text.disabled">-</Typography>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {policy.daily.enabled ? (
-                    <Chip label={`${policy.daily.keep_count}`} size="small" color="success" />
-                  ) : (
-                    <Typography variant="caption" color="text.disabled">-</Typography>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {policy.weekly.enabled ? (
-                    <Chip label={`${policy.weekly.keep_count}`} size="small" color="warning" />
-                  ) : (
-                    <Typography variant="caption" color="text.disabled">-</Typography>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {policy.monthly.enabled ? (
-                    <Chip label={`${policy.monthly.keep_count}`} size="small" color="secondary" />
-                  ) : (
-                    <Typography variant="caption" color="text.disabled">-</Typography>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {policy.yearly.enabled ? (
-                    <Chip label={`${policy.yearly.keep_count}`} size="small" color="error" />
-                  ) : (
-                    <Typography variant="caption" color="text.disabled">-</Typography>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <Tooltip title="Retention summary: hourly/daily/weekly/monthly/yearly">
-                    <Chip
-                      label={getPolicySummary(policy)}
-                      size="small"
-                      variant="outlined"
-                      icon={<InfoIcon />}
-                    />
-                  </Tooltip>
-                </TableCell>
-                <TableCell align="right">
-                  <Tooltip title="Edit">
-                    <IconButton size="small" onClick={() => openDialog(policy)}>
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                  {!policy.is_system && (
-                    <Tooltip title="Delete">
-                      <IconButton
-                        size="small"
-                        color="error"
-                        onClick={() => {
-                          setPolicyToDelete(policy)
-                          setDeleteDialogOpen(true)
-                        }}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
+      <Paper sx={{ overflow: 'hidden' }}>
+        <ResponsiveTable
+          columns={tableColumns}
+          data={policies}
+          keyExtractor={(policy) => policy.id}
+          mobileTitle={(policy) => (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              {policy.name}
+              {policy.is_system && (
+                <Chip label="System" size="small" color="primary" variant="outlined" />
+              )}
+            </Box>
+          )}
+          mobileSummaryColumns={['summary']}
+          actions={(policy) => (
+            <>
+              <Tooltip title="Edit">
+                <IconButton size="small" onClick={() => openDialog(policy)}>
+                  <EditIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              {!policy.is_system && (
+                <Tooltip title="Delete">
+                  <IconButton
+                    size="small"
+                    color="error"
+                    onClick={() => {
+                      setPolicyToDelete(policy)
+                      setDeleteDialogOpen(true)
+                    }}
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </>
+          )}
+          emptyMessage="No backup policies configured"
+        />
+      </Paper>
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>

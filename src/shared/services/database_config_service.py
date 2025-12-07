@@ -105,15 +105,23 @@ class DatabaseConfigService:
         self,
         enabled_only: bool = False,
         limit: Optional[int] = None,
+        offset: int = 0,
         search: Optional[str] = None,
+        database_type: Optional[str] = None,
+        host: Optional[str] = None,
+        policy_id: Optional[str] = None,
     ) -> tuple[list[DatabaseConfig], int]:
         """
-        Get database configurations with optional limit and search.
+        Get database configurations with optional limit, offset and filters.
 
         Args:
             enabled_only: If True, only return enabled databases
             limit: Maximum number of results to return
+            offset: Number of results to skip (for pagination)
             search: Search term to filter by name (case-insensitive)
+            database_type: Filter by database type
+            host: Filter by host
+            policy_id: Filter by policy ID
 
         Returns:
             Tuple of (list of DatabaseConfig instances, total count)
@@ -141,9 +149,23 @@ class DatabaseConfigService:
                 if search_lower in c.name.lower() or search_lower in c.host.lower()
             ]
 
+        # Apply type filter
+        if database_type:
+            configs = [c for c in configs if c.database_type.value == database_type]
+
+        # Apply host filter
+        if host:
+            configs = [c for c in configs if c.host == host]
+
+        # Apply policy filter
+        if policy_id:
+            configs = [c for c in configs if c.policy_id == policy_id]
+
         total_count = len(configs)
 
-        # Apply limit
+        # Apply offset and limit
+        if offset:
+            configs = configs[offset:]
         if limit and limit < len(configs):
             configs = configs[:limit]
 

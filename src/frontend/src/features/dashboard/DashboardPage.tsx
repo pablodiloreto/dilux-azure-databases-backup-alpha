@@ -429,8 +429,8 @@ function SuccessRateCard({ period, onPeriodChange }: PeriodCardProps) {
 }
 
 export function DashboardPage() {
-  // Shared period state for Backups and Success Rate cards
-  const [statsPeriod, setStatsPeriod] = useState<TimePeriod>('1d')
+  // Shared period state for Backups and Success Rate cards (default 7d)
+  const [statsPeriod, setStatsPeriod] = useState<TimePeriod>('7d')
 
   // Main system status (always uses 1d for general stats)
   const { data: systemStatus, isLoading: statusLoading } = useQuery({

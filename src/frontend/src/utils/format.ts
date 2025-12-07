@@ -2,6 +2,25 @@
  * Formatting utilities for consistent display across the application.
  */
 
+import type { BackupPolicy } from '../types'
+
+/**
+ * Get a summary string for a backup policy retention.
+ * Format: "24h/15d/8w/4m/2y" (hourly/daily/weekly/monthly/yearly)
+ *
+ * @param policy - The backup policy
+ * @returns Summary string (e.g., "24h/15d/8w/4m/2y")
+ */
+export function getPolicySummary(policy: BackupPolicy): string {
+  const parts: string[] = []
+  if (policy.hourly.enabled && policy.hourly.keep_count > 0) parts.push(`${policy.hourly.keep_count}h`)
+  if (policy.daily.enabled && policy.daily.keep_count > 0) parts.push(`${policy.daily.keep_count}d`)
+  if (policy.weekly.enabled && policy.weekly.keep_count > 0) parts.push(`${policy.weekly.keep_count}w`)
+  if (policy.monthly.enabled && policy.monthly.keep_count > 0) parts.push(`${policy.monthly.keep_count}m`)
+  if (policy.yearly.enabled && policy.yearly.keep_count > 0) parts.push(`${policy.yearly.keep_count}y`)
+  return parts.join('/') || 'No retention'
+}
+
 /**
  * Format bytes to human-readable file size.
  * Uses 2 decimal places for consistency.

@@ -31,6 +31,10 @@ class User(BaseModel):
     role: UserRole = Field(default=UserRole.VIEWER, description="Application role")
     enabled: bool = Field(default=True, description="Whether user can access the app")
 
+    # User Preferences (per-user settings)
+    dark_mode: bool = Field(default=False, description="User's dark mode preference")
+    page_size: int = Field(default=25, ge=10, le=100, description="Items per page preference")
+
     # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -46,6 +50,8 @@ class User(BaseModel):
             "name": self.name,
             "role": self.role.value,
             "enabled": self.enabled,
+            "dark_mode": self.dark_mode,
+            "page_size": self.page_size,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "last_login": self.last_login.isoformat() if self.last_login else None,
@@ -61,6 +67,8 @@ class User(BaseModel):
             name=entity["name"],
             role=UserRole(entity.get("role", "viewer")),
             enabled=entity.get("enabled", True),
+            dark_mode=entity.get("dark_mode", False),
+            page_size=entity.get("page_size", 25),
             created_at=datetime.fromisoformat(entity["created_at"])
             if entity.get("created_at")
             else datetime.utcnow(),

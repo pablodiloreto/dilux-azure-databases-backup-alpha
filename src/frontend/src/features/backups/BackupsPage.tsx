@@ -1,23 +1,15 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   Box,
   Typography,
   Card,
   CardContent,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   IconButton,
   Chip,
   CircularProgress,
   Alert,
   TextField,
-  MenuItem,
   Button,
-  Stack,
   Paper,
   Tooltip,
   Autocomplete,
@@ -25,13 +17,11 @@ import {
 import {
   Download as DownloadIcon,
   Refresh as RefreshIcon,
-  FilterAltOff as ClearFiltersIcon,
   NavigateNext as NextIcon,
   CheckCircle as SuccessIcon,
   Error as ErrorIcon,
   Storage as StorageIcon,
   Schedule as ScheduleIcon,
-  Search as SearchIcon,
 } from '@mui/icons-material'
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
@@ -42,6 +32,8 @@ import { backupsApi } from '../../api/backups'
 import { databasesApi } from '../../api/databases'
 import { formatFileSize, formatDuration } from '../../utils'
 import type { BackupResult, BackupFilters, DatabaseType, BackupStatus, DatabaseConfig } from '../../types'
+import { FilterBar, FilterSelect, ResponsiveTable, Column } from '../../components/common'
+import { useSettings } from '../../contexts/SettingsContext'
 
 const DATABASE_DROPDOWN_LIMIT = 50
 
@@ -73,7 +65,7 @@ interface StatsCardProps {
 
 function StatsCard({ icon, label, value, color }: StatsCardProps) {
   return (
-    <Paper sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
+    <Paper sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2, flex: '1 1 auto', minWidth: { xs: 'calc(50% - 8px)', sm: 'auto' } }}>
       <Box sx={{ color: color || 'primary.main' }}>{icon}</Box>
       <Box>
         <Typography variant="caption" color="textSecondary">
@@ -87,9 +79,25 @@ function StatsCard({ icon, label, value, color }: StatsCardProps) {
   )
 }
 
-const PAGE_SIZE = 25
+// Filter state type
+interface FilterState {
+  databaseId: string
+  status: BackupStatus | ''
+  dbType: DatabaseType | ''
+  startDate: string
+  endDate: string
+}
+
+const emptyFilters: FilterState = {
+  databaseId: '',
+  status: '',
+  dbType: '',
+  startDate: '',
+  endDate: '',
+}
 
 export function BackupsPage() {
+  const { settings } = useSettings()
   // Data state
   const [backups, setBackups] = useState<BackupResult[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -98,20 +106,22 @@ export function BackupsPage() {
   const [totalCount, setTotalCount] = useState(0)
   const [hasMore, setHasMore] = useState(false)
 
-  // Filters
-  const [databaseFilter, setDatabaseFilter] = useState<DatabaseConfig | null>(null)
-  const [triggeredByFilter, setTriggeredByFilter] = useState<'manual' | 'scheduler' | ''>('')
-  const [statusFilter, setStatusFilter] = useState<BackupStatus | ''>('')
-  const [dbTypeFilter, setDbTypeFilter] = useState<DatabaseType | ''>('')
-  const [startDate, setStartDate] = useState<Dayjs | null>(null)
-  const [endDate, setEndDate] = useState<Dayjs | null>(null)
+  // Filter state (current UI values)
+  const [filters, setFilters] = useState<FilterState>(emptyFilters)
+  // Applied filters (what was searched)
+  const [appliedFilters, setAppliedFilters] = useState<FilterState>(emptyFilters)
 
   // Database autocomplete state
+  const [databaseFilter, setDatabaseFilter] = useState<DatabaseConfig | null>(null)
   const [dbSearchInput, setDbSearchInput] = useState('')
   const [dbOptions, setDbOptions] = useState<DatabaseConfig[]>([])
   const [dbTotalCount, setDbTotalCount] = useState(0)
   const [dbHasMore, setDbHasMore] = useState(false)
   const [dbLoading, setDbLoading] = useState(false)
+
+  // Date pickers
+  const [startDate, setStartDate] = useState<Dayjs | null>(null)
+  const [endDate, setEndDate] = useState<Dayjs | null>(null)
 
   // Initial load: get first 50 databases
   const { data: initialDbData } = useDatabases({ limit: DATABASE_DROPDOWN_LIMIT })
@@ -128,7 +138,6 @@ export function BackupsPage() {
   // Debounced search
   useEffect(() => {
     if (!dbSearchInput) {
-      // Reset to initial data when search is cleared
       if (initialDbData) {
         setDbOptions(initialDbData.databases)
         setDbTotalCount(initialDbData.total)
@@ -157,26 +166,25 @@ export function BackupsPage() {
   // Track if initial load happened
   const initialLoadDone = useRef(false)
 
-  // Build filters object from current state
-  const buildFilters = (): BackupFilters => ({
-    databaseId: databaseFilter?.id || undefined,
-    status: statusFilter || undefined,
-    triggeredBy: triggeredByFilter || undefined,
-    databaseType: dbTypeFilter || undefined,
-    startDate: startDate?.format('YYYY-MM-DD'),
-    endDate: endDate?.format('YYYY-MM-DD'),
+  // Build API filters from filter state
+  const buildApiFilters = (filterState: FilterState): BackupFilters => ({
+    databaseId: filterState.databaseId || undefined,
+    status: filterState.status || undefined,
+    databaseType: filterState.dbType || undefined,
+    startDate: filterState.startDate || undefined,
+    endDate: filterState.endDate || undefined,
   })
 
-  // Fetch backups (paged, sorted by date descending from server)
-  const fetchBackups = useCallback(async (page: number = 1, append: boolean = false, filters?: BackupFilters) => {
+  // Fetch backups
+  const fetchBackups = useCallback(async (page: number = 1, append: boolean = false, filterState: FilterState) => {
     setIsLoading(true)
     setError(null)
 
     try {
       const response = await backupsApi.getHistoryPaged({
-        pageSize: PAGE_SIZE,
+        pageSize: settings.pageSize,
         page,
-        filters: filters || {},
+        filters: buildApiFilters(filterState),
       })
 
       if (append) {
@@ -194,51 +202,74 @@ export function BackupsPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [settings.pageSize])
 
-  // Load data on mount only (no auto-refresh on filter change)
+  // Load data on mount only
   useEffect(() => {
     if (!initialLoadDone.current) {
-      fetchBackups(1, false)
+      fetchBackups(1, false, emptyFilters)
       initialLoadDone.current = true
     }
   }, [fetchBackups])
 
-  // Store the last applied filters for Load More to work correctly
-  const lastAppliedFilters = useRef<BackupFilters>({})
+  // Check if filters have changed from applied
+  const hasFilterChanges =
+    filters.databaseId !== appliedFilters.databaseId ||
+    filters.status !== appliedFilters.status ||
+    filters.dbType !== appliedFilters.dbType ||
+    filters.startDate !== appliedFilters.startDate ||
+    filters.endDate !== appliedFilters.endDate
 
-  // Load more (next page with same filters)
+  // Check if any filters are active (applied)
+  const hasActiveFilters =
+    appliedFilters.databaseId !== '' ||
+    appliedFilters.status !== '' ||
+    appliedFilters.dbType !== '' ||
+    appliedFilters.startDate !== '' ||
+    appliedFilters.endDate !== ''
+
+  // Search with current filter values
+  const handleSearch = () => {
+    // Update filters with current date values
+    const currentFilters: FilterState = {
+      ...filters,
+      databaseId: databaseFilter?.id || '',
+      startDate: startDate?.format('YYYY-MM-DD') || '',
+      endDate: endDate?.format('YYYY-MM-DD') || '',
+    }
+    setFilters(currentFilters)
+    setAppliedFilters(currentFilters)
+    fetchBackups(1, false, currentFilters)
+  }
+
+  const handleClearFilters = () => {
+    // Reset all filter UI
+    setFilters(emptyFilters)
+    setAppliedFilters(emptyFilters)
+    setDatabaseFilter(null)
+    setDbSearchInput('')
+    setStartDate(null)
+    setEndDate(null)
+    // Fetch with no filters
+    fetchBackups(1, false, emptyFilters)
+  }
+
+  // Load more (next page with applied filters)
   const handleLoadMore = () => {
     if (hasMore) {
-      fetchBackups(currentPage + 1, true, lastAppliedFilters.current)
+      fetchBackups(currentPage + 1, true, appliedFilters)
     }
   }
 
   // Refresh with current applied filters
   const handleRefresh = () => {
-    fetchBackups(1, false, lastAppliedFilters.current)
+    fetchBackups(1, false, appliedFilters)
   }
 
-  // Search with current filter values
-  const handleSearch = () => {
-    const filters = buildFilters()
-    lastAppliedFilters.current = filters
-    fetchBackups(1, false, filters)
+  // Update filter state when UI changes
+  const updateFilter = <K extends keyof FilterState>(key: K, value: FilterState[K]) => {
+    setFilters(prev => ({ ...prev, [key]: value }))
   }
-
-  const handleClearFilters = () => {
-    setDatabaseFilter(null)
-    setTriggeredByFilter('')
-    setStatusFilter('')
-    setDbTypeFilter('')
-    setStartDate(null)
-    setEndDate(null)
-    // Also clear applied filters and reload all
-    lastAppliedFilters.current = {}
-    fetchBackups(1, false, {})
-  }
-
-  const hasActiveFilters = databaseFilter || triggeredByFilter || statusFilter || dbTypeFilter || startDate || endDate
 
   const handleDownload = async (backup: BackupResult) => {
     if (!backup.blob_name) return
@@ -263,11 +294,85 @@ export function BackupsPage() {
     },
   }
 
+  // Table columns definition
+  const tableColumns: Column<BackupResult>[] = useMemo(() => [
+    {
+      id: 'database',
+      label: 'Database',
+      render: (backup) => (
+        <Typography variant="body2" fontWeight={500}>
+          {backup.database_name}
+        </Typography>
+      ),
+      hideInMobileSummary: true, // shown as title
+    },
+    {
+      id: 'type',
+      label: 'Type',
+      render: (backup) => (
+        <Typography variant="body2" textTransform="uppercase" fontSize="0.75rem">
+          {backup.database_type}
+        </Typography>
+      ),
+      hideInMobileSummary: true,
+    },
+    {
+      id: 'status',
+      label: 'Status',
+      render: (backup) => (
+        <Chip
+          size="small"
+          label={backup.status}
+          color={getStatusColor(backup.status)}
+        />
+      ),
+    },
+    {
+      id: 'size',
+      label: 'Size',
+      render: (backup) => formatFileSize(backup.file_size_bytes),
+      hideInMobileSummary: true,
+    },
+    {
+      id: 'duration',
+      label: 'Duration',
+      render: (backup) => formatDuration(backup.duration_seconds),
+      hideInMobileSummary: true,
+    },
+    {
+      id: 'triggeredBy',
+      label: 'Triggered By',
+      render: (backup) => (
+        <Chip
+          size="small"
+          label={backup.triggered_by}
+          color={getTriggeredByColor(backup.triggered_by)}
+          variant="outlined"
+        />
+      ),
+      hideInMobileSummary: true,
+    },
+    {
+      id: 'date',
+      label: 'Date',
+      render: (backup) => (
+        <Box>
+          <Typography variant="body2">
+            {new Date(backup.created_at).toLocaleDateString()}
+          </Typography>
+          <Typography variant="caption" color="textSecondary">
+            {new Date(backup.created_at).toLocaleTimeString()}
+          </Typography>
+        </Box>
+      ),
+    },
+  ], [])
+
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
-      <Box>
+      <Box sx={{ maxWidth: '100%', overflow: 'hidden' }}>
         {/* Header */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 1 }}>
           <Typography variant="h4">Backup History</Typography>
           <Button
             variant="outlined"
@@ -280,7 +385,7 @@ export function BackupsPage() {
         </Box>
 
         {/* Stats Bar */}
-        <Stack direction="row" spacing={2} sx={{ mb: 3 }}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
           <StatsCard
             icon={<StorageIcon />}
             label="Loaded"
@@ -303,132 +408,114 @@ export function BackupsPage() {
             label="Total Size"
             value={formatFileSize(stats.totalSize)}
           />
-        </Stack>
+        </Box>
 
-        {/* Filters */}
-        <Paper sx={{ p: 2, mb: 3 }}>
-          <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
-            <Autocomplete
-              options={dbOptions}
-              getOptionLabel={(option) => option.name}
-              value={databaseFilter}
-              onChange={(_, newValue) => {
-                setDatabaseFilter(newValue)
-                setDbSearchInput(newValue?.name || '')
-              }}
-              onInputChange={(_, value, reason) => {
-                if (reason === 'input') {
-                  setDbSearchInput(value)
-                } else if (reason === 'clear') {
-                  setDbSearchInput('')
-                }
-              }}
-              inputValue={dbSearchInput}
-              isOptionEqualToValue={(option, value) => option.id === value.id}
-              loading={dbLoading}
-              filterOptions={(x) => x} // Disable client-side filtering
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Database"
-                  size="small"
-                  placeholder="All Databases"
-                  helperText={dbHasMore && !dbSearchInput ? `Showing ${dbOptions.length} of ${dbTotalCount}. Type to search...` : undefined}
-                  FormHelperTextProps={{ sx: { mx: 0, mt: 0.5 } }}
-                />
-              )}
-              renderOption={(props, option) => (
-                <li {...props} key={option.id}>
-                  <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                    <Typography variant="body2">{option.name}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {option.database_type.toUpperCase()} - {option.host}
-                    </Typography>
-                  </Box>
-                </li>
-              )}
-              noOptionsText={dbSearchInput ? 'No databases found' : 'No databases'}
-              sx={{ minWidth: 240 }}
-              size="small"
-            />
-
-            <TextField
-              select
-              label="Type"
-              value={dbTypeFilter}
-              onChange={(e) => setDbTypeFilter(e.target.value as DatabaseType | '')}
-              size="small"
-              sx={{ minWidth: 140 }}
-            >
-              <MenuItem value="">All Types</MenuItem>
-              <MenuItem value="mysql">MySQL</MenuItem>
-              <MenuItem value="postgresql">PostgreSQL</MenuItem>
-              <MenuItem value="sqlserver">SQL Server</MenuItem>
-            </TextField>
-
-            <TextField
-              select
-              label="Triggered By"
-              value={triggeredByFilter}
-              onChange={(e) => setTriggeredByFilter(e.target.value as 'manual' | 'scheduler' | '')}
-              size="small"
-              sx={{ minWidth: 140 }}
-            >
-              <MenuItem value="">All</MenuItem>
-              <MenuItem value="manual">Manual</MenuItem>
-              <MenuItem value="scheduler">Scheduler</MenuItem>
-            </TextField>
-
-            <TextField
-              select
-              label="Status"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as BackupStatus | '')}
-              size="small"
-              sx={{ minWidth: 140 }}
-            >
-              <MenuItem value="">All Status</MenuItem>
-              <MenuItem value="completed">Completed</MenuItem>
-              <MenuItem value="failed">Failed</MenuItem>
-              <MenuItem value="in_progress">In Progress</MenuItem>
-              <MenuItem value="pending">Pending</MenuItem>
-            </TextField>
-
-            <DatePicker
-              label="From"
-              value={startDate}
-              onChange={(value) => setStartDate(value)}
-              slotProps={{ textField: { size: 'small', sx: { width: 160 } } }}
-            />
-
-            <DatePicker
-              label="To"
-              value={endDate}
-              onChange={(value) => setEndDate(value)}
-              slotProps={{ textField: { size: 'small', sx: { width: 160 } } }}
-            />
-
-            <Button
-              variant="contained"
-              startIcon={<SearchIcon />}
-              onClick={handleSearch}
-              disabled={isLoading}
-            >
-              Search
-            </Button>
-
-            {hasActiveFilters && (
-              <Button
-                variant="text"
-                startIcon={<ClearFiltersIcon />}
-                onClick={handleClearFilters}
-                color="inherit"
-              >
-                Clear
-              </Button>
+        {/* Filters using FilterBar */}
+        <FilterBar
+          hasActiveFilters={hasActiveFilters}
+          hasChanges={hasFilterChanges}
+          onSearch={handleSearch}
+          onClear={handleClearFilters}
+          isLoading={isLoading}
+        >
+          <Autocomplete
+            options={dbOptions}
+            getOptionLabel={(option) => option.name}
+            value={databaseFilter}
+            onChange={(_, newValue) => {
+              setDatabaseFilter(newValue)
+              setDbSearchInput(newValue?.name || '')
+              updateFilter('databaseId', newValue?.id || '')
+            }}
+            onInputChange={(_, value, reason) => {
+              if (reason === 'input') {
+                setDbSearchInput(value)
+              } else if (reason === 'clear') {
+                setDbSearchInput('')
+                updateFilter('databaseId', '')
+              }
+            }}
+            inputValue={dbSearchInput}
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+            loading={dbLoading}
+            filterOptions={(x) => x}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                size="small"
+                placeholder="All Databases"
+                helperText={dbHasMore && !dbSearchInput ? `${dbOptions.length} of ${dbTotalCount}` : undefined}
+                FormHelperTextProps={{ sx: { mx: 0, mt: 0.5 } }}
+              />
             )}
-          </Stack>
-        </Paper>
+            renderOption={(props, option) => (
+              <li {...props} key={option.id}>
+                <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                  <Typography variant="body2">{option.name}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {option.database_type.toUpperCase()} - {option.host}
+                  </Typography>
+                </Box>
+              </li>
+            )}
+            noOptionsText={dbSearchInput ? 'No databases found' : 'No databases'}
+            sx={{ minWidth: 200 }}
+            size="small"
+          />
+
+          <FilterSelect
+            value={filters.dbType}
+            options={[
+              { value: 'mysql', label: 'MySQL' },
+              { value: 'postgresql', label: 'PostgreSQL' },
+              { value: 'sqlserver', label: 'SQL Server' },
+            ]}
+            allLabel="All Types"
+            onChange={(value) => updateFilter('dbType', value as DatabaseType | '')}
+          />
+
+          <FilterSelect
+            value={filters.status}
+            options={[
+              { value: 'completed', label: 'Completed' },
+              { value: 'failed', label: 'Failed' },
+              { value: 'in_progress', label: 'In Progress' },
+              { value: 'pending', label: 'Pending' },
+            ]}
+            allLabel="All Status"
+            onChange={(value) => updateFilter('status', value as BackupStatus | '')}
+          />
+
+          <DatePicker
+            value={startDate}
+            onChange={(value) => {
+              setStartDate(value)
+              updateFilter('startDate', value?.format('YYYY-MM-DD') || '')
+            }}
+            slotProps={{
+              textField: {
+                size: 'small',
+                sx: { width: 140 },
+                placeholder: 'From',
+              },
+            }}
+          />
+
+          <DatePicker
+            value={endDate}
+            onChange={(value) => {
+              setEndDate(value)
+              updateFilter('endDate', value?.format('YYYY-MM-DD') || '')
+            }}
+            slotProps={{
+              textField: {
+                size: 'small',
+                sx: { width: 140 },
+                placeholder: 'To',
+              },
+            }}
+          />
+        </FilterBar>
 
         {/* Error */}
         {error && (
@@ -438,101 +525,53 @@ export function BackupsPage() {
         )}
 
         {/* Table */}
-        <Card>
-          <CardContent sx={{ p: 0 }}>
-            <TableContainer>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Database</TableCell>
-                    <TableCell>Type</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Size</TableCell>
-                    <TableCell>Duration</TableCell>
-                    <TableCell>Triggered By</TableCell>
-                    <TableCell>Date</TableCell>
-                    <TableCell align="right">Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {backups.length > 0 ? (
-                    backups.map((backup) => (
-                      <TableRow key={backup.id} hover>
-                        <TableCell>
-                          <Typography variant="body2" fontWeight={500}>
-                            {backup.database_name}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" textTransform="uppercase" fontSize="0.75rem">
-                            {backup.database_type}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Chip
-                            size="small"
-                            label={backup.status}
-                            color={getStatusColor(backup.status)}
-                          />
-                        </TableCell>
-                        <TableCell>{formatFileSize(backup.file_size_bytes)}</TableCell>
-                        <TableCell>{formatDuration(backup.duration_seconds)}</TableCell>
-                        <TableCell>
-                          <Chip
-                            size="small"
-                            label={backup.triggered_by}
-                            color={getTriggeredByColor(backup.triggered_by)}
-                            variant="outlined"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2">
-                            {new Date(backup.created_at).toLocaleDateString()}
-                          </Typography>
-                          <Typography variant="caption" color="textSecondary">
-                            {new Date(backup.created_at).toLocaleTimeString()}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="right">
-                          {backup.status === 'completed' && backup.blob_name && (
-                            <Tooltip title="Download Backup">
-                              <IconButton
-                                size="small"
-                                color="primary"
-                                onClick={() => handleDownload(backup)}
-                              >
-                                <DownloadIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          )}
-                          {backup.status === 'failed' && (
-                            <Tooltip title={backup.error_message || 'Backup failed'}>
-                              <IconButton size="small" color="error" sx={{ cursor: 'help' }}>
-                                <ErrorIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  ) : !isLoading ? (
-                    <TableRow>
-                      <TableCell colSpan={8} align="center">
-                        <Typography color="textSecondary" sx={{ py: 4 }}>
-                          {hasActiveFilters
-                            ? 'No backups match the current filters.'
-                            : 'No backup history found.'}
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  ) : null}
-                </TableBody>
-              </Table>
-            </TableContainer>
+        <Card sx={{ overflow: 'hidden' }}>
+          <CardContent sx={{ p: { xs: 1, sm: 0 } }}>
+            {isLoading && backups.length === 0 ? (
+              <Box sx={{ p: 2, display: 'flex', justifyContent: 'center' }}>
+                <CircularProgress size={24} />
+              </Box>
+            ) : (
+              <ResponsiveTable
+                columns={tableColumns}
+                data={backups}
+                keyExtractor={(backup) => backup.id}
+                mobileTitle={(backup) => backup.database_name}
+                mobileSummaryColumns={['status', 'date']}
+                actions={(backup) => (
+                  <>
+                    {backup.status === 'completed' && backup.blob_name && (
+                      <Tooltip title="Download Backup">
+                        <IconButton
+                          size="small"
+                          color="primary"
+                          onClick={() => handleDownload(backup)}
+                        >
+                          <DownloadIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {backup.status === 'failed' && (
+                      <Tooltip title={backup.error_message || 'Backup failed'}>
+                        <IconButton size="small" color="error" sx={{ cursor: 'help' }}>
+                          <ErrorIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </>
+                )}
+                emptyMessage={
+                  hasActiveFilters
+                    ? 'No backups match the current filters.'
+                    : 'No backup history found.'
+                }
+                size="small"
+              />
+            )}
 
             {/* Loading / Load More */}
             <Box sx={{ p: 2, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 2 }}>
-              {isLoading ? (
+              {isLoading && backups.length > 0 ? (
                 <CircularProgress size={24} />
               ) : hasMore ? (
                 <>

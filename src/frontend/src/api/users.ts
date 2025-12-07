@@ -15,6 +15,11 @@ interface UserResponse {
   message?: string
 }
 
+interface UserPreferences {
+  dark_mode?: boolean
+  page_size?: number
+}
+
 interface UsersQueryParams {
   page?: number
   page_size?: number
@@ -29,6 +34,14 @@ export const usersApi = {
   getCurrentUser: async (): Promise<CurrentUserResponse> => {
     const response = await apiClient.get<CurrentUserResponse>('/users/me')
     return response.data
+  },
+
+  /**
+   * Update current user's preferences (dark_mode, page_size)
+   */
+  updatePreferences: async (preferences: UserPreferences): Promise<User> => {
+    const response = await apiClient.put<UserResponse>('/users/me/preferences', preferences)
+    return response.data.user
   },
 
   /**
