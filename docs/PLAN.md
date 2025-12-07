@@ -17,6 +17,7 @@
 ### Fixes aplicados
 | Fecha | Fix |
 |-------|-----|
+| 2025-12-07 | Mobile responsiveness: ResponsiveTable, SettingRow, stats cards grid, todas las páginas |
 | 2025-12-07 | Backup history: Orden correcto descendente por fecha (offset pagination en backend) |
 | 2025-12-07 | Dashboard: Backups y Success Rate con selectores de período sincronizados |
 | 2025-12-07 | Success Rate: Muestra "N/A" cuando no hay backups en el período |
@@ -99,6 +100,13 @@
 - ✅ Backups Page: Botón "Search" para filtros, mejor UX
 - ✅ Settings: Opción access_requests_enabled para gestión de usuarios
 - ✅ Users Page: Paginación, gestión de solicitudes de acceso
+- ✅ ResponsiveTable: Componente reutilizable tabla/cards para mobile
+- ✅ Mobile: DatabasesPage, BackupsPage, PoliciesPage con ResponsiveTable
+- ✅ Mobile: StatusPage Backup Alerts con ResponsiveTable
+- ✅ Mobile: UsersPage Pending Access Requests con ResponsiveTable
+- ✅ Mobile: SettingsPage con SettingRow component (evita overlapping)
+- ✅ Mobile: BackupsPage stats cards grid 2x2 alineados
+- ✅ Mobile: StoragePage nueva página con lista de backups
 
 ### Sprint 2.5: Backup Policies ✅ COMPLETADO
 
