@@ -10,6 +10,11 @@ import uuid
 class AuditAction(str, Enum):
     """Types of actions that can be audited."""
 
+    # Generic CRUD actions (used with resource_type)
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+
     # Backup actions
     BACKUP_COMPLETED = "backup_completed"
     BACKUP_FAILED = "backup_failed"
@@ -47,6 +52,7 @@ class AuditResourceType(str, Enum):
 
     BACKUP = "backup"
     DATABASE = "database"
+    ENGINE = "engine"
     POLICY = "policy"
     USER = "user"
     SETTINGS = "settings"

@@ -31,6 +31,8 @@ import {
   Schedule as ScheduleIcon,
   Delete as DeleteIcon,
   DeleteSweep as DeleteSweepIcon,
+  Info as InfoIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material'
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
@@ -39,12 +41,14 @@ import { Dayjs } from 'dayjs'
 import { useDatabases } from '../../hooks/useDatabases'
 import { backupsApi } from '../../api/backups'
 import { databasesApi } from '../../api/databases'
+import { enginesApi } from '../../api/engines'
 import { formatFileSize, formatDuration } from '../../utils'
-import type { BackupResult, BackupFilters, DatabaseType, BackupStatus, DatabaseConfig } from '../../types'
+import type { BackupResult, BackupFilters, DatabaseType, BackupStatus, DatabaseConfig, Engine } from '../../types'
 import { FilterBar, FilterSelect, ResponsiveTable, Column, LoadingOverlay, TableSkeleton } from '../../components/common'
 import { useSettings } from '../../contexts/SettingsContext'
 import { useAuth } from '../../contexts/AuthContext'
 
+const ENGINE_DROPDOWN_LIMIT = 50
 const DATABASE_DROPDOWN_LIMIT = 50
 
 function getStatusColor(status: string): 'success' | 'error' | 'warning' | 'info' | 'default' {
@@ -62,9 +66,6 @@ function getStatusColor(status: string): 'success' | 'error' | 'warning' | 'info
   }
 }
 
-function getTriggeredByColor(triggeredBy: string): 'info' | 'default' {
-  return triggeredBy === 'scheduler' ? 'info' : 'default'
-}
 
 interface StatBoxProps {
   title: string
@@ -95,6 +96,7 @@ function StatBox({ title, value, icon, color }: StatBoxProps) {
 
 // Filter state type
 interface FilterState {
+  engineId: string
   databaseId: string
   status: BackupStatus | ''
   dbType: DatabaseType | ''
@@ -103,6 +105,7 @@ interface FilterState {
 }
 
 const emptyFilters: FilterState = {
+  engineId: '',
   databaseId: '',
   status: '',
   dbType: '',
@@ -127,6 +130,14 @@ export function BackupsPage() {
   // Applied filters (what was searched)
   const [appliedFilters, setAppliedFilters] = useState<FilterState>(emptyFilters)
 
+  // Engine (Server) autocomplete state
+  const [engineFilter, setEngineFilter] = useState<Engine | null>(null)
+  const [engineSearchInput, setEngineSearchInput] = useState('')
+  const [engineOptions, setEngineOptions] = useState<Engine[]>([])
+  const [engineTotalCount, setEngineTotalCount] = useState(0)
+  const [engineHasMore, setEngineHasMore] = useState(false)
+  const [engineLoading, setEngineLoading] = useState(false)
+
   // Database autocomplete state
   const [databaseFilter, setDatabaseFilter] = useState<DatabaseConfig | null>(null)
   const [dbSearchInput, setDbSearchInput] = useState('')
@@ -148,6 +159,54 @@ export function BackupsPage() {
     message: '',
     severity: 'success',
   })
+
+  // Details dialog state
+  const [detailsDialog, setDetailsDialog] = useState<{ open: boolean; backup?: BackupResult }>({ open: false })
+
+  // Initial load: get first 50 engines
+  const [initialEngineData, setInitialEngineData] = useState<{ items: Engine[]; total: number; hasMore: boolean } | null>(null)
+  useEffect(() => {
+    enginesApi.getAll({ limit: ENGINE_DROPDOWN_LIMIT }).then((result) => {
+      setInitialEngineData({ items: result.items, total: result.total, hasMore: result.total > result.items.length })
+    }).catch((err) => console.error('Error loading engines:', err))
+  }, [])
+
+  // Update engine options when initial data loads
+  useEffect(() => {
+    if (initialEngineData && !engineSearchInput) {
+      setEngineOptions(initialEngineData.items)
+      setEngineTotalCount(initialEngineData.total)
+      setEngineHasMore(initialEngineData.hasMore)
+    }
+  }, [initialEngineData, engineSearchInput])
+
+  // Engine debounced search
+  useEffect(() => {
+    if (!engineSearchInput) {
+      if (initialEngineData) {
+        setEngineOptions(initialEngineData.items)
+        setEngineTotalCount(initialEngineData.total)
+        setEngineHasMore(initialEngineData.hasMore)
+      }
+      return
+    }
+
+    const timer = setTimeout(async () => {
+      setEngineLoading(true)
+      try {
+        const result = await enginesApi.getAll({ search: engineSearchInput })
+        setEngineOptions(result.items)
+        setEngineTotalCount(result.total)
+        setEngineHasMore(result.total > result.items.length)
+      } catch (err) {
+        console.error('Error searching engines:', err)
+      } finally {
+        setEngineLoading(false)
+      }
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [engineSearchInput, initialEngineData])
 
   // Initial load: get first 50 databases
   const { data: initialDbData } = useDatabases({ limit: DATABASE_DROPDOWN_LIMIT })
@@ -194,6 +253,7 @@ export function BackupsPage() {
 
   // Build API filters from filter state
   const buildApiFilters = (filterState: FilterState): BackupFilters => ({
+    engineId: filterState.engineId || undefined,
     databaseId: filterState.databaseId || undefined,
     status: filterState.status || undefined,
     databaseType: filterState.dbType || undefined,
@@ -242,6 +302,7 @@ export function BackupsPage() {
 
   // Check if filters have changed from applied
   const hasFilterChanges =
+    filters.engineId !== appliedFilters.engineId ||
     filters.databaseId !== appliedFilters.databaseId ||
     filters.status !== appliedFilters.status ||
     filters.dbType !== appliedFilters.dbType ||
@@ -250,6 +311,7 @@ export function BackupsPage() {
 
   // Check if any filters are active (applied)
   const hasActiveFilters =
+    appliedFilters.engineId !== '' ||
     appliedFilters.databaseId !== '' ||
     appliedFilters.status !== '' ||
     appliedFilters.dbType !== '' ||
@@ -261,6 +323,7 @@ export function BackupsPage() {
     // Update filters with current date values
     const currentFilters: FilterState = {
       ...filters,
+      engineId: engineFilter?.id || '',
       databaseId: databaseFilter?.id || '',
       startDate: startDate?.format('YYYY-MM-DD') || '',
       endDate: endDate?.format('YYYY-MM-DD') || '',
@@ -274,6 +337,8 @@ export function BackupsPage() {
     // Reset all filter UI
     setFilters(emptyFilters)
     setAppliedFilters(emptyFilters)
+    setEngineFilter(null)
+    setEngineSearchInput('')
     setDatabaseFilter(null)
     setDbSearchInput('')
     setStartDate(null)
@@ -436,57 +501,54 @@ export function BackupsPage() {
 
     columns.push(
       {
+        id: 'server',
+        label: 'Server',
+        render: (backup) => (
+          <Typography variant="body2" color="text.secondary">
+            {backup.engine_name || '-'}
+          </Typography>
+        ),
+        hideInMobileSummary: true,
+      },
+      {
         id: 'database',
         label: 'Database',
         render: (backup) => (
-          <Typography variant="body2" fontWeight={500}>
-            {backup.database_name}
-          </Typography>
+          <Box>
+            <Typography variant="body2" fontWeight={500}>
+              {backup.database_name}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" textTransform="uppercase">
+              {backup.database_type}
+            </Typography>
+          </Box>
         ),
         hideInMobileSummary: true, // shown as title
       },
       {
-        id: 'type',
-        label: 'Type',
+        id: 'details',
+        label: 'Details',
         render: (backup) => (
-          <Typography variant="body2" textTransform="uppercase" fontSize="0.75rem">
-            {backup.database_type}
-          </Typography>
+          <Box>
+            <Typography variant="body2">
+              {formatFileSize(backup.file_size_bytes)}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {formatDuration(backup.duration_seconds)}
+            </Typography>
+          </Box>
         ),
         hideInMobileSummary: true,
       },
       {
-        id: 'status',
-        label: 'Status',
-        render: (backup) => (
-          <Chip
-            size="small"
-            label={backup.status}
-            color={getStatusColor(backup.status)}
-          />
-        ),
-      },
-      {
-        id: 'size',
-        label: 'Size',
-        render: (backup) => formatFileSize(backup.file_size_bytes),
-        hideInMobileSummary: true,
-      },
-      {
-        id: 'duration',
-        label: 'Duration',
-        render: (backup) => formatDuration(backup.duration_seconds),
-        hideInMobileSummary: true,
-      },
-      {
-        id: 'triggeredBy',
-        label: 'Triggered By',
+        id: 'trigger',
+        label: 'Trigger',
         render: (backup) => (
           <Chip
             size="small"
             label={backup.triggered_by}
-            color={getTriggeredByColor(backup.triggered_by)}
             variant="outlined"
+            color={backup.triggered_by === 'manual' ? 'primary' : 'default'}
           />
         ),
         hideInMobileSummary: true,
@@ -503,6 +565,17 @@ export function BackupsPage() {
               {new Date(backup.created_at).toLocaleTimeString()}
             </Typography>
           </Box>
+        ),
+      },
+      {
+        id: 'status',
+        label: 'Status',
+        render: (backup) => (
+          <Chip
+            size="small"
+            label={backup.status}
+            color={getStatusColor(backup.status)}
+          />
         ),
       }
     )
@@ -562,6 +635,51 @@ export function BackupsPage() {
           onClear={handleClearFilters}
           isLoading={isLoading}
         >
+          <Autocomplete
+            options={engineOptions}
+            getOptionLabel={(option) => option.name}
+            value={engineFilter}
+            onChange={(_, newValue) => {
+              setEngineFilter(newValue)
+              setEngineSearchInput(newValue?.name || '')
+              updateFilter('engineId', newValue?.id || '')
+            }}
+            onInputChange={(_, value, reason) => {
+              if (reason === 'input') {
+                setEngineSearchInput(value)
+              } else if (reason === 'clear') {
+                setEngineSearchInput('')
+                updateFilter('engineId', '')
+              }
+            }}
+            inputValue={engineSearchInput}
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+            loading={engineLoading}
+            filterOptions={(x) => x}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                size="small"
+                placeholder="All Servers"
+                helperText={engineHasMore && !engineSearchInput ? `${engineOptions.length} of ${engineTotalCount}` : undefined}
+                FormHelperTextProps={{ sx: { mx: 0, mt: 0.5 } }}
+              />
+            )}
+            renderOption={(props, option) => (
+              <li {...props} key={option.id}>
+                <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                  <Typography variant="body2">{option.name}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {option.engine_type.toUpperCase()} - {option.host}
+                  </Typography>
+                </Box>
+              </li>
+            )}
+            noOptionsText={engineSearchInput ? 'No servers found' : 'No servers'}
+            sx={{ minWidth: 200 }}
+            size="small"
+          />
+
           <Autocomplete
             options={dbOptions}
             getOptionLabel={(option) => option.name}
@@ -712,16 +830,26 @@ export function BackupsPage() {
 
             {isLoading && backups.length === 0 ? (
               // Initial loading: show skeleton
-              <TableSkeleton rows={8} columns={7} />
+              <TableSkeleton rows={8} columns={4} />
             ) : (
               <ResponsiveTable
                 columns={tableColumns}
                 data={backups}
                 keyExtractor={(backup) => backup.id}
                 mobileTitle={(backup) => backup.database_name}
-                mobileSummaryColumns={['status', 'date']}
+                mobileSummaryColumns={['status', 'trigger', 'date']}
                 actions={(backup) => (
-                  <Box sx={{ display: 'flex', gap: 0.5 }}>
+                  <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                    {/* Info button - always visible */}
+                    <Tooltip title="View Details">
+                      <IconButton
+                        size="small"
+                        onClick={() => setDetailsDialog({ open: true, backup })}
+                      >
+                        <InfoIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    {/* Download button - only for completed backups */}
                     {backup.status === 'completed' && backup.blob_name && (
                       <Tooltip title="Download Backup">
                         <IconButton
@@ -730,13 +858,6 @@ export function BackupsPage() {
                           onClick={() => handleDownload(backup)}
                         >
                           <DownloadIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {backup.status === 'failed' && (
-                      <Tooltip title={backup.error_message || 'Backup failed'}>
-                        <IconButton size="small" color="error" sx={{ cursor: 'help' }}>
-                          <ErrorIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
                     )}
@@ -809,6 +930,172 @@ export function BackupsPage() {
               {deleting ? 'Deleting...' : 'Delete'}
             </Button>
           </DialogActions>
+        </Dialog>
+
+        {/* Backup Details Dialog */}
+        <Dialog
+          open={detailsDialog.open}
+          onClose={() => setDetailsDialog({ open: false })}
+          maxWidth="sm"
+          fullWidth
+        >
+          {detailsDialog.backup && (
+            <>
+              <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  {detailsDialog.backup.status === 'completed' ? (
+                    <SuccessIcon color="success" />
+                  ) : detailsDialog.backup.status === 'failed' ? (
+                    <ErrorIcon color="error" />
+                  ) : (
+                    <StorageIcon color="info" />
+                  )}
+                  <Typography variant="h6">Backup Details</Typography>
+                </Box>
+                <IconButton size="small" onClick={() => setDetailsDialog({ open: false })}>
+                  <CloseIcon />
+                </IconButton>
+              </DialogTitle>
+              <DialogContent dividers>
+                {/* Status Banner */}
+                <Alert
+                  severity={detailsDialog.backup.status === 'completed' ? 'success' : detailsDialog.backup.status === 'failed' ? 'error' : 'info'}
+                  sx={{ mb: 2 }}
+                >
+                  {detailsDialog.backup.status === 'completed'
+                    ? 'Backup completed successfully'
+                    : detailsDialog.backup.status === 'failed'
+                    ? 'Backup failed'
+                    : `Backup ${detailsDialog.backup.status}`}
+                </Alert>
+
+                {/* Details Grid */}
+                <Box sx={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 1.5, '& > *:nth-of-type(odd)': { color: 'text.secondary', fontWeight: 500 } }}>
+                  <Typography variant="body2">Database</Typography>
+                  <Typography variant="body2">{detailsDialog.backup.database_name}</Typography>
+
+                  <Typography variant="body2">Type</Typography>
+                  <Typography variant="body2" textTransform="uppercase">{detailsDialog.backup.database_type}</Typography>
+
+                  {detailsDialog.backup.engine_name && (
+                    <>
+                      <Typography variant="body2">Server</Typography>
+                      <Typography variant="body2">{detailsDialog.backup.engine_name}</Typography>
+                    </>
+                  )}
+
+                  <Typography variant="body2">Status</Typography>
+                  <Chip size="small" label={detailsDialog.backup.status} color={getStatusColor(detailsDialog.backup.status)} />
+
+                  <Typography variant="body2">Triggered By</Typography>
+                  <Chip size="small" label={detailsDialog.backup.triggered_by} variant="outlined" />
+
+                  {detailsDialog.backup.tier && (
+                    <>
+                      <Typography variant="body2">Tier</Typography>
+                      <Chip size="small" label={detailsDialog.backup.tier} variant="outlined" color="primary" />
+                    </>
+                  )}
+
+                  <Typography variant="body2">Started At</Typography>
+                  <Typography variant="body2">
+                    {detailsDialog.backup.started_at
+                      ? new Date(detailsDialog.backup.started_at).toLocaleString()
+                      : '-'}
+                  </Typography>
+
+                  <Typography variant="body2">Completed At</Typography>
+                  <Typography variant="body2">
+                    {detailsDialog.backup.completed_at
+                      ? new Date(detailsDialog.backup.completed_at).toLocaleString()
+                      : '-'}
+                  </Typography>
+
+                  <Typography variant="body2">Duration</Typography>
+                  <Typography variant="body2">{formatDuration(detailsDialog.backup.duration_seconds)}</Typography>
+
+                  {detailsDialog.backup.status === 'completed' && (
+                    <>
+                      <Typography variant="body2">File Size</Typography>
+                      <Typography variant="body2">{formatFileSize(detailsDialog.backup.file_size_bytes)}</Typography>
+
+                      <Typography variant="body2">File Format</Typography>
+                      <Typography variant="body2">{detailsDialog.backup.file_format || '-'}</Typography>
+
+                      <Typography variant="body2">File Name</Typography>
+                      <Typography variant="body2" sx={{ wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                        {detailsDialog.backup.blob_name || '-'}
+                      </Typography>
+                    </>
+                  )}
+
+                  <Typography variant="body2">Job ID</Typography>
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                    {detailsDialog.backup.job_id}
+                  </Typography>
+
+                  <Typography variant="body2">Backup ID</Typography>
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                    {detailsDialog.backup.id}
+                  </Typography>
+
+                  <Typography variant="body2">Created At</Typography>
+                  <Typography variant="body2">
+                    {new Date(detailsDialog.backup.created_at).toLocaleString()}
+                  </Typography>
+                </Box>
+
+                {/* Error Message for Failed Backups */}
+                {detailsDialog.backup.status === 'failed' && detailsDialog.backup.error_message && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="body2" color="text.secondary" fontWeight={500} gutterBottom>
+                      Error Details
+                    </Typography>
+                    <Paper
+                      variant="outlined"
+                      sx={{
+                        p: 1.5,
+                        bgcolor: 'error.50',
+                        borderColor: 'error.200',
+                        maxHeight: 200,
+                        overflow: 'auto',
+                      }}
+                    >
+                      <Typography
+                        variant="body2"
+                        component="pre"
+                        sx={{
+                          fontFamily: 'monospace',
+                          fontSize: '0.75rem',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          m: 0,
+                          color: 'error.dark',
+                        }}
+                      >
+                        {detailsDialog.backup.error_message}
+                      </Typography>
+                    </Paper>
+                  </Box>
+                )}
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setDetailsDialog({ open: false })}>Close</Button>
+                {detailsDialog.backup.status === 'completed' && detailsDialog.backup.blob_name && (
+                  <Button
+                    variant="contained"
+                    startIcon={<DownloadIcon />}
+                    onClick={() => {
+                      handleDownload(detailsDialog.backup!)
+                      setDetailsDialog({ open: false })
+                    }}
+                  >
+                    Download
+                  </Button>
+                )}
+              </DialogActions>
+            </>
+          )}
         </Dialog>
 
         {/* Snackbar */}

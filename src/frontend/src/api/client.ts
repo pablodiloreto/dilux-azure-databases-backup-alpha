@@ -26,18 +26,24 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
+    let message: string
     if (error.response) {
-      // Server responded with error
-      const message = (error.response.data as { error?: string })?.error || error.message
+      // Server responded with error - extract message from response body
+      message = (error.response.data as { error?: string })?.error || error.message
       console.error(`API Error: ${error.response.status} - ${message}`)
     } else if (error.request) {
       // Request made but no response
+      message = 'No response received from server'
       console.error('API Error: No response received')
     } else {
       // Error setting up request
+      message = error.message
       console.error(`API Error: ${error.message}`)
     }
-    return Promise.reject(error)
+    // Create a new error with the extracted message so callers can use err.message
+    const enhancedError = new Error(message) as Error & { originalError: AxiosError }
+    enhancedError.originalError = error
+    return Promise.reject(enhancedError)
   }
 )
 

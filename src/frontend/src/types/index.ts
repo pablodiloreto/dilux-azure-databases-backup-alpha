@@ -11,6 +11,9 @@ export interface DatabaseConfig {
   database_name: string
   username: string
   policy_id: string
+  engine_id?: string
+  engine_name?: string
+  use_engine_credentials?: boolean
   enabled: boolean
   backup_destination?: string
   compression: boolean
@@ -28,6 +31,8 @@ export interface BackupResult {
   database_id: string
   database_name: string
   database_type: DatabaseType
+  engine_id?: string
+  engine_name?: string
   status: BackupStatus
   started_at?: string
   completed_at?: string
@@ -38,6 +43,7 @@ export interface BackupResult {
   file_format?: string
   error_message?: string
   triggered_by: string
+  tier?: string
   created_at: string
 }
 
@@ -58,6 +64,8 @@ export interface CreateDatabaseInput {
   username: string
   password: string
   policy_id?: string
+  engine_id?: string
+  use_engine_credentials?: boolean
   enabled?: boolean
   compression?: boolean
 }
@@ -139,6 +147,7 @@ export interface BackupsPagedResponse {
 }
 
 export interface BackupFilters {
+  engineId?: string
   databaseId?: string
   status?: BackupStatus | ''
   triggeredBy?: 'manual' | 'scheduler' | ''
@@ -271,7 +280,8 @@ export interface AuditFilters {
   resourceType?: AuditResourceType | ''
   status?: AuditStatus | ''
   search?: string
-  databaseType?: string  // Engine filter (mysql, postgresql, sqlserver)
+  databaseType?: string  // Engine type filter (mysql, postgresql, sqlserver)
+  engineId?: string      // Server filter (engine ID)
   resourceName?: string  // Alias/Target filter (partial match on resource_name)
 }
 
@@ -283,4 +293,61 @@ export interface AuditActionOption {
 export interface AuditResourceTypeOption {
   value: string
   label: string
+}
+
+// Engine types
+export type EngineType = 'mysql' | 'postgresql' | 'sqlserver'
+
+export type AuthMethod = 'user_password' | 'managed_identity' | 'azure_ad' | 'connection_string'
+
+export interface Engine {
+  id: string
+  name: string
+  engine_type: EngineType
+  host: string
+  port: number
+  auth_method: AuthMethod | null
+  username: string | null
+  password_secret_name: string | null
+  connection_string: string | null
+  discovery_enabled: boolean
+  last_discovery: string | null
+  created_at: string
+  updated_at: string
+  created_by: string | null
+  database_count?: number
+}
+
+export interface CreateEngineInput {
+  name: string
+  engine_type: EngineType
+  host: string
+  port?: number
+  auth_method?: AuthMethod
+  username?: string
+  password?: string
+  connection_string?: string
+  discover_databases?: boolean
+}
+
+export interface UpdateEngineInput {
+  name?: string
+  auth_method?: AuthMethod | null
+  username?: string
+  password?: string
+  connection_string?: string
+  apply_to_all_databases?: boolean
+}
+
+export interface EnginesResponse {
+  items: Engine[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface DiscoveredDatabase {
+  name: string
+  exists: boolean
+  is_system: boolean
 }

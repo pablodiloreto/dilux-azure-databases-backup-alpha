@@ -32,11 +32,18 @@ src/shared/
 ├── models/
 │   ├── __init__.py
 │   ├── database.py          # DatabaseConfig, DatabaseType
-│   └── backup.py            # BackupJob, BackupResult, BackupStatus
+│   ├── backup.py            # BackupJob, BackupResult, BackupStatus
+│   ├── backup_policy.py     # BackupPolicy, TierConfig
+│   ├── engine.py            # Engine, EngineType, AuthMethod
+│   ├── user.py              # User, UserRole, AccessRequest
+│   ├── audit.py             # AuditLog, AuditAction, AuditResourceType
+│   └── settings.py          # AppSettings
 ├── services/
 │   ├── __init__.py
 │   ├── storage_service.py   # Blob, Queue, Table operations
-│   └── database_config_service.py  # CRUD for database configs
+│   ├── database_config_service.py  # CRUD for database configs
+│   ├── engine_service.py    # CRUD for engines + discovery
+│   └── audit_service.py     # Audit logging
 ├── utils/
 │   ├── __init__.py
 │   └── validators.py        # Input validation functions
@@ -167,6 +174,88 @@ result.mark_failed("Connection refused", "ConnectionError")
 - `FAILED`
 - `CANCELLED`
 
+#### `models/engine.py`
+
+Engine (database server) configuration:
+
+```python
+from shared.models import Engine, EngineType, AuthMethod
+
+engine = Engine(
+    id="engine-001",
+    name="Production MySQL Server",
+    engine_type=EngineType.MYSQL,
+    host="mysql.example.com",
+    port=3306,
+    auth_method=AuthMethod.USER_PASSWORD,
+    username="backup_user",
+    password="secret",
+    discovery_enabled=True,
+)
+
+# Convert to/from Azure Table Storage
+entity = engine.to_table_entity()
+engine = Engine.from_table_entity(entity)
+```
+
+**EngineType Enum:**
+- `MYSQL`
+- `POSTGRESQL`
+- `SQLSERVER`
+
+**AuthMethod Enum:**
+- `USER_PASSWORD`
+- `MANAGED_IDENTITY`
+- `AZURE_AD`
+- `CONNECTION_STRING`
+
+#### `models/audit.py`
+
+Audit logging model:
+
+```python
+from shared.models import AuditLog, AuditAction, AuditResourceType, AuditStatus
+
+log = AuditLog(
+    action=AuditAction.DATABASE_CREATED,
+    resource_type=AuditResourceType.DATABASE,
+    resource_id="db-001",
+    resource_name="Production MySQL",
+    user_id="user-001",
+    user_email="admin@example.com",
+    status=AuditStatus.SUCCESS,
+    details={
+        "database_type": "mysql",
+        "engine_id": "engine-001",
+        "host": "mysql.example.com",
+        "port": 3306,
+    },
+    ip_address="192.168.1.1",
+)
+```
+
+**AuditAction Enum:**
+- `DATABASE_CREATED`, `DATABASE_UPDATED`, `DATABASE_DELETED`
+- `BACKUP_TRIGGERED`, `BACKUP_DOWNLOADED`, `BACKUP_DELETED`, `BACKUP_DELETED_BULK`
+- `CREATE`, `UPDATE`, `DELETE` (for ENGINE resource type)
+- `POLICY_CREATED`, `POLICY_UPDATED`, `POLICY_DELETED`
+- `USER_CREATED`, `USER_UPDATED`, `USER_DELETED`
+- `ACCESS_REQUEST_APPROVED`, `ACCESS_REQUEST_REJECTED`
+- `SETTINGS_UPDATED`
+
+**AuditResourceType Enum:**
+- `DATABASE`, `ENGINE`, `BACKUP`, `POLICY`, `USER`, `ACCESS_REQUEST`, `SETTINGS`
+
+**Audit Details by Resource Type:**
+
+| Resource Type | Common Details Fields |
+|---------------|----------------------|
+| DATABASE | `database_type`, `engine_id`, `host`, `port`, `database_name`, `policy_id` |
+| ENGINE | `engine_id`, `engine_type`, `host`, `port` |
+| BACKUP | `database_id`, `database_alias`, `database_type`, `engine_id` |
+| USER | `role`, `name` |
+| POLICY | `description`, `summary`, `is_system` |
+
 #### `services/storage_service.py`
 
 Unified service for all Azure Storage operations:
@@ -214,6 +303,53 @@ service.delete("db-001")
 service.enable("db-001")
 service.disable("db-001")
 service.update_schedule("db-001", "0 */6 * * *")
+```
+
+#### `services/audit_service.py`
+
+Audit logging service:
+
+```python
+from shared.services import AuditService
+from shared.models import AuditAction, AuditResourceType
+
+audit = AuditService()
+
+# Log an action
+audit.log(
+    action=AuditAction.DATABASE_CREATED,
+    resource_type=AuditResourceType.DATABASE,
+    resource_id="db-001",
+    resource_name="Production MySQL",
+    user_id="user-001",
+    user_email="admin@example.com",
+    details={
+        "database_type": "mysql",
+        "engine_id": "engine-001",
+        "host": "mysql.example.com",
+        "port": 3306,
+        "database_name": "myapp",
+        "policy_id": "production-standard",
+    },
+    ip_address="192.168.1.1",
+)
+
+# Query logs with filters
+logs, total = audit.get_logs(
+    action=AuditAction.DATABASE_CREATED,
+    resource_type=AuditResourceType.DATABASE,
+    database_type="mysql",
+    engine_id="engine-001",
+    resource_name="Production",  # partial match
+    start_date=datetime(2025, 1, 1),
+    end_date=datetime(2025, 12, 31),
+    limit=50,
+    offset=0,
+)
+
+# Get filter options
+actions = audit.get_available_actions()
+resource_types = audit.get_available_resource_types()
 ```
 
 #### `utils/validators.py`
@@ -272,9 +408,33 @@ src/functions/api/
 | PUT | `/api/databases/{id}` | `update_database` | Update database |
 | DELETE | `/api/databases/{id}` | `delete_database` | Delete database |
 | POST | `/api/databases/{id}/backup` | `trigger_backup` | Trigger manual backup |
+| POST | `/api/databases/test-connection` | `test_connection` | Test DB connectivity |
 | GET | `/api/backups` | `list_backups` | Get backup history |
 | GET | `/api/backups/files` | `list_backup_files` | List backup files |
 | GET | `/api/backups/download` | `download_backup` | Get download URL |
+| DELETE | `/api/backups/delete` | `delete_backup` | Delete backup file |
+| POST | `/api/backups/delete-bulk` | `delete_backups_bulk` | Delete multiple backups |
+| GET | `/api/engines` | `list_engines` | List all engines |
+| POST | `/api/engines` | `create_engine` | Create engine |
+| GET | `/api/engines/{id}` | `get_engine` | Get engine by ID |
+| PUT | `/api/engines/{id}` | `update_engine` | Update engine |
+| DELETE | `/api/engines/{id}` | `delete_engine` | Delete engine |
+| POST | `/api/engines/{id}/discover` | `discover_databases` | Discover databases |
+| GET | `/api/backup-policies` | `list_policies` | List backup policies |
+| POST | `/api/backup-policies` | `create_policy` | Create policy |
+| GET | `/api/backup-policies/{id}` | `get_policy` | Get policy by ID |
+| PUT | `/api/backup-policies/{id}` | `update_policy` | Update policy |
+| DELETE | `/api/backup-policies/{id}` | `delete_policy` | Delete policy |
+| GET | `/api/users` | `list_users` | List users |
+| POST | `/api/users` | `create_user` | Create user |
+| PUT | `/api/users/{id}` | `update_user` | Update user |
+| DELETE | `/api/users/{id}` | `delete_user` | Delete user |
+| GET | `/api/audit` | `list_audit_logs` | Get audit logs with filters |
+| GET | `/api/audit/actions` | `get_audit_actions` | Get available actions |
+| GET | `/api/audit/resource-types` | `get_resource_types` | Get available resource types |
+| GET | `/api/settings` | `get_settings` | Get app settings |
+| PUT | `/api/settings` | `update_settings` | Update settings |
+| GET | `/api/system-status` | `system_status` | System health info |
 
 ### Running Locally
 
@@ -548,6 +708,50 @@ Los backups más nuevos tienen valores de `inverted_ticks` más pequeños, por l
 **Migración de datos legacy:**
 
 Registros anteriores usan RowKey = UUID solamente. El script `scripts/migrate_backup_rowkeys.py` convierte registros legacy al nuevo formato.
+
+### `auditlogs` Table
+
+| Column | Type | Description |
+|--------|------|-------------|
+| PartitionKey | string | Date (`YYYY-MM-DD`) |
+| RowKey | string | Inverted timestamp + ID |
+| action | string | Action performed (e.g., `database_created`) |
+| resource_type | string | `database`, `engine`, `backup`, etc. |
+| resource_id | string | ID of the affected resource |
+| resource_name | string | Name/alias of the resource |
+| user_id | string | ID of user who performed action |
+| user_email | string | Email of user |
+| status | string | `success` or `failed` |
+| details | string | JSON with action-specific fields |
+| ip_address | string | Client IP address |
+| timestamp | datetime | When action occurred |
+
+**Details Field Contents:**
+
+The `details` field contains action-specific information:
+
+| Resource Type | Common Fields |
+|---------------|---------------|
+| DATABASE | `database_type`, `engine_id`, `host`, `port`, `database_name`, `policy_id`, `changes` |
+| ENGINE | `engine_id`, `engine_type`, `host`, `port`, `updated_fields` |
+| BACKUP | `database_id`, `database_alias`, `database_type`, `engine_id`, `blob_name` |
+| USER | `role`, `name`, `changes` |
+| POLICY | `description`, `summary`, `is_system`, `updated_fields` |
+
+### `engines` Table
+
+| Column | Type | Description |
+|--------|------|-------------|
+| PartitionKey | string | Always `"engine"` |
+| RowKey | string | Engine ID |
+| name | string | Display name |
+| engine_type | string | `mysql`, `postgresql`, `sqlserver` |
+| host | string | Server hostname |
+| port | int | Server port |
+| auth_method | string | Authentication method |
+| username | string | Database username |
+| discovery_enabled | bool | Can discover databases |
+| ... | ... | Other config fields |
 
 ---
 

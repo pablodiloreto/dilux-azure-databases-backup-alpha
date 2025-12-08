@@ -36,6 +36,8 @@ src/frontend/
     │   ├── client.ts       # Axios instance
     │   ├── databases.ts    # Database API calls
     │   ├── backups.ts      # Backup API calls
+    │   ├── engines.ts      # Server/Engine API calls
+    │   ├── audit.ts        # Audit log API calls
     │   ├── system.ts       # System status API calls
     │   └── settings.ts     # Settings API calls
     │
@@ -57,11 +59,18 @@ src/frontend/
     │   ├── dashboard/
     │   │   └── DashboardPage.tsx
     │   ├── databases/
-    │   │   └── DatabasesPage.tsx
+    │   │   ├── DatabasesPage.tsx
+    │   │   └── DatabaseFormDialog.tsx
+    │   ├── servers/
+    │   │   ├── ServersPage.tsx
+    │   │   ├── ServerFormDialog.tsx
+    │   │   └── DiscoverDialog.tsx
     │   ├── backups/
     │   │   └── BackupsPage.tsx
     │   ├── policies/
     │   │   └── PoliciesPage.tsx
+    │   ├── audit/
+    │   │   └── AuditPage.tsx
     │   ├── settings/
     │   │   └── SettingsPage.tsx
     │   ├── status/
@@ -168,6 +177,7 @@ export default defineConfig({
 | Page | Route | Description |
 |------|-------|-------------|
 | Dashboard | `/dashboard` | Overview with stats, recent backups, and system health |
+| Servers | `/servers` | Manage database servers (engines) with discovery |
 | Databases | `/databases` | List, create, edit, delete database configs with filters |
 | Backups | `/backups` | View backup history with pagination and filters |
 | Policies | `/policies` | Configure backup policies with tiered schedules |
@@ -200,9 +210,11 @@ The `api/` folder contains:
 
 1. **`client.ts`** - Configured Axios instance with interceptors
 2. **`databases.ts`** - Database CRUD operations
-3. **`backups.ts`** - Backup history and downloads
-4. **`system.ts`** - System status and health checks
-5. **`settings.ts`** - Application settings CRUD
+3. **`engines.ts`** - Server/Engine CRUD and discovery
+4. **`backups.ts`** - Backup history and downloads
+5. **`audit.ts`** - Audit log queries with filters
+6. **`system.ts`** - System status and health checks
+7. **`settings.ts`** - Application settings CRUD
 
 ```typescript
 // Using the API
@@ -391,11 +403,11 @@ const columns: Column<User>[] = [
 - `emptyMessage` - Message shown when data is empty
 - `size` - Table size ('small' | 'medium')
 
-**Mobile Behavior:**
-- Shows as expandable cards below `md` breakpoint
+**Responsive Behavior:**
+- Shows as expandable cards below `lg` breakpoint (< 1200px) to prevent horizontal scrolling
 - Card header shows `mobileTitle` and columns in `mobileSummaryColumns`
 - Tap to expand/collapse to see all columns
-- Actions always visible in card header
+- Actions always visible in card header and centered in table view
 
 ### MainLayout
 
@@ -433,36 +445,91 @@ Shows:
 - `SystemHealthCard` - Service health + backup alerts integration
 - Period selectors are synchronized (clicking one updates both)
 
+### ServersPage
+
+Manages database servers (engines) - the connection sources for databases:
+
+Shows:
+- **Stat cards**: Total Servers, MySQL, PostgreSQL, SQL Server counts
+- **ResponsiveTable** of server configurations (cards on mobile)
+- **FilterBar** with filter by server type
+- **CRUD operations**:
+  - Create server with auto-discover databases option
+  - Edit server with "Apply credentials to X database(s)" checkbox
+  - Delete server with cascade options (delete DBs, delete backups)
+- **Discovery**: Button to discover databases on a server
+- **Test Connection**: Validate server connectivity before saving
+
+**ServerFormDialog:**
+- Name, Type, Host, Port fields
+- Authentication method (User/Password, Managed Identity, Azure AD)
+- Username/Password fields for user auth
+- "Discover databases after creation" checkbox (create mode)
+- "Apply credential changes to X databases" checkbox (edit mode)
+
+**DiscoverDialog:**
+- Lists databases found on the server
+- Checkbox to select which databases to import
+- Creates database configs using server credentials
+
 ### DatabasesPage
 
 Shows:
+- **Stat cards**: Total Databases, Servers count, MySQL, PostgreSQL, SQL Server counts
 - **ResponsiveTable** of database configurations (cards on mobile)
 - **FilterBar** with:
-  - Text search (name, host, database name)
   - Filter by database type (All Types, MySQL, PostgreSQL, SQL Server)
-  - Filter by host
+  - Filter by server (engine)
   - Filter by backup policy
 - **Load More pagination** - Uses `pageSize` setting (default 25)
 - Add/Edit/Delete actions
 - Test Connection button before saving
 - Trigger manual backup button
 - **Deep linking**: Supports `?edit={database_id}` query param to auto-open edit dialog (used from StatusPage alerts)
-- **Mobile**: Shows name as card title, type/status in summary, policy on expand
+- **Mobile**: Shows name as card title, type/status in summary, server/policy on expand
+
+**DatabaseFormDialog:**
+- **Server selector** (Autocomplete): Select a server to auto-fill connection details
+- When server selected:
+  - Auto-fills type, host, port from server
+  - Shows "Use server credentials" toggle
+  - Fields become read-only (except database name, alias, policy)
+- **Use server credentials** toggle:
+  - When enabled: Hides username/password fields, uses server credentials
+  - When disabled: Shows username/password fields for custom credentials
+- **Test Connection**: Works with both server credentials and custom credentials
+- Policy selector with tier summary
+- Enable/Disable toggle
 
 ### BackupsPage
 
 Shows:
-- **ResponsiveTable** of backup history (cards on mobile)
+- **ResponsiveTable** of backup history (cards on tablet/mobile)
 - **Stats bar** with Loaded count, Success Rate, Failed count, Total Size (2x2 grid on mobile)
 - **FilterBar** with:
+  - Filter by server (autocomplete with search)
   - Filter by database (autocomplete with search)
-  - Filter by status (All Statuses, Completed, Failed, etc.)
   - Filter by type (All Types, MySQL, PostgreSQL, SQL Server)
-  - Date range picker
+  - Filter by status (All Statuses, Completed, Failed, etc.)
+  - Date range picker (From/To)
 - **Load More pagination** - Uses `pageSize` setting (default 25)
-- Download buttons for completed backups
+- **Table columns**: Server, Database, Details, Trigger, Date, Status, Actions
+- **Actions**:
+  - Info button - Opens details dialog with full backup information
+  - Download button (completed backups only)
+  - Delete button (admin only, completed/failed backups)
+- **Bulk delete**: Checkbox selection with "Delete Selected" button
 - Clear filters resets and reloads immediately
-- **Mobile**: Shows database name as card title, status/date in summary, details on expand
+- **Mobile/Tablet**: Shows database name as card title, status/trigger/date in summary, details on expand
+
+**Backup Details Dialog:**
+- Status banner (success/error/info)
+- Full backup information: Database, Type, Server, Status, Trigger, Tier
+- Timestamps: Started At, Completed At, Duration
+- File info (completed): File Size, File Format, File Name (blob path)
+- IDs: Job ID, Backup ID, Created At
+- Error details (failed): Full error message in scrollable area
+- Download button (completed backups only)
 
 ### PoliciesPage
 
@@ -544,26 +611,68 @@ Shows:
 `types/index.ts` defines all shared types:
 
 ```typescript
-// Database types
+// Enums
 type DatabaseType = 'mysql' | 'postgresql' | 'sqlserver' | 'azure_sql'
+type EngineType = 'mysql' | 'postgresql' | 'sqlserver'
+type AuthMethod = 'user_password' | 'managed_identity' | 'azure_ad' | 'connection_string'
 type BackupStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
 
-// Main interfaces
+// Engine (Server)
+interface Engine {
+  id: string
+  name: string
+  engine_type: EngineType
+  host: string
+  port: number
+  auth_method: AuthMethod
+  username?: string
+  discovery_enabled: boolean
+  database_count?: number  // Number of databases using this engine
+  // ...
+}
+
+// Database
 interface DatabaseConfig {
   id: string
   name: string
   database_type: DatabaseType
+  engine_id?: string           // Associated server
+  engine_name?: string         // Server name (from API)
+  use_engine_credentials: boolean  // Use server credentials vs custom
   host: string
   port: number
+  database_name: string
+  username?: string            // Only if use_engine_credentials=false
+  policy_id: string
+  enabled: boolean
   // ...
 }
 
+// Backup
 interface BackupResult {
   id: string
   job_id: string
   database_id: string
+  database_alias: string
+  database_type: DatabaseType
+  engine_id?: string
   status: BackupStatus
+  tier?: string               // hourly, daily, weekly, monthly, yearly
   // ...
+}
+
+// Audit Log
+interface AuditLog {
+  id: string
+  action: string
+  resource_type: string
+  resource_id: string
+  resource_name?: string
+  user_id: string
+  user_email: string
+  status: 'success' | 'failed'
+  details?: Record<string, unknown>
+  timestamp: string
 }
 ```
 

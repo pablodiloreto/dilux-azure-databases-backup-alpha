@@ -19,6 +19,8 @@ import {
   Grid,
   Paper,
   Skeleton,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material'
 import {
   Add as AddIcon,
@@ -29,10 +31,11 @@ import {
   Dns as DnsIcon,
 } from '@mui/icons-material'
 import { useDeleteDatabase, useTriggerBackup, useCreateDatabase, useUpdateDatabase } from '../../hooks/useDatabases'
-import type { DatabaseConfig, CreateDatabaseInput, BackupPolicy, BackupPoliciesResponse } from '../../types'
+import type { DatabaseConfig, CreateDatabaseInput, BackupPolicy, BackupPoliciesResponse, Engine } from '../../types'
 import { DatabaseFormDialog } from './DatabaseFormDialog'
 import { apiClient } from '../../api/client'
 import { databasesApi } from '../../api/databases'
+import { enginesApi } from '../../api/engines'
 import { getPolicySummary } from '../../utils/format'
 import { FilterBar, FilterSelect, LoadMore, ResponsiveTable, Column, LoadingOverlay, TableSkeleton } from '../../components/common'
 import { useSettings } from '../../contexts/SettingsContext'
@@ -100,11 +103,11 @@ function StatBox({ title, value, icon, color, loading }: StatBoxProps) {
 
 interface DatabaseFilters {
   type: string
-  host: string
   policy: string
+  server: string
 }
 
-const emptyFilters: DatabaseFilters = { type: '', host: '', policy: '' }
+const emptyFilters: DatabaseFilters = { type: '', policy: '', server: '' }
 
 export function DatabasesPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -134,19 +137,24 @@ export function DatabasesPage() {
   })
   const [policies, setPolicies] = useState<Map<string, BackupPolicy>>(new Map())
   const [policiesList, setPoliciesList] = useState<BackupPolicy[]>([])
+  const [serversList, setServersList] = useState<Engine[]>([])
+
+  // Delete dialog state
+  const [deleteBackups, setDeleteBackups] = useState(false)
+  const [backupStats, setBackupStats] = useState<{ count: number; size: string } | null>(null)
+  const [loadingStats, setLoadingStats] = useState(false)
 
   // Filter state
   const [filters, setFilters] = useState<DatabaseFilters>(emptyFilters)
   const [appliedFilters, setAppliedFilters] = useState<DatabaseFilters>(emptyFilters)
 
   // Stats (computed from ALL databases, not filtered)
-  const [stats, setStats] = useState({ total: 0, mysql: 0, postgresql: 0, sqlserver: 0, hosts: 0 })
-  const [uniqueHosts, setUniqueHosts] = useState<string[]>([])
+  const [stats, setStats] = useState({ total: 0, mysql: 0, postgresql: 0, sqlserver: 0, servers: 0 })
 
   // Track initial load
   const initialLoadDone = useRef(false)
 
-  // Load policies on mount
+  // Load policies and engines on mount
   useEffect(() => {
     const fetchPolicies = async () => {
       try {
@@ -159,7 +167,16 @@ export function DatabasesPage() {
         console.error('Failed to load policies:', err)
       }
     }
+    const fetchServers = async () => {
+      try {
+        const response = await enginesApi.getAll()
+        setServersList(response.items)
+      } catch (err) {
+        console.error('Failed to load servers:', err)
+      }
+    }
     fetchPolicies()
+    fetchServers()
   }, [])
 
   // Fetch databases
@@ -175,8 +192,8 @@ export function DatabasesPage() {
         limit: settings.pageSize,
         offset,
         type: pageFilters.type || undefined,
-        host: pageFilters.host || undefined,
         policyId: pageFilters.policy || undefined,
+        engineId: pageFilters.server || undefined,
       })
 
       if (append) {
@@ -200,15 +217,14 @@ export function DatabasesPage() {
       try {
         const result = await databasesApi.getAll({})
         const dbs = result.databases
-        const hosts = new Set(dbs.map((db) => db.host))
+        const uniqueServers = new Set(dbs.map((db) => db.engine_id).filter(Boolean))
         setStats({
           total: dbs.length,
           mysql: dbs.filter((db) => db.database_type === 'mysql').length,
           postgresql: dbs.filter((db) => db.database_type === 'postgresql').length,
           sqlserver: dbs.filter((db) => db.database_type === 'sqlserver' || db.database_type === 'azure_sql').length,
-          hosts: hosts.size,
+          servers: uniqueServers.size,
         })
-        setUniqueHosts([...hosts].sort())
       } catch (err) {
         console.error('Failed to load stats:', err)
       }
@@ -239,13 +255,13 @@ export function DatabasesPage() {
 
   // Check if filters have changed from applied
   const hasFilterChanges = filters.type !== appliedFilters.type ||
-    filters.host !== appliedFilters.host ||
-    filters.policy !== appliedFilters.policy
+    filters.policy !== appliedFilters.policy ||
+    filters.server !== appliedFilters.server
 
   // Check if any filters are active
   const hasActiveFilters = appliedFilters.type !== '' ||
-    appliedFilters.host !== '' ||
-    appliedFilters.policy !== ''
+    appliedFilters.policy !== '' ||
+    appliedFilters.server !== ''
 
   const handleSearch = () => {
     setAppliedFilters({ ...filters })
@@ -267,35 +283,52 @@ export function DatabasesPage() {
     // Also refresh stats
     databasesApi.getAll({}).then(result => {
       const dbs = result.databases
-      const hosts = new Set(dbs.map((db) => db.host))
+      const uniqueServers = new Set(dbs.map((db) => db.engine_id).filter(Boolean))
       setStats({
         total: dbs.length,
         mysql: dbs.filter((db) => db.database_type === 'mysql').length,
         postgresql: dbs.filter((db) => db.database_type === 'postgresql').length,
         sqlserver: dbs.filter((db) => db.database_type === 'sqlserver' || db.database_type === 'azure_sql').length,
-        hosts: hosts.size,
+        servers: uniqueServers.size,
       })
-      setUniqueHosts([...hosts].sort())
     })
   }
 
-  const handleDeleteClick = (db: DatabaseConfig) => {
+  const handleDeleteClick = async (db: DatabaseConfig) => {
     setSelectedDb(db)
+    setDeleteBackups(false)
+    setBackupStats(null)
     setDeleteDialogOpen(true)
+
+    // Load backup stats
+    setLoadingStats(true)
+    try {
+      const stats = await databasesApi.getBackupStats(db.id)
+      setBackupStats({ count: stats.count, size: stats.total_size_formatted })
+    } catch {
+      setBackupStats(null)
+    } finally {
+      setLoadingStats(false)
+    }
   }
 
   const handleDeleteConfirm = async () => {
     if (selectedDb) {
       try {
-        await deleteMutation.mutateAsync(selectedDb.id)
-        setSnackbar({ open: true, message: 'Database deleted successfully', severity: 'success' })
+        await deleteMutation.mutateAsync({ id: selectedDb.id, deleteBackups })
+        const msg = deleteBackups
+          ? 'Database and backups deleted successfully'
+          : 'Database deleted successfully'
+        setSnackbar({ open: true, message: msg, severity: 'success' })
         handleRefresh()
-      } catch {
-        setSnackbar({ open: true, message: 'Failed to delete database', severity: 'error' })
+      } catch (err) {
+        setSnackbar({ open: true, message: err instanceof Error ? err.message : 'Failed to delete database', severity: 'error' })
       }
     }
     setDeleteDialogOpen(false)
     setSelectedDb(null)
+    setDeleteBackups(false)
+    setBackupStats(null)
   }
 
   const handleTriggerBackup = async (db: DatabaseConfig) => {
@@ -336,16 +369,33 @@ export function DatabasesPage() {
     handleRefresh()
   }
 
-  // Table columns definition
+  // Get server name for database
+  const getServerName = (db: DatabaseConfig) => {
+    if (db.engine_id) {
+      const server = serversList.find(e => e.id === db.engine_id)
+      return server?.name || 'Unknown Server'
+    }
+    return null
+  }
+
+  // Table columns definition - simplified with fewer columns
   const tableColumns: Column<DatabaseConfig>[] = useMemo(() => [
     {
       id: 'name',
-      label: 'Name',
-      render: (db) => (
-        <Typography variant="body1" fontWeight={500}>
-          {db.name}
-        </Typography>
-      ),
+      label: 'Database',
+      render: (db) => {
+        const serverName = getServerName(db)
+        return (
+          <Box>
+            <Typography variant="body2" fontWeight={500}>
+              {db.name}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {serverName ? `${serverName} / ${db.database_name}` : `${db.host}:${db.port}/${db.database_name}`}
+            </Typography>
+          </Box>
+        )
+      },
       hideInMobileSummary: true, // shown as title
     },
     {
@@ -360,15 +410,23 @@ export function DatabasesPage() {
       ),
     },
     {
-      id: 'host',
-      label: 'Host',
-      render: (db) => `${db.host}:${db.port}`,
-      hideInMobileSummary: true,
-    },
-    {
-      id: 'database',
-      label: 'Database',
-      render: (db) => db.database_name,
+      id: 'server',
+      label: 'Server',
+      render: (db) => {
+        const serverName = getServerName(db)
+        if (!serverName) {
+          return (
+            <Typography variant="body2" color="text.secondary">
+              —
+            </Typography>
+          )
+        }
+        return (
+          <Typography variant="body2">
+            {serverName}
+          </Typography>
+        )
+      },
       hideInMobileSummary: true,
     },
     {
@@ -379,20 +437,15 @@ export function DatabasesPage() {
         if (!policy) {
           return (
             <Typography variant="body2" color="text.secondary">
-              {db.policy_id || 'No policy'}
+              —
             </Typography>
           )
         }
         return (
-          <Tooltip title={policy.description || 'Backup policy'}>
-            <Box>
-              <Typography variant="body2" fontWeight={500}>
-                {policy.name}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" fontFamily="monospace">
-                {getPolicySummary(policy)}
-              </Typography>
-            </Box>
+          <Tooltip title={`${policy.description || ''}\n${getPolicySummary(policy)}`}>
+            <Typography variant="body2">
+              {policy.name}
+            </Typography>
           </Tooltip>
         )
       },
@@ -409,7 +462,7 @@ export function DatabasesPage() {
         />
       ),
     },
-  ], [policies])
+  ], [policies, serversList])
 
   if (error && databases.length === 0) {
     return (
@@ -443,7 +496,7 @@ export function DatabasesPage() {
         <Grid item xs={6} sm={4} md={2.4}>
           <StatBox
             title="Servers"
-            value={stats.hosts}
+            value={stats.servers}
             icon={<DnsIcon sx={{ color: '#9c27b0' }} />}
             color="#9c27b0"
             loading={isLoading && !initialLoadDone.current}
@@ -493,10 +546,10 @@ export function DatabasesPage() {
           onChange={(value) => setFilters({ ...filters, type: value })}
         />
         <FilterSelect
-          value={filters.host}
-          options={uniqueHosts.map(h => ({ value: h, label: h }))}
-          allLabel="All Hosts"
-          onChange={(value) => setFilters({ ...filters, host: value })}
+          value={filters.server}
+          options={serversList.map(s => ({ value: s.id, label: s.name }))}
+          allLabel="All Servers"
+          onChange={(value) => setFilters({ ...filters, server: value })}
         />
         <FilterSelect
           value={filters.policy}
@@ -521,7 +574,7 @@ export function DatabasesPage() {
         <CardContent sx={{ p: { xs: 1, sm: 0 } }}>
           {isLoading && databases.length === 0 ? (
             // Initial loading: show skeleton
-            <TableSkeleton rows={6} columns={5} />
+            <TableSkeleton rows={6} columns={4} />
           ) : (
             <ResponsiveTable
               columns={tableColumns}
@@ -577,17 +630,61 @@ export function DatabasesPage() {
       </Card>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={() => setDeleteDialogOpen(false)}
+        PaperProps={{ sx: { minWidth: 400, maxWidth: 450 } }}
+      >
         <DialogTitle>Delete Database</DialogTitle>
         <DialogContent>
-          <Typography>
-            Are you sure you want to delete "{selectedDb?.name}"? This action cannot be undone.
+          <Typography sx={{ mb: 2 }}>
+            Are you sure you want to delete "{selectedDb?.name}"?
           </Typography>
+
+          {/* Backup deletion option - always show with min height to prevent resize */}
+          <Box sx={{ minHeight: 80 }}>
+            {loadingStats ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 2 }}>
+                <CircularProgress size={16} />
+                <Typography variant="body2" color="text.secondary">
+                  Checking for backups...
+                </Typography>
+              </Box>
+            ) : backupStats && backupStats.count > 0 ? (
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={deleteBackups}
+                    onChange={(e) => setDeleteBackups(e.target.checked)}
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography variant="body2">
+                      Also delete {backupStats.count} backup{backupStats.count !== 1 ? 's' : ''} ({backupStats.size})
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Backup files will be permanently deleted
+                    </Typography>
+                  </Box>
+                }
+              />
+            ) : backupStats && backupStats.count === 0 ? (
+              <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
+                No backups associated with this database.
+              </Typography>
+            ) : null}
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleDeleteConfirm} color="error" variant="contained">
-            Delete
+          <Button
+            onClick={handleDeleteConfirm}
+            color="error"
+            variant="contained"
+            disabled={deleteMutation.isPending}
+          >
+            {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
           </Button>
         </DialogActions>
       </Dialog>

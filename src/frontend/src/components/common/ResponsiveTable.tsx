@@ -163,7 +163,8 @@ export function ResponsiveTable<T>({
   size = 'small',
 }: ResponsiveTableProps<T>) {
   const theme = useTheme()
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'))
+  // Use 'lg' breakpoint to switch to cards before horizontal scroll occurs
+  const isMobile = useMediaQuery(theme.breakpoints.down('lg'))
 
   // Mobile view - cards
   if (isMobile) {
@@ -210,7 +211,7 @@ export function ResponsiveTable<T>({
                 {col.label}
               </TableCell>
             ))}
-            {actions && <TableCell align="right">Actions</TableCell>}
+            {actions && <TableCell align="center">Actions</TableCell>}
           </TableRow>
         </TableHead>
         <TableBody>
@@ -222,7 +223,7 @@ export function ResponsiveTable<T>({
                     {col.render(row)}
                   </TableCell>
                 ))}
-                {actions && <TableCell align="right">{actions(row)}</TableCell>}
+                {actions && <TableCell align="center">{actions(row)}</TableCell>}
               </TableRow>
             ))
           ) : (

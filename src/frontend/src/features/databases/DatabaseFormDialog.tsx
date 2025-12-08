@@ -20,12 +20,15 @@ import {
   Typography,
   CircularProgress,
   Chip,
+  Divider,
+  Autocomplete,
 } from '@mui/material'
 import { Visibility, VisibilityOff, CheckCircle, Cable } from '@mui/icons-material'
-import type { DatabaseConfig, CreateDatabaseInput, DatabaseType, BackupPolicy } from '../../types'
+import type { DatabaseConfig, CreateDatabaseInput, DatabaseType, BackupPolicy, Engine } from '../../types'
 import { useSettings } from '../../contexts/SettingsContext'
 import { databasesApi } from '../../api'
 import { apiClient } from '../../api/client'
+import { enginesApi } from '../../api/engines'
 
 interface DatabaseFormDialogProps {
   open: boolean
@@ -65,6 +68,11 @@ export function DatabaseFormDialog({
   const [policies, setPolicies] = useState<BackupPolicy[]>([])
   const [loadingPolicies, setLoadingPolicies] = useState(true)
 
+  // Engines (servers) state
+  const [engines, setEngines] = useState<Engine[]>([])
+  const [loadingEngines, setLoadingEngines] = useState(true)
+  const [selectedEngine, setSelectedEngine] = useState<Engine | null>(null)
+
   // Use settings defaults for new databases
   const initialFormState: CreateDatabaseInput = useMemo(() => ({
     name: '',
@@ -75,6 +83,8 @@ export function DatabaseFormDialog({
     username: '',
     password: '',
     policy_id: 'production-standard',
+    engine_id: undefined,
+    use_engine_credentials: false,
     enabled: true,
     compression: settings.defaultCompression,
   }), [settings.defaultCompression])
@@ -92,9 +102,10 @@ export function DatabaseFormDialog({
 
   const isEditing = !!database
 
-  // Fetch policies on open
+  // Fetch policies and engines on open
   useEffect(() => {
     if (open) {
+      // Load policies
       setLoadingPolicies(true)
       apiClient.get('/backup-policies')
         .then((response) => {
@@ -106,6 +117,20 @@ export function DatabaseFormDialog({
         })
         .finally(() => {
           setLoadingPolicies(false)
+        })
+
+      // Load engines
+      setLoadingEngines(true)
+      enginesApi.getAll({ limit: 100 })
+        .then((response) => {
+          setEngines(response.items || [])
+        })
+        .catch((err) => {
+          console.error('Failed to load engines:', err)
+          setEngines([])
+        })
+        .finally(() => {
+          setLoadingEngines(false)
         })
     }
   }, [open])
@@ -121,17 +146,25 @@ export function DatabaseFormDialog({
         username: database.username,
         password: '', // Password is not returned from API
         policy_id: database.policy_id || 'production-standard',
+        engine_id: database.engine_id,
+        use_engine_credentials: database.use_engine_credentials || false,
         enabled: database.enabled,
         compression: database.compression,
       })
+      // Set selected engine if editing
+      if (database.engine_id && engines.length > 0) {
+        const engine = engines.find(e => e.id === database.engine_id)
+        setSelectedEngine(engine || null)
+      }
     } else {
       setFormData(initialFormState)
+      setSelectedEngine(null)
     }
     setError(null)
     setValidationErrors({})
     setShowPassword(false)
     setConnectionResult(null)
-  }, [database, open, initialFormState])
+  }, [database, open, initialFormState, engines])
 
   const handleChange = (field: keyof CreateDatabaseInput, value: unknown) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -154,6 +187,39 @@ export function DatabaseFormDialog({
     }))
   }
 
+  const handleEngineChange = (engine: Engine | null) => {
+    setSelectedEngine(engine)
+    if (engine) {
+      // Auto-fill connection details from engine
+      setFormData((prev) => ({
+        ...prev,
+        engine_id: engine.id,
+        database_type: engine.engine_type as DatabaseType,
+        host: engine.host,
+        port: engine.port,
+        // If engine has credentials, offer to use them
+        use_engine_credentials: engine.auth_method === 'user_password' && !!engine.username,
+        username: engine.username || prev.username,
+      }))
+    } else {
+      // Clear engine-related fields
+      setFormData((prev) => ({
+        ...prev,
+        engine_id: undefined,
+        use_engine_credentials: false,
+      }))
+    }
+  }
+
+  const handleUseEngineCredentialsChange = (useEngineCredentials: boolean) => {
+    setFormData((prev) => ({
+      ...prev,
+      use_engine_credentials: useEngineCredentials,
+      // If using engine credentials, copy username from engine
+      username: useEngineCredentials && selectedEngine?.username ? selectedEngine.username : prev.username,
+    }))
+  }
+
   const validate = (): boolean => {
     const errors: Record<string, string> = {}
 
@@ -169,11 +235,14 @@ export function DatabaseFormDialog({
     if (!formData.database_name.trim()) {
       errors.database_name = 'Database name is required'
     }
-    if (!formData.username.trim()) {
-      errors.username = 'Username is required'
-    }
-    if (!isEditing && !formData.password.trim()) {
-      errors.password = 'Password is required'
+    // Only require username/password if not using engine credentials
+    if (!formData.use_engine_credentials) {
+      if (!formData.username.trim()) {
+        errors.username = 'Username is required'
+      }
+      if (!isEditing && !formData.password.trim()) {
+        errors.password = 'Password is required'
+      }
     }
 
     setValidationErrors(errors)
@@ -181,6 +250,15 @@ export function DatabaseFormDialog({
   }
 
   const canTestConnection = (): boolean => {
+    // If using engine credentials, we can test if we have engine with credentials
+    if (formData.use_engine_credentials && selectedEngine?.auth_method === 'user_password') {
+      return !!(
+        formData.host.trim() &&
+        formData.port &&
+        formData.database_name.trim()
+      )
+    }
+    // Otherwise need username/password
     return !!(
       formData.host.trim() &&
       formData.port &&
@@ -206,8 +284,10 @@ export function DatabaseFormDialog({
         host: formData.host,
         port: formData.port,
         database_name: formData.database_name,
-        username: formData.username,
-        password: formData.password,
+        username: formData.use_engine_credentials ? undefined : formData.username,
+        password: formData.use_engine_credentials ? undefined : formData.password,
+        engine_id: formData.engine_id,
+        use_engine_credentials: formData.use_engine_credentials,
       })
       setConnectionResult(result)
     } catch (err) {
@@ -247,6 +327,37 @@ export function DatabaseFormDialog({
           )}
 
           <Grid container spacing={2}>
+            {/* Server (Engine) Selection */}
+            <Grid item xs={12}>
+              <Autocomplete
+                options={engines}
+                getOptionLabel={(option) => option.name}
+                value={selectedEngine}
+                onChange={(_, newValue) => handleEngineChange(newValue)}
+                loading={loadingEngines}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Server (optional)"
+                    placeholder="Select a server or enter connection details manually"
+                    helperText="Select a server to auto-fill connection details"
+                  />
+                )}
+                renderOption={(props, option) => (
+                  <li {...props} key={option.id}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                      <Typography variant="body2">{option.name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {option.engine_type.toUpperCase()} - {option.host}:{option.port}
+                      </Typography>
+                    </Box>
+                  </li>
+                )}
+                disabled={isEditing}
+              />
+            </Grid>
+
             {/* Name */}
             <Grid item xs={12}>
               <TextField
@@ -262,7 +373,7 @@ export function DatabaseFormDialog({
 
             {/* Database Type */}
             <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
+              <FormControl fullWidth disabled={!!selectedEngine}>
                 <InputLabel>Database Type</InputLabel>
                 <Select
                   value={formData.database_type}
@@ -330,8 +441,9 @@ export function DatabaseFormDialog({
                 value={formData.host}
                 onChange={(e) => handleChange('host', e.target.value)}
                 error={!!validationErrors.host}
-                helperText={validationErrors.host}
+                helperText={validationErrors.host || (selectedEngine ? 'From selected server' : undefined)}
                 placeholder="db.example.com"
+                disabled={!!selectedEngine}
               />
             </Grid>
 
@@ -345,6 +457,7 @@ export function DatabaseFormDialog({
                 onChange={(e) => handleChange('port', parseInt(e.target.value) || 0)}
                 error={!!validationErrors.port}
                 helperText={validationErrors.port}
+                disabled={!!selectedEngine}
               />
             </Grid>
 
@@ -361,42 +474,81 @@ export function DatabaseFormDialog({
               />
             </Grid>
 
-            {/* Username */}
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Username"
-                value={formData.username}
-                onChange={(e) => handleChange('username', e.target.value)}
-                error={!!validationErrors.username}
-                helperText={validationErrors.username}
-              />
-            </Grid>
+            <Divider sx={{ width: '100%', my: 1 }} />
 
-            {/* Password */}
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label={isEditing ? 'Password (leave empty to keep current)' : 'Password'}
-                type={showPassword ? 'text' : 'password'}
-                value={formData.password}
-                onChange={(e) => handleChange('password', e.target.value)}
-                error={!!validationErrors.password}
-                helperText={validationErrors.password}
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton
-                        onClick={() => setShowPassword(!showPassword)}
-                        edge="end"
-                      >
-                        {showPassword ? <VisibilityOff /> : <Visibility />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            </Grid>
+            {/* Credentials Section */}
+            {selectedEngine && selectedEngine.auth_method === 'user_password' && selectedEngine.username && (
+              <Grid item xs={12}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formData.use_engine_credentials || false}
+                      onChange={(e) => handleUseEngineCredentialsChange(e.target.checked)}
+                    />
+                  }
+                  label={
+                    <Box>
+                      <Typography variant="body2">
+                        Use server credentials
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Use username/password from "{selectedEngine.name}" ({selectedEngine.username})
+                      </Typography>
+                    </Box>
+                  }
+                />
+              </Grid>
+            )}
+
+            {/* Username - hidden when using engine credentials */}
+            {!formData.use_engine_credentials && (
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Username"
+                  value={formData.username}
+                  onChange={(e) => handleChange('username', e.target.value)}
+                  error={!!validationErrors.username}
+                  helperText={validationErrors.username}
+                />
+              </Grid>
+            )}
+
+            {/* Password - hidden when using engine credentials */}
+            {!formData.use_engine_credentials && (
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label={isEditing ? 'Password (leave empty to keep current)' : 'Password'}
+                  type={showPassword ? 'text' : 'password'}
+                  value={formData.password}
+                  onChange={(e) => handleChange('password', e.target.value)}
+                  error={!!validationErrors.password}
+                  helperText={validationErrors.password}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          onClick={() => setShowPassword(!showPassword)}
+                          edge="end"
+                        >
+                          {showPassword ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+            )}
+
+            {/* Show info when using engine credentials */}
+            {formData.use_engine_credentials && selectedEngine && (
+              <Grid item xs={12}>
+                <Alert severity="info" sx={{ py: 0.5 }}>
+                  This database will use credentials from server "{selectedEngine.name}"
+                </Alert>
+              </Grid>
+            )}
 
             {/* Test Connection Button */}
             <Grid item xs={12}>

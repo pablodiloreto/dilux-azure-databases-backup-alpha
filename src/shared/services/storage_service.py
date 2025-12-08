@@ -18,6 +18,19 @@ from ..models import BackupResult, AppSettings, User, UserRole, BackupPolicy, ge
 logger = logging.getLogger(__name__)
 
 
+def format_bytes(size_bytes: int) -> str:
+    """Format bytes into human-readable string."""
+    if size_bytes == 0:
+        return "0 B"
+    units = ["B", "KB", "MB", "GB", "TB"]
+    i = 0
+    size = float(size_bytes)
+    while size >= 1024 and i < len(units) - 1:
+        size /= 1024
+        i += 1
+    return f"{size:.1f} {units[i]}" if i > 0 else f"{int(size)} {units[i]}"
+
+
 class StorageService:
     """
     Service for Azure Storage operations.
@@ -437,6 +450,7 @@ class StorageService:
         page_size: int = 25,
         page: int = 1,
         database_id: Optional[str] = None,
+        database_ids: Optional[list[str]] = None,
         status: Optional[str] = None,
         triggered_by: Optional[str] = None,
         database_type: Optional[str] = None,
@@ -452,7 +466,8 @@ class StorageService:
         Args:
             page_size: Number of results per page (default 25)
             page: Page number (1-based, default 1)
-            database_id: Filter by database ID
+            database_id: Filter by a single database ID
+            database_ids: Filter by multiple database IDs (e.g., for engine filter)
             status: Filter by backup status (completed, failed, in_progress)
             triggered_by: Filter by trigger type (manual, scheduler)
             database_type: Filter by database type (mysql, postgresql, sqlserver)
@@ -493,7 +508,11 @@ class StorageService:
 
             for entity in entities:
                 try:
-                    all_results.append(BackupResult.from_table_entity(entity))
+                    backup = BackupResult.from_table_entity(entity)
+                    # If database_ids is provided, filter to only those databases
+                    if database_ids and backup.database_id not in database_ids:
+                        continue
+                    all_results.append(backup)
                 except (KeyError, ValueError) as e:
                     logger.warning(f"Skipping malformed backup entity: {e}")
 
@@ -607,6 +626,82 @@ class StorageService:
         except Exception as e:
             logger.error(f"Error getting backup alerts: {e}")
             return []
+
+    def get_backup_stats_for_database(self, database_id: str) -> dict:
+        """
+        Get backup statistics for a specific database.
+
+        Args:
+            database_id: ID of the database
+
+        Returns:
+            Dict with count, total_size_bytes, and formatted size
+        """
+        # Get all backups for this database from history table
+        backups = self.get_backup_history(database_id=database_id, limit=10000)
+
+        total_size = sum(b.file_size_bytes or 0 for b in backups)
+
+        return {
+            "count": len(backups),
+            "total_size_bytes": total_size,
+            "total_size_formatted": format_bytes(total_size),
+        }
+
+    def delete_all_backups_for_database(self, database_id: str) -> dict:
+        """
+        Delete all backups (blobs and history records) for a specific database.
+
+        Args:
+            database_id: ID of the database
+
+        Returns:
+            Dict with deleted_files, deleted_records, and any errors
+        """
+        deleted_files = 0
+        deleted_records = 0
+        errors = []
+
+        # Get all backup records for this database
+        backups = self.get_backup_history(database_id=database_id, limit=10000)
+
+        for backup in backups:
+            # Delete the blob file if it exists
+            if backup.blob_name:
+                try:
+                    if self.delete_backup(backup.blob_name):
+                        deleted_files += 1
+                except Exception as e:
+                    errors.append(f"Failed to delete blob {backup.blob_name}: {e}")
+
+            # Delete the history record
+            try:
+                table_client = self._clients.get_table_client(
+                    self._settings.history_table_name
+                )
+                # The entity uses date as PartitionKey and inverted_ticks_id as RowKey
+                partition_key = backup.created_at.strftime("%Y-%m-%d")
+                # Try to find and delete the entity
+                filter_str = f"PartitionKey eq '{partition_key}' and database_id eq '{database_id}'"
+                entities = list(table_client.query_entities(query_filter=filter_str))
+                for entity in entities:
+                    if entity.get("id") == backup.id or entity["RowKey"].endswith(f"_{backup.id}"):
+                        table_client.delete_entity(
+                            partition_key=entity["PartitionKey"],
+                            row_key=entity["RowKey"]
+                        )
+                        deleted_records += 1
+                        break
+            except Exception as e:
+                errors.append(f"Failed to delete record {backup.id}: {e}")
+
+        logger.info(f"Deleted {deleted_files} files and {deleted_records} records for database {database_id}")
+
+        return {
+            "deleted_files": deleted_files,
+            "deleted_records": deleted_records,
+            "errors": errors,
+        }
 
     # ===========================================
     # Settings Operations

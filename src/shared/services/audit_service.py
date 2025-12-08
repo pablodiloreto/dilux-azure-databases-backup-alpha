@@ -133,6 +133,7 @@ class AuditService:
         status: Optional[AuditStatus] = None,
         search: Optional[str] = None,
         database_type: Optional[str] = None,
+        engine_id: Optional[str] = None,
         resource_name: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
@@ -148,7 +149,8 @@ class AuditService:
             resource_type: Filter by resource type
             status: Filter by status
             search: Search in resource_name and user_email
-            database_type: Filter by database type (engine) from details
+            database_type: Filter by database type (engine type) from details
+            engine_id: Filter by engine ID (server) from details
             resource_name: Filter by resource name (alias) - partial match
             limit: Maximum results per page
             offset: Skip N results
@@ -202,11 +204,18 @@ class AuditService:
                     or (log.resource_id and search_lower in log.resource_id.lower())
                 ]
 
-            # Apply database_type filter (engine) - from details.database_type
+            # Apply database_type filter (engine type) - from details.database_type
             if database_type:
                 logs = [
                     log for log in logs
                     if log.details and log.details.get("database_type", "").lower() == database_type.lower()
+                ]
+
+            # Apply engine_id filter (server) - from details.engine_id
+            if engine_id:
+                logs = [
+                    log for log in logs
+                    if log.details and log.details.get("engine_id") == engine_id
                 ]
 
             # Apply resource_name filter (alias) - partial match

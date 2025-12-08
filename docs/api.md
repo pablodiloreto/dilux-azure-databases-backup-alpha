@@ -52,6 +52,7 @@ List database configurations with filtering and pagination.
 | `search` | string | Search in name, host, and database_name |
 | `host` | string | Filter by host |
 | `policy_id` | string | Filter by backup policy ID |
+| `engine_id` | string | Filter by engine/server ID |
 | `limit` | integer | Results per page (default: 25) |
 | `offset` | integer | Skip N results for pagination (default: 0) |
 
@@ -63,6 +64,9 @@ List database configurations with filtering and pagination.
       "id": "db-001",
       "name": "Production MySQL",
       "database_type": "mysql",
+      "engine_id": "engine-001",
+      "engine_name": "Production MySQL Server",
+      "use_engine_credentials": true,
       "host": "mysql.example.com",
       "port": 3306,
       "database_name": "myapp",
@@ -90,14 +94,15 @@ Create a new database configuration.
 {
   "name": "Production MySQL",
   "database_type": "mysql",
+  "engine_id": "engine-001",
+  "use_engine_credentials": true,
   "host": "mysql.example.com",
   "port": 3306,
   "database_name": "myapp",
   "username": "backup_user",
   "password": "secret123",
-  "schedule": "0 0 * * *",
+  "policy_id": "production-standard",
   "enabled": true,
-  "retention_days": 30,
   "compression": true
 }
 ```
@@ -108,14 +113,21 @@ Create a new database configuration.
 - `host` - Database server hostname
 - `port` - Database server port
 - `database_name` - Name of the database to backup
-- `username` - Database username
+
+**Conditional Fields:**
+- If `use_engine_credentials=false`:
+  - `username` - Database username (required)
+  - `password` - Database password (required for new databases)
+- If `use_engine_credentials=true`:
+  - `engine_id` - Server/engine ID (required)
+  - Credentials are inherited from the engine
 
 **Optional Fields:**
-- `password` - Database password (for dev only, use Key Vault in production)
+- `engine_id` - ID of the server/engine this database belongs to
+- `use_engine_credentials` - Whether to use server credentials (default: `false`)
 - `password_secret_name` - Key Vault secret name for password
-- `schedule` - Cron expression (default: `0 0 * * *` = daily at midnight)
+- `policy_id` - Backup policy ID (default: `production-standard`)
 - `enabled` - Whether backups are enabled (default: `true`)
-- `retention_days` - Days to keep backups (default: `30`)
 - `compression` - Compress backups (default: `true`)
 - `backup_destination` - Custom blob container name
 - `tags` - Custom key-value tags
@@ -212,13 +224,14 @@ Get backup history with server-side pagination.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `database_id` | string | Filter by database ID |
+| `engine_id` | string | Filter by server/engine ID |
 | `status` | string | Filter by status (`completed`, `failed`, `in_progress`) |
 | `triggered_by` | string | Filter by trigger (`manual`, `scheduler`) |
 | `database_type` | string | Filter by database type (`mysql`, `postgresql`, `sqlserver`) |
 | `start_date` | string | Filter from date (YYYY-MM-DD) |
 | `end_date` | string | Filter until date (YYYY-MM-DD) |
-| `page_size` | integer | Results per page (default: 25) |
-| `continuation_token` | string | Token for next page (from previous response) |
+| `page_size` | integer | Results per page (default: 25, max: 100) |
+| `page` | integer | Page number, 1-based (default: 1) |
 
 **Response:**
 ```json
@@ -230,6 +243,8 @@ Get backup history with server-side pagination.
       "database_id": "db-001",
       "database_name": "Production MySQL",
       "database_type": "mysql",
+      "engine_id": "engine-001",
+      "engine_name": "Production MySQL Server",
       "status": "completed",
       "started_at": "2024-01-15T00:00:05.000Z",
       "completed_at": "2024-01-15T00:01:23.000Z",
@@ -238,11 +253,14 @@ Get backup history with server-side pagination.
       "file_size_bytes": 15728640,
       "file_format": "sql.gz",
       "triggered_by": "scheduler",
+      "tier": "daily",
       "created_at": "2024-01-15T00:00:00.000Z"
     }
   ],
   "count": 1,
-  "continuation_token": "eyJuZXh0UGFnZSI6dHJ1ZX0=",
+  "total_count": 150,
+  "page": 1,
+  "page_size": 25,
   "has_more": true
 }
 ```
@@ -366,6 +384,22 @@ Delete multiple backup files from blob storage.
 
 ## Data Models
 
+### Engine
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Unique identifier |
+| `name` | string | Display name |
+| `engine_type` | enum | `mysql`, `postgresql`, `sqlserver` |
+| `host` | string | Server hostname |
+| `port` | integer | Server port |
+| `auth_method` | enum | `user_password`, `managed_identity`, `azure_ad`, `connection_string` |
+| `username` | string | Database username (for user_password) |
+| `discovery_enabled` | boolean | Whether database discovery is allowed |
+| `database_count` | integer | Number of databases using this engine |
+| `created_at` | datetime | Creation timestamp |
+| `updated_at` | datetime | Last update timestamp |
+
 ### DatabaseConfig
 
 | Field | Type | Description |
@@ -373,14 +407,16 @@ Delete multiple backup files from blob storage.
 | `id` | string | Unique identifier |
 | `name` | string | Display name |
 | `database_type` | enum | `mysql`, `postgresql`, `sqlserver`, `azure_sql` |
+| `engine_id` | string | ID of the server/engine (optional) |
+| `engine_name` | string | Name of the server (from API response) |
+| `use_engine_credentials` | boolean | Whether to use server credentials |
 | `host` | string | Database server hostname |
 | `port` | integer | Database server port |
 | `database_name` | string | Name of the database |
-| `username` | string | Database username |
+| `username` | string | Database username (if not using engine credentials) |
 | `password_secret_name` | string | Key Vault secret name |
-| `schedule` | string | Cron expression |
+| `policy_id` | string | Backup policy ID |
 | `enabled` | boolean | Whether backups are enabled |
-| `retention_days` | integer | Days to retain backups |
 | `backup_destination` | string | Custom blob container |
 | `compression` | boolean | Whether to compress backups |
 | `tags` | object | Custom tags |
@@ -394,9 +430,11 @@ Delete multiple backup files from blob storage.
 | `id` | string | Unique identifier |
 | `job_id` | string | ID of the backup job |
 | `database_id` | string | ID of the database |
-| `database_name` | string | Display name |
+| `database_alias` | string | Display name of database |
 | `database_type` | enum | Database type |
+| `engine_id` | string | ID of the server/engine |
 | `status` | enum | `pending`, `in_progress`, `completed`, `failed`, `cancelled` |
+| `tier` | string | Backup tier (`hourly`, `daily`, `weekly`, `monthly`, `yearly`) |
 | `started_at` | datetime | When backup started |
 | `completed_at` | datetime | When backup finished |
 | `duration_seconds` | float | Duration in seconds |
@@ -454,7 +492,7 @@ All errors return JSON with an `error` field:
 
 Test database connectivity before saving configuration.
 
-**Request Body:**
+**Request Body (Custom Credentials):**
 ```json
 {
   "database_type": "mysql",
@@ -466,15 +504,24 @@ Test database connectivity before saving configuration.
 }
 ```
 
+**Request Body (Using Engine Credentials):**
+```json
+{
+  "database_type": "mysql",
+  "host": "mysql.example.com",
+  "port": 3306,
+  "database_name": "myapp",
+  "engine_id": "engine-001",
+  "use_engine_credentials": true
+}
+```
+
 **Response (Success):**
 ```json
 {
   "success": true,
   "message": "Connection successful",
-  "details": {
-    "server_version": "8.0.35",
-    "connection_time_ms": 45
-  }
+  "duration_ms": 45
 }
 ```
 
@@ -577,6 +624,220 @@ Update application settings.
     "default_compression": true,
     "updated_at": "2024-01-15T12:00:00.000Z"
   }
+}
+```
+
+---
+
+### Engines (Servers)
+
+#### `GET /api/engines`
+
+List all engine (server) configurations.
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | string | Filter by engine type (`mysql`, `postgresql`, `sqlserver`) |
+| `limit` | integer | Results per page (default: 100) |
+| `offset` | integer | Skip N results for pagination (default: 0) |
+
+**Response:**
+```json
+{
+  "items": [
+    {
+      "id": "engine-001",
+      "name": "Production MySQL Server",
+      "engine_type": "mysql",
+      "host": "mysql.example.com",
+      "port": 3306,
+      "auth_method": "user_password",
+      "username": "backup_user",
+      "discovery_enabled": true,
+      "database_count": 5,
+      "created_at": "2024-01-01T00:00:00.000Z",
+      "updated_at": "2024-01-15T00:00:00.000Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+---
+
+#### `POST /api/engines`
+
+Create a new engine (server) configuration.
+
+**Request Body:**
+```json
+{
+  "name": "Production MySQL Server",
+  "engine_type": "mysql",
+  "host": "mysql.example.com",
+  "port": 3306,
+  "auth_method": "user_password",
+  "username": "backup_user",
+  "password": "secret123",
+  "discovery_enabled": true,
+  "discover_databases": true
+}
+```
+
+**Required Fields:**
+- `name` - Display name
+- `engine_type` - One of: `mysql`, `postgresql`, `sqlserver`
+- `host` - Server hostname
+- `port` - Server port
+
+**Optional Fields:**
+- `auth_method` - Authentication method: `user_password`, `managed_identity`, `azure_ad`, `connection_string` (default: `user_password`)
+- `username` - Database username (required for `user_password`)
+- `password` - Database password (required for `user_password`)
+- `discovery_enabled` - Allow discovering databases on this server (default: `true`)
+- `discover_databases` - Immediately discover databases after creation (default: `false`)
+
+**Response:** `201 Created`
+```json
+{
+  "engine": { ... },
+  "discovered_databases": [
+    { "id": "db-001", "name": "myapp", ... },
+    { "id": "db-002", "name": "analytics", ... }
+  ]
+}
+```
+
+---
+
+#### `GET /api/engines/{engine_id}`
+
+Get a specific engine configuration.
+
+**Response:**
+```json
+{
+  "engine": {
+    "id": "engine-001",
+    "name": "Production MySQL Server",
+    ...
+  }
+}
+```
+
+---
+
+#### `PUT /api/engines/{engine_id}`
+
+Update an engine configuration.
+
+**Request Body:** (all fields optional)
+```json
+{
+  "name": "Updated Server Name",
+  "username": "new_user",
+  "password": "new_password",
+  "apply_to_all_databases": true
+}
+```
+
+**Special Fields:**
+- `apply_to_all_databases` - If `true`, updates all databases using this engine to use `use_engine_credentials=true`
+
+**Response:**
+```json
+{
+  "engine": { ... },
+  "databases_updated": 5
+}
+```
+
+---
+
+#### `DELETE /api/engines/{engine_id}`
+
+Delete an engine configuration.
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `delete_databases` | boolean | If `true`, cascade delete all associated databases |
+| `delete_backups` | boolean | If `true` (and `delete_databases=true`), also delete backup files |
+
+**Response (No databases):**
+```json
+{
+  "message": "Engine 'engine-001' deleted"
+}
+```
+
+**Response (With cascade):**
+```json
+{
+  "message": "Engine 'engine-001' deleted",
+  "databases_deleted": 5,
+  "backups_deleted": 150
+}
+```
+
+**Errors:**
+- `400 Bad Request` - Engine has databases and `delete_databases` is not set
+- `404 Not Found` - Engine not found
+
+---
+
+#### `POST /api/engines/{engine_id}/test`
+
+Test connection to an engine.
+
+**Response (Success):**
+```json
+{
+  "success": true,
+  "message": "Connection successful",
+  "duration_ms": 45
+}
+```
+
+---
+
+#### `POST /api/engines/{engine_id}/discover`
+
+Discover databases on an engine.
+
+**Request Body:**
+```json
+{
+  "import_databases": ["myapp", "analytics"],
+  "policy_id": "production-standard"
+}
+```
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `import` | boolean | If `true`, import selected databases (default: `false`) |
+
+**Response (List only):**
+```json
+{
+  "engine_id": "engine-001",
+  "databases": ["myapp", "analytics", "staging", "test"],
+  "existing": ["myapp"],
+  "available": ["analytics", "staging", "test"]
+}
+```
+
+**Response (With import):**
+```json
+{
+  "engine_id": "engine-001",
+  "imported": [
+    { "id": "db-002", "name": "analytics", ... },
+    { "id": "db-003", "name": "staging", ... }
+  ],
+  "skipped": ["test"]
 }
 ```
 
@@ -704,10 +965,13 @@ Get audit logs with filtering and pagination. **Requires Admin role.**
 **Query Parameters:**
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `action` | string | Filter by action type (e.g., `create_database`, `trigger_backup`) |
-| `resource_type` | string | Filter by resource type (`backup`, `database`, `policy`, `user`, `system`) |
+| `action` | string | Filter by action type (e.g., `database_created`, `backup_triggered`) |
+| `resource_type` | string | Filter by resource type (`backup`, `database`, `engine`, `policy`, `user`, `settings`, `access_request`) |
 | `status` | string | Filter by status (`success`, `failed`) |
 | `search` | string | Search in resource names and user emails |
+| `database_type` | string | Filter by engine type (`mysql`, `postgresql`, `sqlserver`) |
+| `engine_id` | string | Filter by engine/server ID |
+| `resource_name` | string | Filter by alias/target name (partial match) |
 | `start_date` | string | Filter from date (YYYY-MM-DD) |
 | `end_date` | string | Filter until date (YYYY-MM-DD) |
 | `limit` | integer | Results per page (default: 50) |
@@ -719,14 +983,21 @@ Get audit logs with filtering and pagination. **Requires Admin role.**
   "logs": [
     {
       "id": "audit-001",
-      "action": "create_database",
+      "action": "database_created",
       "resource_type": "database",
       "resource_id": "db-001",
       "resource_name": "Production MySQL",
       "user_id": "user-001",
       "user_email": "admin@example.com",
       "status": "success",
-      "details": { "database_type": "mysql" },
+      "details": {
+        "database_type": "mysql",
+        "engine_id": "engine-001",
+        "host": "mysql.example.com",
+        "port": 3306,
+        "database_name": "myapp",
+        "policy_id": "production-standard"
+      },
       "error_message": null,
       "ip_address": "192.168.1.1",
       "timestamp": "2024-01-15T12:00:00.000Z"
@@ -776,8 +1047,71 @@ Get list of available resource types for filters.
   "resource_types": [
     { "value": "backup", "label": "Backup" },
     { "value": "database", "label": "Database" },
+    { "value": "engine", "label": "Engine" },
     { "value": "policy", "label": "Policy" },
     { "value": "user", "label": "User" },
-    { "value": "system", "label": "System" }
+    { "value": "settings", "label": "Settings" },
+    { "value": "access_request", "label": "Access Request" }
   ]
 }
+```
+
+---
+
+### Audit Log Details by Action
+
+Each audit action includes specific fields in the `details` object:
+
+#### Database Actions
+
+| Action | Details Fields |
+|--------|----------------|
+| `database_created` | `database_type`, `engine_id`, `host`, `port`, `database_name`, `policy_id` |
+| `database_updated` | `database_type`, `engine_id`, `changes` |
+| `database_deleted` | `database_type`, `engine_id`, `host`, `port`, `database_name`, `backups_deleted`, `records_deleted` |
+
+#### Engine Actions
+
+| Action | Details Fields |
+|--------|----------------|
+| `create` (ENGINE) | `engine_id`, `engine_type`, `host`, `port` |
+| `update` (ENGINE) | `engine_id`, `engine_type`, `updated_fields` |
+| `delete` (ENGINE) | `engine_id`, `engine_type`, `host`, `cascade_databases`, `cascade_backups`, `databases_deleted` |
+
+#### Backup Actions
+
+| Action | Details Fields |
+|--------|----------------|
+| `backup_triggered` | `database_id`, `database_alias`, `database_type`, `engine_id`, `triggered_by` |
+| `backup_downloaded` | `blob_name`, `file_name`, `database_type`, `database_id`, `database_alias`, `engine_id`, `expiry_hours` |
+| `backup_deleted` | `blob_name`, `file_name`, `database_type`, `database_id`, `database_alias`, `engine_id`, `type` |
+| `backup_deleted_bulk` | `deleted_count`, `deleted_files`, `not_found_count`, `error_count` |
+
+#### User Actions
+
+| Action | Details Fields |
+|--------|----------------|
+| `user_created` | `role`, `name` |
+| `user_updated` | `changes` |
+| `user_deleted` | `name`, `role` |
+
+#### Policy Actions
+
+| Action | Details Fields |
+|--------|----------------|
+| `policy_created` | `description`, `summary` |
+| `policy_updated` | `updated_fields`, `summary` |
+| `policy_deleted` | `description`, `summary`, `is_system` |
+
+#### Access Request Actions
+
+| Action | Details Fields |
+|--------|----------------|
+| `access_request_approved` | `role` |
+| `access_request_rejected` | `reason` |
+
+#### Settings Actions
+
+| Action | Details Fields |
+|--------|----------------|
+| `settings_updated` | `changes`

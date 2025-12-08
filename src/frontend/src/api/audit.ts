@@ -28,6 +28,7 @@ export const auditApi = {
       if (params.filters.status) queryParams.append('status', params.filters.status)
       if (params.filters.search) queryParams.append('search', params.filters.search)
       if (params.filters.databaseType) queryParams.append('database_type', params.filters.databaseType)
+      if (params.filters.engineId) queryParams.append('engine_id', params.filters.engineId)
       if (params.filters.resourceName) queryParams.append('resource_name', params.filters.resourceName)
     }
 

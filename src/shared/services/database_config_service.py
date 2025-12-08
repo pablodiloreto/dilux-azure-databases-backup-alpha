@@ -110,6 +110,7 @@ class DatabaseConfigService:
         database_type: Optional[str] = None,
         host: Optional[str] = None,
         policy_id: Optional[str] = None,
+        engine_id: Optional[str] = None,
     ) -> tuple[list[DatabaseConfig], int]:
         """
         Get database configurations with optional limit, offset and filters.
@@ -122,6 +123,7 @@ class DatabaseConfigService:
             database_type: Filter by database type
             host: Filter by host
             policy_id: Filter by policy ID
+            engine_id: Filter by engine ID
 
         Returns:
             Tuple of (list of DatabaseConfig instances, total count)
@@ -160,6 +162,10 @@ class DatabaseConfigService:
         # Apply policy filter
         if policy_id:
             configs = [c for c in configs if c.policy_id == policy_id]
+
+        # Apply engine filter
+        if engine_id:
+            configs = [c for c in configs if c.engine_id == engine_id]
 
         total_count = len(configs)
 

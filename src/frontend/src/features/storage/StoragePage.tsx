@@ -11,12 +11,16 @@ import {
   Chip,
   LinearProgress,
   Button,
+  Collapse,
+  IconButton,
 } from '@mui/material'
 import {
   Storage as StorageIcon,
   Folder as FolderIcon,
-  PieChart as PieChartIcon,
+  Dns as ServersIcon,
   Refresh as RefreshIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
 } from '@mui/icons-material'
 import { apiClient } from '../../api/client'
 
@@ -24,9 +28,20 @@ interface StorageByDatabase {
   database_id: string
   database_name: string
   database_type: string
+  engine_id?: string
   size_bytes: number
   size_formatted: string
   backup_count: number
+}
+
+interface StorageByEngine {
+  engine_id: string
+  engine_name: string
+  engine_type: string
+  size_bytes: number
+  size_formatted: string
+  backup_count: number
+  database_count: number
 }
 
 interface StorageByType {
@@ -39,6 +54,7 @@ interface StorageStats {
   total_size_formatted: string
   total_backup_count: number
   by_database: StorageByDatabase[]
+  by_engine: StorageByEngine[]
   by_type: {
     mysql: StorageByType
     postgresql: StorageByType
@@ -86,7 +102,7 @@ function StatBox({ title, value, icon, color, loading }: StatBoxProps) {
   )
 }
 
-function getDatabaseTypeColor(type: string): string {
+function getEngineTypeColor(type: string): string {
   switch (type) {
     case 'mysql':
       return '#1976d2'
@@ -101,56 +117,60 @@ function getDatabaseTypeColor(type: string): string {
   }
 }
 
-// Simple pie chart component using CSS
-interface PieSlice {
-  label: string
-  value: number
-  color: string
+function getEngineTypeLabel(type: string): string {
+  switch (type) {
+    case 'mysql':
+      return 'MySQL'
+    case 'postgresql':
+      return 'PostgreSQL'
+    case 'sqlserver':
+      return 'SQL Server'
+    case 'azure_sql':
+      return 'Azure SQL'
+    default:
+      return type.toUpperCase()
+  }
 }
 
-function SimplePieChart({ slices, total }: { slices: PieSlice[]; total: number }) {
+// Simple horizontal bar visualization
+interface TypeBarProps {
+  types: { label: string; value: number; formatted: string; color: string }[]
+  total: number
+}
+
+function TypeBars({ types, total }: TypeBarProps) {
+  const nonZero = types.filter(t => t.value > 0)
+
   if (total === 0) {
     return (
-      <Box sx={{ textAlign: 'center', py: 4 }}>
-        <Typography color="text.secondary">No data</Typography>
+      <Box sx={{ textAlign: 'center', py: 2 }}>
+        <Typography color="text.secondary" variant="body2">No data</Typography>
       </Box>
     )
   }
 
-  // Filter out zero values and calculate percentages
-  const nonZeroSlices = slices.filter((s) => s.value > 0)
-  let currentAngle = 0
-
-  // Build conic-gradient
-  const gradientParts = nonZeroSlices.map((slice) => {
-    const percentage = (slice.value / total) * 100
-    const startAngle = currentAngle
-    currentAngle += percentage
-    return `${slice.color} ${startAngle}% ${currentAngle}%`
-  })
-
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-      {/* Pie chart */}
-      <Box
-        sx={{
-          width: 150,
-          height: 150,
-          borderRadius: '50%',
-          background: `conic-gradient(${gradientParts.join(', ')})`,
-          flexShrink: 0,
-        }}
-      />
+    <Box>
+      {/* Stacked bar */}
+      <Box sx={{ display: 'flex', height: 24, borderRadius: 1, overflow: 'hidden', mb: 2 }}>
+        {nonZero.map((t) => (
+          <Box
+            key={t.label}
+            sx={{
+              width: `${(t.value / total) * 100}%`,
+              bgcolor: t.color,
+              minWidth: t.value > 0 ? 4 : 0,
+            }}
+          />
+        ))}
+      </Box>
       {/* Legend */}
-      <Box sx={{ flex: 1 }}>
-        {nonZeroSlices.map((slice) => (
-          <Box key={slice.label} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-            <Box sx={{ width: 12, height: 12, borderRadius: 1, bgcolor: slice.color }} />
-            <Typography variant="body2" sx={{ flex: 1 }}>
-              {slice.label}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {((slice.value / total) * 100).toFixed(1)}%
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+        {nonZero.map((t) => (
+          <Box key={t.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: t.color }} />
+            <Typography variant="caption" color="text.secondary">
+              {t.label}: {t.formatted} ({((t.value / total) * 100).toFixed(0)}%)
             </Typography>
           </Box>
         ))}
@@ -163,6 +183,7 @@ export function StoragePage() {
   const [stats, setStats] = useState<StorageStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [expandedEngines, setExpandedEngines] = useState<Set<string>>(new Set())
 
   const fetchStats = async () => {
     try {
@@ -182,18 +203,45 @@ export function StoragePage() {
     fetchStats()
   }, [])
 
-  // Prepare pie chart data for by_type
-  const typeSlices: PieSlice[] = stats
+  const toggleEngine = (engineId: string) => {
+    setExpandedEngines(prev => {
+      const next = new Set(prev)
+      if (next.has(engineId)) {
+        next.delete(engineId)
+      } else {
+        next.add(engineId)
+      }
+      return next
+    })
+  }
+
+  // Prepare type bar data
+  const typeData = stats
     ? [
-        { label: 'MySQL', value: stats.by_type.mysql.size_bytes, color: '#1976d2' },
-        { label: 'PostgreSQL', value: stats.by_type.postgresql.size_bytes, color: '#9c27b0' },
-        { label: 'SQL Server', value: stats.by_type.sqlserver.size_bytes, color: '#2e7d32' },
-        { label: 'Azure SQL', value: stats.by_type.azure_sql.size_bytes, color: '#ed6c02' },
+        { label: 'MySQL', value: stats.by_type.mysql.size_bytes, formatted: stats.by_type.mysql.size_formatted, color: '#1976d2' },
+        { label: 'PostgreSQL', value: stats.by_type.postgresql.size_bytes, formatted: stats.by_type.postgresql.size_formatted, color: '#9c27b0' },
+        { label: 'SQL Server', value: stats.by_type.sqlserver.size_bytes, formatted: stats.by_type.sqlserver.size_formatted, color: '#2e7d32' },
+        { label: 'Azure SQL', value: stats.by_type.azure_sql.size_bytes, formatted: stats.by_type.azure_sql.size_formatted, color: '#ed6c02' },
       ]
     : []
 
-  // Calculate max size for progress bars
-  const maxSize = stats?.by_database.reduce((max, db) => Math.max(max, db.size_bytes), 0) || 1
+  // Calculate max size for engine progress bars
+  const maxEngineSize = stats?.by_engine.reduce((max, e) => Math.max(max, e.size_bytes), 0) || 1
+
+  // Group databases by engine
+  const databasesByEngine: Record<string, StorageByDatabase[]> = {}
+  const databasesWithoutEngine: StorageByDatabase[] = []
+
+  stats?.by_database.forEach(db => {
+    if (db.engine_id) {
+      if (!databasesByEngine[db.engine_id]) {
+        databasesByEngine[db.engine_id] = []
+      }
+      databasesByEngine[db.engine_id].push(db)
+    } else {
+      databasesWithoutEngine.push(db)
+    }
+  })
 
   return (
     <Box sx={{ maxWidth: '100%', overflow: 'hidden' }}>
@@ -221,166 +269,218 @@ export function StoragePage() {
 
       {/* Stat Boxes */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={4}>
+        <Grid item xs={6} sm={3}>
           <StatBox
-            title="Total Storage Used"
+            title="Total Storage"
             value={stats?.total_size_formatted || '-'}
             icon={<StorageIcon sx={{ color: '#1976d2' }} />}
             color="#1976d2"
             loading={loading}
           />
         </Grid>
-        <Grid item xs={12} sm={4}>
+        <Grid item xs={6} sm={3}>
           <StatBox
-            title="Total Backup Files"
+            title="Backup Files"
             value={stats?.total_backup_count || 0}
             icon={<FolderIcon sx={{ color: '#9c27b0' }} />}
             color="#9c27b0"
             loading={loading}
           />
         </Grid>
-        <Grid item xs={12} sm={4}>
+        <Grid item xs={6} sm={3}>
+          <StatBox
+            title="Servers"
+            value={stats?.by_engine.length || 0}
+            icon={<ServersIcon sx={{ color: '#2e7d32' }} />}
+            color="#2e7d32"
+            loading={loading}
+          />
+        </Grid>
+        <Grid item xs={6} sm={3}>
           <StatBox
             title="Databases"
             value={stats?.by_database.length || 0}
-            icon={<PieChartIcon sx={{ color: '#2e7d32' }} />}
-            color="#2e7d32"
+            icon={<StorageIcon sx={{ color: '#ed6c02' }} />}
+            color="#ed6c02"
             loading={loading}
           />
         </Grid>
       </Grid>
 
-      {/* Charts Row */}
-      <Grid container spacing={3} sx={{ mb: 3 }}>
-        {/* Storage by Type */}
-        <Grid item xs={12} md={5}>
-          <Card sx={{ height: '100%' }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Storage by Database Type
-              </Typography>
-              {loading ? (
-                <Skeleton variant="circular" width={150} height={150} sx={{ mx: 'auto' }} />
-              ) : (
-                <SimplePieChart slices={typeSlices} total={stats?.total_size_bytes || 0} />
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
+      {/* Storage by Type - compact bar */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent sx={{ pb: '16px !important' }}>
+          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+            Storage by Database Type
+          </Typography>
+          {loading ? (
+            <Skeleton height={60} />
+          ) : (
+            <TypeBars types={typeData} total={stats?.total_size_bytes || 0} />
+          )}
+        </CardContent>
+      </Card>
 
-        {/* Type Breakdown */}
-        <Grid item xs={12} md={7}>
-          <Card sx={{ height: '100%' }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Type Breakdown
-              </Typography>
-              {loading ? (
-                <Box>
-                  {[1, 2, 3, 4].map((i) => (
-                    <Skeleton key={i} height={40} sx={{ my: 0.5 }} />
-                  ))}
-                </Box>
-              ) : (
-                <Box>
-                  {[
-                    { type: 'mysql', label: 'MySQL', data: stats?.by_type.mysql },
-                    { type: 'postgresql', label: 'PostgreSQL', data: stats?.by_type.postgresql },
-                    { type: 'sqlserver', label: 'SQL Server', data: stats?.by_type.sqlserver },
-                    { type: 'azure_sql', label: 'Azure SQL', data: stats?.by_type.azure_sql },
-                  ]
-                    .filter((t) => t.data && t.data.size_bytes > 0)
-                    .map((t) => (
-                      <Box key={t.type} sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1 }}>
-                        <Box
-                          sx={{
-                            width: 12,
-                            height: 12,
-                            borderRadius: 1,
-                            bgcolor: getDatabaseTypeColor(t.type),
-                            flexShrink: 0,
-                          }}
-                        />
-                        <Typography variant="body2" sx={{ minWidth: 80 }}>
-                          {t.label}
-                        </Typography>
-                        <Box sx={{ flex: 1 }}>
-                          <LinearProgress
-                            variant="determinate"
-                            value={stats && stats.total_size_bytes > 0 ? ((t.data?.size_bytes || 0) / stats.total_size_bytes) * 100 : 0}
-                            sx={{
-                              height: 8,
-                              borderRadius: 1,
-                              bgcolor: 'action.hover',
-                              '& .MuiLinearProgress-bar': {
-                                bgcolor: getDatabaseTypeColor(t.type),
-                              },
-                            }}
-                          />
-                        </Box>
-                        <Typography variant="body2" color="text.secondary" sx={{ minWidth: 70, textAlign: 'right' }}>
-                          {t.data?.size_formatted}
-                        </Typography>
-                      </Box>
-                    ))}
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      {/* Storage by Database */}
-      <Card>
+      {/* Storage by Server */}
+      <Card sx={{ mb: 3 }}>
         <CardContent>
           <Typography variant="h6" gutterBottom>
-            Storage by Database
+            Storage by Server
           </Typography>
           {loading ? (
             <Box>
               {[1, 2, 3].map((i) => (
-                <Skeleton key={i} height={50} sx={{ my: 0.5 }} />
+                <Skeleton key={i} height={70} sx={{ my: 0.5 }} />
               ))}
             </Box>
-          ) : stats?.by_database.length === 0 ? (
+          ) : stats?.by_engine.length === 0 ? (
             <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
-              No backup data available
+              No servers with backup data
             </Typography>
           ) : (
             <Box>
-              {stats?.by_database.map((db) => (
-                <Box key={db.database_id} sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider', '&:last-child': { borderBottom: 'none' } }}>
-                  <Box sx={{ minWidth: 150, flex: '0 0 auto' }}>
+              {stats?.by_engine.map((engine) => {
+                const isExpanded = expandedEngines.has(engine.engine_id)
+                const engineDatabases = databasesByEngine[engine.engine_id] || []
+
+                return (
+                  <Box
+                    key={engine.engine_id}
+                    sx={{
+                      borderBottom: '1px solid',
+                      borderColor: 'divider',
+                      '&:last-child': { borderBottom: 'none' },
+                    }}
+                  >
+                    {/* Engine row */}
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 2,
+                        py: 1.5,
+                        cursor: engineDatabases.length > 0 ? 'pointer' : 'default',
+                      }}
+                      onClick={() => engineDatabases.length > 0 && toggleEngine(engine.engine_id)}
+                    >
+                      {engineDatabases.length > 0 && (
+                        <IconButton size="small" sx={{ p: 0 }}>
+                          {isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                        </IconButton>
+                      )}
+                      <Box sx={{ minWidth: 140, flex: '0 0 auto' }}>
+                        <Typography variant="body2" fontWeight={500}>
+                          {engine.engine_name}
+                        </Typography>
+                        <Chip
+                          size="small"
+                          label={getEngineTypeLabel(engine.engine_type)}
+                          sx={{
+                            mt: 0.5,
+                            bgcolor: `${getEngineTypeColor(engine.engine_type)}20`,
+                            color: getEngineTypeColor(engine.engine_type),
+                            fontSize: '0.7rem',
+                            height: 20,
+                          }}
+                        />
+                      </Box>
+                      <Box sx={{ flex: 1 }}>
+                        <LinearProgress
+                          variant="determinate"
+                          value={(engine.size_bytes / maxEngineSize) * 100}
+                          sx={{
+                            height: 10,
+                            borderRadius: 1,
+                            bgcolor: 'action.hover',
+                            '& .MuiLinearProgress-bar': {
+                              bgcolor: getEngineTypeColor(engine.engine_type),
+                            },
+                          }}
+                        />
+                      </Box>
+                      <Box sx={{ minWidth: 100, textAlign: 'right' }}>
+                        <Typography variant="body2" fontWeight={500}>{engine.size_formatted}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {engine.database_count} DB · {engine.backup_count} files
+                        </Typography>
+                      </Box>
+                    </Box>
+
+                    {/* Expanded databases */}
+                    <Collapse in={isExpanded}>
+                      <Box sx={{ pl: 5, pb: 1.5 }}>
+                        {engineDatabases.map((db) => (
+                          <Box
+                            key={db.database_id}
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 2,
+                              py: 0.75,
+                              pl: 1,
+                              borderLeft: '2px solid',
+                              borderColor: 'divider',
+                            }}
+                          >
+                            <Typography variant="body2" sx={{ flex: 1 }}>
+                              {db.database_name}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {db.size_formatted} · {db.backup_count} files
+                            </Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    </Collapse>
+                  </Box>
+                )
+              })}
+            </Box>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Databases without Server (legacy) */}
+      {databasesWithoutEngine.length > 0 && !loading && (
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>
+              Databases without Server
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              These databases have backups but are not associated with a server
+            </Typography>
+            <Box>
+              {databasesWithoutEngine.map((db) => (
+                <Box
+                  key={db.database_id}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 2,
+                    py: 1,
+                    borderBottom: '1px solid',
+                    borderColor: 'divider',
+                    '&:last-child': { borderBottom: 'none' },
+                  }}
+                >
+                  <Box sx={{ flex: 1 }}>
                     <Typography variant="body2" fontWeight={500}>
                       {db.database_name}
                     </Typography>
                     <Chip
                       size="small"
-                      label={db.database_type.toUpperCase()}
+                      label={getEngineTypeLabel(db.database_type)}
                       sx={{
                         mt: 0.5,
-                        bgcolor: `${getDatabaseTypeColor(db.database_type)}20`,
-                        color: getDatabaseTypeColor(db.database_type),
+                        bgcolor: `${getEngineTypeColor(db.database_type)}20`,
+                        color: getEngineTypeColor(db.database_type),
                         fontSize: '0.7rem',
                         height: 20,
                       }}
                     />
                   </Box>
-                  <Box sx={{ flex: 1 }}>
-                    <LinearProgress
-                      variant="determinate"
-                      value={(db.size_bytes / maxSize) * 100}
-                      sx={{
-                        height: 8,
-                        borderRadius: 1,
-                        bgcolor: 'action.hover',
-                        '& .MuiLinearProgress-bar': {
-                          bgcolor: getDatabaseTypeColor(db.database_type),
-                        },
-                      }}
-                    />
-                  </Box>
-                  <Box sx={{ minWidth: 80, textAlign: 'right' }}>
+                  <Box sx={{ textAlign: 'right' }}>
                     <Typography variant="body2">{db.size_formatted}</Typography>
                     <Typography variant="caption" color="text.secondary">
                       {db.backup_count} files
@@ -389,9 +489,9 @@ export function StoragePage() {
                 </Box>
               ))}
             </Box>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
     </Box>
   )
 }

@@ -16,6 +16,7 @@ interface GetAllOptions {
   search?: string
   host?: string
   policyId?: string
+  engineId?: string
 }
 
 interface DatabaseResponse {
@@ -34,8 +35,10 @@ interface TestConnectionRequest {
   host: string
   port: number
   database_name: string
-  username: string
-  password: string
+  username?: string
+  password?: string
+  engine_id?: string
+  use_engine_credentials?: boolean
 }
 
 interface TestConnectionResponse {
@@ -43,6 +46,17 @@ interface TestConnectionResponse {
   message: string
   error_type?: string
   duration_ms?: number
+}
+
+interface BackupStatsResponse {
+  database_id: string
+  count: number
+  total_size_bytes: number
+  total_size_formatted: string
+}
+
+interface DeleteOptions {
+  deleteBackups?: boolean
 }
 
 export const databasesApi = {
@@ -58,6 +72,7 @@ export const databasesApi = {
     if (options?.search) params.append('search', options.search)
     if (options?.host) params.append('host', options.host)
     if (options?.policyId) params.append('policy_id', options.policyId)
+    if (options?.engineId) params.append('engine_id', options.engineId)
 
     const response = await apiClient.get<DatabasesResponse>('/databases', { params })
     return response.data
@@ -90,8 +105,18 @@ export const databasesApi = {
   /**
    * Delete a database configuration
    */
-  delete: async (id: string): Promise<void> => {
-    await apiClient.delete(`/databases/${id}`)
+  delete: async (id: string, options?: DeleteOptions): Promise<void> => {
+    const params = new URLSearchParams()
+    if (options?.deleteBackups) params.append('delete_backups', 'true')
+    await apiClient.delete(`/databases/${id}`, { params })
+  },
+
+  /**
+   * Get backup statistics for a database
+   */
+  getBackupStats: async (id: string): Promise<BackupStatsResponse> => {
+    const response = await apiClient.get<BackupStatsResponse>(`/databases/${id}/backup-stats`)
+    return response.data
   },
 
   /**

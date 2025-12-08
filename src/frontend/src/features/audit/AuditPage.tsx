@@ -41,7 +41,8 @@ import { Dayjs } from 'dayjs'
 import { auditApi } from '../../api/audit'
 import { usersApi } from '../../api/users'
 import { databasesApi } from '../../api/databases'
-import type { User, DatabaseConfig } from '../../types'
+import { enginesApi } from '../../api/engines'
+import type { User, DatabaseConfig, Engine } from '../../types'
 import type {
   AuditLog,
   AuditFilters,
@@ -229,6 +230,7 @@ function AuditCard({ log, onClick }: AuditCardProps) {
 }
 
 const USER_DROPDOWN_LIMIT = 50
+const ENGINE_DROPDOWN_LIMIT = 50
 
 // Filter state type
 interface FilterState {
@@ -238,7 +240,8 @@ interface FilterState {
   userId: string
   startDate: string
   endDate: string
-  databaseType: string  // Engine filter
+  databaseType: string  // Engine type filter (mysql, postgresql, sqlserver)
+  engineId: string      // Server filter
   resourceName: string  // Alias/Target filter
 }
 
@@ -250,6 +253,7 @@ const emptyFilters: FilterState = {
   startDate: '',
   endDate: '',
   databaseType: '',
+  engineId: '',
   resourceName: '',
 }
 
@@ -291,6 +295,14 @@ export function AuditPage() {
   const [userHasMore, setUserHasMore] = useState(false)
   const [userLoading, setUserLoading] = useState(false)
 
+  // Engine (Server) autocomplete state
+  const [engineFilter, setEngineFilter] = useState<Engine | null>(null)
+  const [engineSearchInput, setEngineSearchInput] = useState('')
+  const [engineOptions, setEngineOptions] = useState<Engine[]>([])
+  const [engineTotalCount, setEngineTotalCount] = useState(0)
+  const [engineHasMore, setEngineHasMore] = useState(false)
+  const [engineLoading, setEngineLoading] = useState(false)
+
   // Database alias autocomplete state
   const [aliasFilter, setAliasFilter] = useState<DatabaseConfig | null>(null)
   const [aliasSearchInput, setAliasSearchInput] = useState('')
@@ -302,14 +314,15 @@ export function AuditPage() {
   // Track if initial load happened
   const initialLoadDone = useRef(false)
 
-  // Load filter options, initial users, and initial databases
+  // Load filter options, initial users, engines, and databases
   useEffect(() => {
     const loadOptions = async () => {
       try {
-        const [actions, resourceTypes, usersResult, databasesResult] = await Promise.all([
+        const [actions, resourceTypes, usersResult, enginesResult, databasesResult] = await Promise.all([
           auditApi.getActions(),
           auditApi.getResourceTypes(),
           usersApi.getAll({ page_size: USER_DROPDOWN_LIMIT }),
+          enginesApi.getAll({ limit: ENGINE_DROPDOWN_LIMIT }),
           databasesApi.getAll({ limit: USER_DROPDOWN_LIMIT }),
         ])
         setActionOptions(actions)
@@ -317,6 +330,9 @@ export function AuditPage() {
         setUserOptions(usersResult.users)
         setUserTotalCount(usersResult.total_count)
         setUserHasMore(usersResult.has_more)
+        setEngineOptions(enginesResult.items)
+        setEngineTotalCount(enginesResult.total)
+        setEngineHasMore(enginesResult.items.length < enginesResult.total)
         setAliasOptions(databasesResult.databases)
         setAliasTotalCount(databasesResult.total)
         setAliasHasMore(databasesResult.has_more)
@@ -356,6 +372,35 @@ export function AuditPage() {
     return () => clearTimeout(timer)
   }, [userSearchInput])
 
+  // Debounced search for engines (servers)
+  useEffect(() => {
+    if (!engineSearchInput) {
+      // Reset to initial engines when search is cleared
+      enginesApi.getAll({ limit: ENGINE_DROPDOWN_LIMIT }).then((result) => {
+        setEngineOptions(result.items)
+        setEngineTotalCount(result.total)
+        setEngineHasMore(result.items.length < result.total)
+      }).catch(console.error)
+      return
+    }
+
+    const timer = setTimeout(async () => {
+      setEngineLoading(true)
+      try {
+        const result = await enginesApi.getAll({ search: engineSearchInput, limit: ENGINE_DROPDOWN_LIMIT })
+        setEngineOptions(result.items)
+        setEngineTotalCount(result.total)
+        setEngineHasMore(result.items.length < result.total)
+      } catch (err) {
+        console.error('Error searching engines:', err)
+      } finally {
+        setEngineLoading(false)
+      }
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [engineSearchInput])
+
   // Debounced search for aliases (databases)
   useEffect(() => {
     if (!aliasSearchInput) {
@@ -394,6 +439,7 @@ export function AuditPage() {
     startDate: filterState.startDate || undefined,
     endDate: filterState.endDate || undefined,
     databaseType: filterState.databaseType || undefined,
+    engineId: filterState.engineId || undefined,
     resourceName: filterState.resourceName || undefined,
   })
 
@@ -443,6 +489,7 @@ export function AuditPage() {
     filters.startDate !== appliedFilters.startDate ||
     filters.endDate !== appliedFilters.endDate ||
     filters.databaseType !== appliedFilters.databaseType ||
+    filters.engineId !== appliedFilters.engineId ||
     filters.resourceName !== appliedFilters.resourceName
 
   // Check if any filters are active (applied)
@@ -454,6 +501,7 @@ export function AuditPage() {
     appliedFilters.startDate !== '' ||
     appliedFilters.endDate !== '' ||
     appliedFilters.databaseType !== '' ||
+    appliedFilters.engineId !== '' ||
     appliedFilters.resourceName !== ''
 
   // Search with current filter values
@@ -473,6 +521,8 @@ export function AuditPage() {
     setAppliedFilters(emptyFilters)
     setUserFilter(null)
     setUserSearchInput('')
+    setEngineFilter(null)
+    setEngineSearchInput('')
     setAliasFilter(null)
     setAliasSearchInput('')
     setStartDate(null)
@@ -633,8 +683,53 @@ export function AuditPage() {
               { value: 'postgresql', label: 'PostgreSQL' },
               { value: 'sqlserver', label: 'SQL Server' },
             ]}
-            allLabel="All Engines"
+            allLabel="All Types"
             onChange={(value) => updateFilter('databaseType', value)}
+          />
+
+          <Autocomplete
+            options={engineOptions}
+            getOptionLabel={(option) => option.name}
+            value={engineFilter}
+            onChange={(_, newValue) => {
+              setEngineFilter(newValue)
+              setEngineSearchInput(newValue?.name || '')
+              updateFilter('engineId', newValue?.id || '')
+            }}
+            onInputChange={(_, value, reason) => {
+              if (reason === 'input') {
+                setEngineSearchInput(value)
+              } else if (reason === 'clear') {
+                setEngineSearchInput('')
+                updateFilter('engineId', '')
+              }
+            }}
+            inputValue={engineSearchInput}
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+            loading={engineLoading}
+            filterOptions={(x) => x}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                size="small"
+                placeholder="All Servers"
+                helperText={engineHasMore && !engineSearchInput ? `${engineOptions.length} of ${engineTotalCount}` : undefined}
+                FormHelperTextProps={{ sx: { mx: 0, mt: 0.5 } }}
+              />
+            )}
+            renderOption={(props, option) => (
+              <li {...props} key={option.id}>
+                <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                  <Typography variant="body2">{option.name}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {option.engine_type} - {option.host}
+                  </Typography>
+                </Box>
+              </li>
+            )}
+            noOptionsText={engineSearchInput ? 'No servers found' : 'No servers'}
+            sx={{ minWidth: 200 }}
+            size="small"
           />
 
           <Autocomplete

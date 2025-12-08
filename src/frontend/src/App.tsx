@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { MainLayout } from './components/layout/MainLayout'
 import { DashboardPage } from './features/dashboard/DashboardPage'
+import { ServersPage } from './features/servers/ServersPage'
 import { DatabasesPage } from './features/databases/DatabasesPage'
 import { BackupsPage } from './features/backups/BackupsPage'
 import { PoliciesPage } from './features/policies/PoliciesPage'
@@ -18,6 +19,8 @@ function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/servers" element={<ServersPage />} />
+          <Route path="/engines" element={<Navigate to="/servers" replace />} />
           <Route path="/databases" element={<DatabasesPage />} />
           <Route path="/backups" element={<BackupsPage />} />
           <Route path="/policies" element={<PoliciesPage />} />

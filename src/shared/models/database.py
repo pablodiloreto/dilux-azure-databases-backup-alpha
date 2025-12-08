@@ -10,6 +10,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from .engine import AuthMethod
+
 
 class DatabaseType(str, Enum):
     """Supported database types."""
@@ -43,11 +45,32 @@ class DatabaseConfig(BaseModel):
     name: str = Field(..., description="Display name for the database")
     database_type: DatabaseType = Field(..., description="Type of database")
 
-    # Connection details
+    # Engine relationship (required - every database belongs to an engine)
+    engine_id: Optional[str] = Field(
+        default=None,
+        description="ID of the engine (server) this database belongs to. Required for new databases."
+    )
+
+    # Credential source
+    use_engine_credentials: bool = Field(
+        default=True,
+        description="If True, use credentials from the engine. If False, use database-specific credentials."
+    )
+
+    # Connection details (inherited from engine, but kept for backward compatibility and overrides)
     host: str = Field(..., description="Database host/server")
     port: int = Field(..., description="Database port")
     database_name: str = Field(..., description="Name of the database to backup")
-    username: str = Field(..., description="Database username")
+
+    # Database-specific credentials (only used if use_engine_credentials=False)
+    auth_method: Optional[AuthMethod] = Field(
+        default=None,
+        description="Authentication method (only if not using engine credentials)"
+    )
+    username: Optional[str] = Field(
+        default=None,
+        description="Database username (only if not using engine credentials)"
+    )
 
     # Password is stored in Key Vault, this is the secret name
     password_secret_name: Optional[str] = Field(
@@ -153,10 +176,16 @@ class DatabaseConfig(BaseModel):
             "RowKey": self.id,
             "name": self.name,
             "database_type": self.database_type.value,
+            # Engine relationship
+            "engine_id": self.engine_id or "",
+            "use_engine_credentials": self.use_engine_credentials,
+            # Connection details
             "host": self.host,
             "port": self.port,
             "database_name": self.database_name,
-            "username": self.username,
+            # Credentials (only relevant if use_engine_credentials=False)
+            "auth_method": self.auth_method.value if self.auth_method else "",
+            "username": self.username or "",
             "password_secret_name": self.password_secret_name or "",
             "policy_id": self.policy_id,
             "enabled": self.enabled,
@@ -191,16 +220,31 @@ class DatabaseConfig(BaseModel):
         # Handle migration: if policy_id doesn't exist, default to production-standard
         policy_id = entity.get("policy_id", "production-standard")
 
+        # Handle auth_method (new field)
+        auth_method_str = entity.get("auth_method", "")
+        auth_method = AuthMethod(auth_method_str) if auth_method_str else None
+
+        # Handle migration: databases without engine_id use their own credentials
+        engine_id = entity.get("engine_id") or None
+        use_engine_credentials = entity.get("use_engine_credentials", False) if engine_id else False
+
         return cls(
             id=entity["RowKey"],
             name=entity["name"],
             database_type=DatabaseType(entity["database_type"]),
+            # Engine relationship
+            engine_id=engine_id,
+            use_engine_credentials=use_engine_credentials,
+            # Connection details
             host=entity["host"],
             port=entity["port"],
             database_name=entity["database_name"],
-            username=entity["username"],
-            password=entity.get("password") or None,  # Restore password if stored (dev only)
+            # Credentials
+            auth_method=auth_method,
+            username=entity.get("username") or None,
+            password=entity.get("password") or None,
             password_secret_name=entity.get("password_secret_name") or None,
+            # Backup config
             policy_id=policy_id,
             enabled=entity.get("enabled", True),
             # Legacy fields

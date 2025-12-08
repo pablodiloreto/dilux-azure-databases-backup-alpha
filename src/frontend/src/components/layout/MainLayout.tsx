@@ -40,6 +40,7 @@ import {
   People as UsersIcon,
   Inventory as StorageStatsIcon,
   History as AuditIcon,
+  Dns as ServersIcon,
 } from '@mui/icons-material'
 import { useSettings } from '../../contexts/SettingsContext'
 import { useAuth } from '../../contexts/AuthContext'
@@ -59,10 +60,16 @@ interface MainLayoutProps {
   children: React.ReactNode
 }
 
-const menuItems = [
+// Primary section - main navigation
+const primaryMenuItems = [
   { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
-  { text: 'Databases', icon: <StorageIcon />, path: '/databases' },
   { text: 'Backups', icon: <BackupIcon />, path: '/backups' },
+]
+
+// Secondary section - configuration & management
+const secondaryMenuItems = [
+  { text: 'Servers', icon: <ServersIcon />, path: '/servers' },
+  { text: 'Databases', icon: <StorageIcon />, path: '/databases' },
   { text: 'Storage', icon: <StorageStatsIcon />, path: '/storage' },
   { text: 'Policies', icon: <PolicyIcon />, path: '/policies' },
   { text: 'Audit', icon: <AuditIcon />, path: '/audit', adminOnly: true },
@@ -71,6 +78,7 @@ const menuItems = [
 // Breadcrumb config
 const breadcrumbNameMap: Record<string, string> = {
   '/dashboard': 'Dashboard',
+  '/servers': 'Servers',
   '/databases': 'Databases',
   '/backups': 'Backups',
   '/policies': 'Backup Policies',
@@ -144,11 +152,9 @@ export function MainLayout({ children }: MainLayoutProps) {
       </Toolbar>
       <Divider />
 
-      {/* Main menu */}
-      <List sx={{ flexGrow: 1 }}>
-        {menuItems
-          .filter((item) => !item.adminOnly || canManageUsers)
-          .map((item) => (
+      {/* Primary menu - Dashboard & Backups */}
+      <List>
+        {primaryMenuItems.map((item) => (
           <ListItem key={item.text} disablePadding sx={{ display: 'block' }}>
             <Tooltip title={showText ? '' : item.text} placement="right" arrow>
               <ListItemButton
@@ -178,6 +184,71 @@ export function MainLayout({ children }: MainLayoutProps) {
           </ListItem>
         ))}
       </List>
+
+      {/* Secondary menu - Configuration & Management */}
+      <Box
+        sx={{
+          mx: showText ? 1.5 : 0.5,
+          my: 1,
+          p: showText ? 0.5 : 0,
+          bgcolor: 'action.hover',
+          borderRadius: 2,
+          flexGrow: 1,
+        }}
+      >
+        {showText && (
+          <Typography
+            variant="caption"
+            sx={{
+              px: 1.5,
+              py: 0.5,
+              display: 'block',
+              color: 'text.secondary',
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: 0.5,
+            }}
+          >
+            Configuration
+          </Typography>
+        )}
+        <List sx={{ py: 0 }}>
+          {secondaryMenuItems
+            .filter((item) => !item.adminOnly || canManageUsers)
+            .map((item) => (
+            <ListItem key={item.text} disablePadding sx={{ display: 'block' }}>
+              <Tooltip title={showText ? '' : item.text} placement="right" arrow>
+                <ListItemButton
+                  selected={location.pathname === item.path}
+                  onClick={() => {
+                    navigate(item.path)
+                    setMobileOpen(false)
+                  }}
+                  sx={{
+                    minHeight: 44,
+                    justifyContent: showText ? 'initial' : 'center',
+                    px: 2.5,
+                    borderRadius: 1.5,
+                    mx: 0.5,
+                    my: 0.25,
+                  }}
+                >
+                  <ListItemIcon
+                    sx={{
+                      minWidth: 0,
+                      mr: showText ? 2 : 'auto',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    {item.icon}
+                  </ListItemIcon>
+                  {showText && <ListItemText primary={item.text} />}
+                </ListItemButton>
+              </Tooltip>
+            </ListItem>
+          ))}
+        </List>
+      </Box>
 
       <Divider />
 

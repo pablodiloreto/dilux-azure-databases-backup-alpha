@@ -28,6 +28,7 @@ export const backupsApi = {
     if (options?.page) params.append('page', options.page.toString())
 
     // Filters
+    if (options?.filters?.engineId) params.append('engine_id', options.filters.engineId)
     if (options?.filters?.databaseId) params.append('database_id', options.filters.databaseId)
     if (options?.filters?.status) params.append('status', options.filters.status)
     if (options?.filters?.triggeredBy) params.append('triggered_by', options.filters.triggeredBy)

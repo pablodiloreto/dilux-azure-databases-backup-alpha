@@ -50,13 +50,24 @@ export function useUpdateDatabase() {
   })
 }
 
+interface DeleteDatabaseOptions {
+  id: string
+  deleteBackups?: boolean
+}
+
 export function useDeleteDatabase() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (id: string) => databasesApi.delete(id),
+    mutationFn: (options: string | DeleteDatabaseOptions) => {
+      if (typeof options === 'string') {
+        return databasesApi.delete(options)
+      }
+      return databasesApi.delete(options.id, { deleteBackups: options.deleteBackups })
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: DATABASES_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['backups'] })
     },
   })
 }

@@ -167,8 +167,8 @@ dilux-azure-databases-backup-alpha/
 ├── src/
 │   ├── shared/                 # Shared Python code (used by all Function Apps)
 │   │   ├── config/             # Settings, Azure clients
-│   │   ├── models/             # Data models (DatabaseConfig, BackupJob, etc.)
-│   │   ├── services/           # Business logic (StorageService, etc.)
+│   │   ├── models/             # Data models (DatabaseConfig, Engine, BackupJob, etc.)
+│   │   ├── services/           # Business logic (StorageService, EngineService, etc.)
 │   │   ├── utils/              # Validators, helpers
 │   │   └── exceptions/         # Custom exceptions
 │   │
@@ -188,8 +188,12 @@ dilux-azure-databases-backup-alpha/
 │       └── sqlserver-init.sql  # SQL Server test data
 │
 ├── docs/
-│   ├── dilux-azure-databases-backup-solution.md
-│   └── infra.md                # This file
+│   ├── api.md                  # API reference documentation
+│   ├── backend.md              # Backend architecture
+│   ├── frontend.md             # Frontend documentation
+│   ├── infra.md                # This file
+│   ├── PLAN.md                 # Sprint planning and status
+│   └── ENGINES_DESIGN.md       # Engines/Servers design doc
 │
 └── .env.example                # Environment variables template
 ```

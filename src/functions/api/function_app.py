@@ -34,8 +34,8 @@ if str(shared_path) not in sys.path:
     sys.path.insert(0, str(shared_path))
 
 from shared.config import get_settings
-from shared.models import DatabaseConfig, DatabaseType, BackupJob, BackupStatus, AppSettings, User, UserRole, BackupPolicy, TierConfig, AuditLog, AuditAction, AuditResourceType, AuditStatus
-from shared.services import StorageService, DatabaseConfigService, get_connection_tester, get_audit_service
+from shared.models import DatabaseConfig, DatabaseType, BackupJob, BackupStatus, AppSettings, User, UserRole, BackupPolicy, TierConfig, AuditLog, AuditAction, AuditResourceType, AuditStatus, Engine, EngineType, AuthMethod, CreateEngineInput, UpdateEngineInput
+from shared.services import StorageService, DatabaseConfigService, EngineService, get_connection_tester, get_audit_service
 from shared.exceptions import NotFoundError, ValidationError
 from shared.auth import get_current_user, require_auth, require_role
 
@@ -46,6 +46,7 @@ app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 settings = get_settings()
 storage_service = StorageService()
 db_config_service = DatabaseConfigService()
+engine_service = EngineService()
 audit_service = get_audit_service()
 
 logger = logging.getLogger(__name__)
@@ -266,6 +267,7 @@ def list_databases(req: func.HttpRequest) -> func.HttpResponse:
     - search: str - Search term to filter by name or host
     - host: str - Filter by host
     - policy_id: str - Filter by policy ID
+    - engine_id: str - Filter by engine ID
     """
     try:
         enabled_only = req.params.get("enabled_only", "false").lower() == "true"
@@ -275,6 +277,7 @@ def list_databases(req: func.HttpRequest) -> func.HttpResponse:
         search = req.params.get("search")
         host = req.params.get("host")
         policy_id = req.params.get("policy_id")
+        engine_id = req.params.get("engine_id")
 
         limit = int(limit_str) if limit_str else None
         offset = int(offset_str) if offset_str else 0
@@ -287,11 +290,27 @@ def list_databases(req: func.HttpRequest) -> func.HttpResponse:
             database_type=db_type,
             host=host,
             policy_id=policy_id,
+            engine_id=engine_id,
         )
+
+        # Build engine lookup for engine_name
+        engine_ids = {c.engine_id for c in configs if c.engine_id}
+        engines_map = {}
+        if engine_ids:
+            all_engines, _ = engine_service.get_all()
+            engines_map = {e.id: e.name for e in all_engines}
+
+        # Build response with engine_name
+        databases_response = []
+        for config in configs:
+            db_dict = config.model_dump(mode="json", exclude={"password"})
+            if config.engine_id and config.engine_id in engines_map:
+                db_dict["engine_name"] = engines_map[config.engine_id]
+            databases_response.append(db_dict)
 
         return func.HttpResponse(
             json.dumps({
-                "databases": [config.model_dump(mode="json", exclude={"password"}) for config in configs],
+                "databases": databases_response,
                 "count": len(configs),
                 "total": total,
                 "has_more": (offset + len(configs)) < total,
@@ -319,16 +338,32 @@ def create_database(req: func.HttpRequest) -> func.HttpResponse:
 
         body = req.get_json()
 
+        # Get engine_id and use_engine_credentials
+        engine_id = body.get("engine_id")
+        use_engine_credentials = body.get("use_engine_credentials", False)
+
+        # If using engine credentials, get them from the engine
+        username = body.get("username")
+        password = body.get("password")
+
+        if use_engine_credentials and engine_id:
+            engine = engine_service.get(engine_id)
+            if engine:
+                username = engine.username
+                password = engine.password
+
         # Create config from request body
         config = DatabaseConfig(
             id=body.get("id", ""),
             name=body["name"],
             database_type=DatabaseType(body["database_type"]),
+            engine_id=engine_id,
+            use_engine_credentials=use_engine_credentials,
             host=body["host"],
             port=body["port"],
             database_name=body["database_name"],
-            username=body["username"],
-            password=body.get("password"),
+            username=username,
+            password=password,
             password_secret_name=body.get("password_secret_name"),
             policy_id=body.get("policy_id", "production-standard"),
             enabled=body.get("enabled", True),
@@ -349,7 +384,10 @@ def create_database(req: func.HttpRequest) -> func.HttpResponse:
             resource_name=created.name,
             details={
                 "database_type": created.database_type.value,
+                "engine_id": created.engine_id,
                 "host": created.host,
+                "port": created.port,
+                "database_name": created.database_name,
                 "policy_id": created.policy_id,
             },
             ip_address=get_client_ip(req),
@@ -389,16 +427,45 @@ def test_connection(req: func.HttpRequest) -> func.HttpResponse:
         "host": "hostname",
         "port": 3306,
         "database_name": "mydb",
-        "username": "user",
-        "password": "secret"
+        "username": "user",  // optional if use_engine_credentials=true
+        "password": "secret", // optional if use_engine_credentials=true
+        "engine_id": "engine-001",  // optional
+        "use_engine_credentials": true  // optional
     }
     """
     try:
         body = req.get_json()
 
+        # Check for engine credentials
+        engine_id = body.get("engine_id")
+        use_engine_credentials = body.get("use_engine_credentials", False)
+        username = body.get("username")
+        password = body.get("password")
+
+        # If using engine credentials, get them from the engine
+        if use_engine_credentials and engine_id:
+            engine = engine_service.get(engine_id)
+            if engine:
+                username = engine.username
+                password = engine.password
+            else:
+                return func.HttpResponse(
+                    json.dumps({"error": f"Engine '{engine_id}' not found"}),
+                    mimetype="application/json",
+                    status_code=404,
+                )
+
         # Validate required fields
-        required_fields = ["database_type", "host", "port", "database_name", "username", "password"]
+        required_fields = ["database_type", "host", "port", "database_name"]
         missing = [f for f in required_fields if not body.get(f)]
+
+        # Also require credentials if not using engine credentials
+        if not use_engine_credentials:
+            if not username:
+                missing.append("username")
+            if not password:
+                missing.append("password")
+
         if missing:
             return func.HttpResponse(
                 json.dumps({"error": f"Missing required fields: {', '.join(missing)}"}),
@@ -415,8 +482,8 @@ def test_connection(req: func.HttpRequest) -> func.HttpResponse:
             host=body["host"],
             port=int(body["port"]),
             database=body["database_name"],
-            username=body["username"],
-            password=body["password"],
+            username=username,
+            password=password,
         )
 
         return func.HttpResponse(
@@ -502,7 +569,7 @@ def update_database(req: func.HttpRequest) -> func.HttpResponse:
         changes = {}
         for field in ["name", "host", "port", "database_name", "username",
                       "policy_id", "enabled", "backup_destination",
-                      "compression", "tags", "password_secret_name"]:
+                      "compression", "tags", "password_secret_name", "engine_id", "use_engine_credentials"]:
             if field in body and getattr(existing, field) != body[field]:
                 changes[field] = {"from": getattr(existing, field), "to": body[field]}
                 setattr(existing, field, body[field])
@@ -511,6 +578,13 @@ def update_database(req: func.HttpRequest) -> func.HttpResponse:
             if existing.database_type.value != body["database_type"]:
                 changes["database_type"] = {"from": existing.database_type.value, "to": body["database_type"]}
             existing.database_type = DatabaseType(body["database_type"])
+
+        # Handle use_engine_credentials - if enabled, copy credentials from engine
+        if existing.use_engine_credentials and existing.engine_id:
+            engine = engine_service.get(existing.engine_id)
+            if engine and engine.username:
+                existing.username = engine.username
+                existing.password = engine.password
 
         updated = db_config_service.update(existing)
 
@@ -522,7 +596,14 @@ def update_database(req: func.HttpRequest) -> func.HttpResponse:
             resource_type=AuditResourceType.DATABASE,
             resource_id=updated.id,
             resource_name=updated.name,
-            details={"changes": changes} if changes else None,
+            details={
+                "database_type": updated.database_type.value,
+                "engine_id": updated.engine_id,
+                "changes": changes,
+            } if changes else {
+                "database_type": updated.database_type.value,
+                "engine_id": updated.engine_id,
+            },
             ip_address=get_client_ip(req),
         )
 
@@ -549,9 +630,45 @@ def update_database(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
+@app.route(route="databases/{database_id}/backup-stats", methods=["GET"])
+def get_database_backup_stats(req: func.HttpRequest) -> func.HttpResponse:
+    """Get backup statistics for a database (count, total size)."""
+    try:
+        database_id = req.route_params.get("database_id")
+
+        # Verify database exists
+        existing = db_config_service.get(database_id)
+        if not existing:
+            return func.HttpResponse(
+                json.dumps({"error": f"Database '{database_id}' not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+
+        stats = storage_service.get_backup_stats_for_database(database_id)
+
+        return func.HttpResponse(
+            json.dumps(stats),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error getting backup stats")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
 @app.route(route="databases/{database_id}", methods=["DELETE"])
 def delete_database(req: func.HttpRequest) -> func.HttpResponse:
-    """Delete a database configuration."""
+    """
+    Delete a database configuration.
+
+    Query params:
+    - delete_backups: bool - If true, also delete all backup files and history records
+    """
     try:
         # Get current user for audit
         auth_result = get_current_user(req, storage_service)
@@ -559,6 +676,7 @@ def delete_database(req: func.HttpRequest) -> func.HttpResponse:
         user_email = auth_result.user.email if auth_result.authenticated else "anonymous"
 
         database_id = req.route_params.get("database_id")
+        delete_backups = req.params.get("delete_backups", "").lower() == "true"
 
         # Get database info before deleting (for audit)
         existing = db_config_service.get(database_id)
@@ -570,7 +688,13 @@ def delete_database(req: func.HttpRequest) -> func.HttpResponse:
             )
 
         database_name = existing.name
+        backups_deleted = None
 
+        # Delete backups first if requested
+        if delete_backups:
+            backups_deleted = storage_service.delete_all_backups_for_database(database_id)
+
+        # Delete the database config
         deleted = db_config_service.delete(database_id)
 
         if not deleted:
@@ -581,6 +705,17 @@ def delete_database(req: func.HttpRequest) -> func.HttpResponse:
             )
 
         # Audit log
+        audit_details = {
+            "database_type": existing.database_type.value,
+            "engine_id": existing.engine_id,
+            "host": existing.host,
+            "port": existing.port,
+            "database_name": existing.database_name,
+        }
+        if backups_deleted:
+            audit_details["backups_deleted"] = backups_deleted["deleted_files"]
+            audit_details["records_deleted"] = backups_deleted["deleted_records"]
+
         audit_service.log(
             user_id=user_id,
             user_email=user_email,
@@ -588,15 +723,16 @@ def delete_database(req: func.HttpRequest) -> func.HttpResponse:
             resource_type=AuditResourceType.DATABASE,
             resource_id=database_id,
             resource_name=database_name,
-            details={
-                "database_type": existing.database_type.value,
-                "host": existing.host,
-            },
+            details=audit_details,
             ip_address=get_client_ip(req),
         )
 
+        response = {"message": f"Database '{database_id}' deleted"}
+        if backups_deleted:
+            response["backups_deleted"] = backups_deleted
+
         return func.HttpResponse(
-            json.dumps({"message": f"Database '{database_id}' deleted"}),
+            json.dumps(response),
             mimetype="application/json",
             status_code=200,
         )
@@ -663,6 +799,7 @@ def trigger_backup(req: func.HttpRequest) -> func.HttpResponse:
                 "database_id": config.id,
                 "database_alias": config.name,
                 "database_type": config.database_type.value,
+                "engine_id": config.engine_id,
                 "triggered_by": "manual",
             },
             ip_address=get_client_ip(req),
@@ -695,6 +832,7 @@ def list_backups(req: func.HttpRequest) -> func.HttpResponse:
     - page_size: int - Results per page (default 25, max 100)
     - page: int - Page number, 1-based (default 1)
     - database_id: str - Filter by database ID
+    - engine_id: str - Filter by server/engine ID
     - status: str - Filter by status (completed, failed, in_progress)
     - triggered_by: str - Filter by trigger (manual, scheduler)
     - database_type: str - Filter by type (mysql, postgresql, sqlserver)
@@ -708,6 +846,7 @@ def list_backups(req: func.HttpRequest) -> func.HttpResponse:
 
         # Filter params
         database_id = req.params.get("database_id")
+        engine_id = req.params.get("engine_id")
         status = req.params.get("status")
         triggered_by = req.params.get("triggered_by")
         database_type = req.params.get("database_type")
@@ -717,10 +856,17 @@ def list_backups(req: func.HttpRequest) -> func.HttpResponse:
         start_date = datetime.fromisoformat(start_date_str) if start_date_str else None
         end_date = datetime.fromisoformat(end_date_str) if end_date_str else None
 
+        # If engine_id is provided, get all database IDs for that engine
+        database_ids = None
+        if engine_id and not database_id:
+            databases = db_config_service.list(engine_id=engine_id)
+            database_ids = [db.id for db in databases] if databases else []
+
         results, total_count, has_more = storage_service.get_backup_history_paged(
             page_size=page_size,
             page=page,
             database_id=database_id,
+            database_ids=database_ids,
             status=status,
             triggered_by=triggered_by,
             database_type=database_type,
@@ -728,9 +874,36 @@ def list_backups(req: func.HttpRequest) -> func.HttpResponse:
             end_date=end_date,
         )
 
+        # Build engine lookup for engine_name (get databases first, then engines)
+        db_ids = {r.database_id for r in results if r.database_id}
+        db_engine_map = {}  # database_id -> engine_id
+        engine_ids = set()
+
+        if db_ids:
+            all_dbs, _ = db_config_service.get_all(limit=1000)
+            for db in all_dbs:
+                if db.id in db_ids and db.engine_id:
+                    db_engine_map[db.id] = db.engine_id
+                    engine_ids.add(db.engine_id)
+
+        engines_map = {}  # engine_id -> engine_name
+        if engine_ids:
+            all_engines, _ = engine_service.get_all()
+            engines_map = {e.id: e.name for e in all_engines}
+
+        # Build response with engine_name
+        backups_response = []
+        for result in results:
+            backup_dict = result.model_dump(mode="json")
+            engine_id = db_engine_map.get(result.database_id)
+            if engine_id:
+                backup_dict["engine_id"] = engine_id
+                backup_dict["engine_name"] = engines_map.get(engine_id)
+            backups_response.append(backup_dict)
+
         return func.HttpResponse(
             json.dumps({
-                "backups": [result.model_dump(mode="json") for result in results],
+                "backups": backups_response,
                 "count": len(results),
                 "total_count": total_count,
                 "page": page,
@@ -817,13 +990,15 @@ def download_backup(req: func.HttpRequest) -> func.HttpResponse:
         database_id = blob_parts[1] if len(blob_parts) >= 2 else None
         file_name = blob_parts[-1] if blob_parts else blob_name
 
-        # Try to get database alias
+        # Try to get database alias and engine_id
         database_alias = None
+        engine_id = None
         if database_id:
             try:
                 db_config = db_config_service.get(database_id)
                 if db_config:
                     database_alias = db_config.name
+                    engine_id = db_config.engine_id
             except Exception:
                 pass
 
@@ -841,6 +1016,7 @@ def download_backup(req: func.HttpRequest) -> func.HttpResponse:
                 "database_type": database_type,
                 "database_id": database_id,
                 "database_alias": database_alias,
+                "engine_id": engine_id,
                 "expiry_hours": expiry_hours,
             },
             ip_address=get_client_ip(req),
@@ -897,13 +1073,15 @@ def delete_backup_file(req: func.HttpRequest) -> func.HttpResponse:
             database_id = blob_parts[1] if len(blob_parts) >= 2 else None
             file_name = blob_parts[-1] if blob_parts else blob_name
 
-            # Try to get database alias
+            # Try to get database alias and engine_id
             database_alias = None
+            engine_id = None
             if database_id:
                 try:
                     db_config = db_config_service.get(database_id)
                     if db_config:
                         database_alias = db_config.name
+                        engine_id = db_config.engine_id
                 except Exception:
                     pass
 
@@ -921,6 +1099,7 @@ def delete_backup_file(req: func.HttpRequest) -> func.HttpResponse:
                     "database_type": database_type,
                     "database_id": database_id,
                     "database_alias": database_alias,
+                    "engine_id": engine_id,
                     "type": "file",
                 },
                 ip_address=get_client_ip(req),
@@ -977,6 +1156,15 @@ def delete_backup_record(req: func.HttpRequest) -> func.HttpResponse:
         if deleted_backup:
             logger.info(f"Backup record deleted: {backup_id}")
 
+            # Get engine_id from database config
+            engine_id = None
+            try:
+                db_config = db_config_service.get(deleted_backup.database_id)
+                if db_config:
+                    engine_id = db_config.engine_id
+            except Exception:
+                pass
+
             # Audit log - resource_name is just the database name, backup status goes in details
             audit_service.log(
                 user_id=user_id,
@@ -990,6 +1178,7 @@ def delete_backup_record(req: func.HttpRequest) -> func.HttpResponse:
                     "type": "record_only",
                     "database_name": deleted_backup.database_name,
                     "database_type": deleted_backup.database_type.value,
+                    "engine_id": engine_id,
                     "backup_status": deleted_backup.status.value,
                 },
                 ip_address=get_client_ip(req),
@@ -1121,12 +1310,13 @@ def delete_backup_files_bulk(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="storage-stats", methods=["GET"])
 def get_storage_stats(req: func.HttpRequest) -> func.HttpResponse:
     """
-    Get storage statistics with breakdown by database and type.
+    Get storage statistics with breakdown by database, type, and engine.
 
     Returns:
     - total storage used
     - storage per database
     - storage per database type
+    - storage per engine
     - backup counts
     """
     try:
@@ -1137,13 +1327,17 @@ def get_storage_stats(req: func.HttpRequest) -> func.HttpResponse:
         databases, _ = db_config_service.get_all()
         db_map = {db.id: db for db in databases}
 
+        # Get all engines for name mapping
+        engines, _ = engine_service.get_all()
+        engine_map = {e.id: e for e in engines}
+
         # Calculate stats
         total_size = sum(f.get("size", 0) for f in files)
 
-        # Group by database
+        # Group by database, type, and engine
         by_database: dict = {}
         by_type: dict = {"mysql": 0, "postgresql": 0, "sqlserver": 0, "azure_sql": 0}
-        by_database_count: dict = {}
+        by_engine: dict = {}
 
         for f in files:
             # Parse blob name: {db_type}/{db_id}/{filename}
@@ -1157,25 +1351,53 @@ def get_storage_stats(req: func.HttpRequest) -> func.HttpResponse:
                 if db_type in by_type:
                     by_type[db_type] += size
 
+                # Get database info
+                db = db_map.get(db_id)
+                engine_id = db.engine_id if db and db.engine_id else None
+
                 # By database
                 if db_id not in by_database:
-                    db = db_map.get(db_id)
                     by_database[db_id] = {
                         "database_id": db_id,
                         "database_name": db.name if db else "Unknown",
                         "database_type": db.database_type if db else db_type,
+                        "engine_id": engine_id,
                         "size_bytes": 0,
                         "backup_count": 0,
                     }
                 by_database[db_id]["size_bytes"] += size
                 by_database[db_id]["backup_count"] += 1
 
+                # By engine
+                if engine_id:
+                    if engine_id not in by_engine:
+                        engine = engine_map.get(engine_id)
+                        by_engine[engine_id] = {
+                            "engine_id": engine_id,
+                            "engine_name": engine.name if engine else "Unknown",
+                            "engine_type": engine.engine_type.value if engine else db_type,
+                            "size_bytes": 0,
+                            "backup_count": 0,
+                            "database_count": 0,
+                        }
+                    by_engine[engine_id]["size_bytes"] += size
+                    by_engine[engine_id]["backup_count"] += 1
+
+        # Count databases per engine
+        for db_data in by_database.values():
+            engine_id = db_data.get("engine_id")
+            if engine_id and engine_id in by_engine:
+                by_engine[engine_id]["database_count"] += 1
+
         # Sort by size descending
         databases_list = sorted(by_database.values(), key=lambda x: x["size_bytes"], reverse=True)
+        engines_list = sorted(by_engine.values(), key=lambda x: x["size_bytes"], reverse=True)
 
         # Format sizes
         for db in databases_list:
             db["size_formatted"] = format_bytes(db["size_bytes"])
+        for engine in engines_list:
+            engine["size_formatted"] = format_bytes(engine["size_bytes"])
 
         return func.HttpResponse(
             json.dumps({
@@ -1183,6 +1405,7 @@ def get_storage_stats(req: func.HttpRequest) -> func.HttpResponse:
                 "total_size_formatted": format_bytes(total_size),
                 "total_backup_count": len(files),
                 "by_database": databases_list,
+                "by_engine": engines_list,
                 "by_type": {
                     "mysql": {"size_bytes": by_type["mysql"], "size_formatted": format_bytes(by_type["mysql"])},
                     "postgresql": {"size_bytes": by_type["postgresql"], "size_formatted": format_bytes(by_type["postgresql"])},
@@ -1550,7 +1773,10 @@ def create_user(req: func.HttpRequest) -> func.HttpResponse:
             resource_type=AuditResourceType.USER,
             resource_id=saved.id,
             resource_name=saved.email,
-            details={"role": role.value},
+            details={
+                "role": role.value,
+                "name": saved.name,
+            },
             ip_address=get_client_ip(req),
         )
 
@@ -1791,6 +2017,10 @@ def delete_user(req: func.HttpRequest) -> func.HttpResponse:
             resource_type=AuditResourceType.USER,
             resource_id=user_id,
             resource_name=user_email,
+            details={
+                "name": user_to_delete.name,
+                "role": user_to_delete.role.value,
+            },
             ip_address=get_client_ip(req),
         )
 
@@ -2162,6 +2392,10 @@ def create_backup_policy(req: func.HttpRequest) -> func.HttpResponse:
                 resource_type=AuditResourceType.POLICY,
                 resource_id=saved.id,
                 resource_name=saved.name,
+                details={
+                    "description": saved.description,
+                    "summary": saved.get_summary(),
+                },
                 ip_address=get_client_ip(req),
             )
 
@@ -2272,6 +2506,10 @@ def update_backup_policy(req: func.HttpRequest) -> func.HttpResponse:
                 resource_type=AuditResourceType.POLICY,
                 resource_id=saved.id,
                 resource_name=saved.name,
+                details={
+                    "updated_fields": list(body.keys()),
+                    "summary": saved.get_summary(),
+                },
                 ip_address=get_client_ip(req),
             )
 
@@ -2358,6 +2596,11 @@ def delete_backup_policy(req: func.HttpRequest) -> func.HttpResponse:
                 resource_type=AuditResourceType.POLICY,
                 resource_id=policy_id,
                 resource_name=policy_name,
+                details={
+                    "description": policy.description,
+                    "summary": policy.get_summary(),
+                    "is_system": policy.is_system,
+                },
                 ip_address=get_client_ip(req),
             )
 
@@ -2393,6 +2636,9 @@ def list_audit_logs(req: func.HttpRequest) -> func.HttpResponse:
     - resource_type: str - Filter by resource type
     - status: str - Filter by status (success/failed)
     - search: str - Search in resource_name and user_email
+    - database_type: str - Filter by engine type (mysql, postgresql, sqlserver)
+    - engine_id: str - Filter by engine/server ID
+    - resource_name: str - Filter by alias/target name
     - limit: int - Results per page (default: 50)
     - offset: int - Skip N results (default: 0)
     """
@@ -2431,6 +2677,7 @@ def list_audit_logs(req: func.HttpRequest) -> func.HttpResponse:
         user_id = req.params.get("user_id")
         search = req.params.get("search")
         database_type = req.params.get("database_type")
+        engine_id = req.params.get("engine_id")
         resource_name = req.params.get("resource_name")
         limit = int(req.params.get("limit", "50"))
         offset = int(req.params.get("offset", "0"))
@@ -2445,6 +2692,7 @@ def list_audit_logs(req: func.HttpRequest) -> func.HttpResponse:
             status=status,
             search=search,
             database_type=database_type,
+            engine_id=engine_id,
             resource_name=resource_name,
             limit=limit,
             offset=offset,
@@ -2553,6 +2801,644 @@ def get_audit_stats(req: func.HttpRequest) -> func.HttpResponse:
         )
     except Exception as e:
         logger.exception("Error getting audit stats")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+# ===========================================
+# Engine Endpoints
+# ===========================================
+
+
+@app.route(route="engines", methods=["GET"])
+def list_engines(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    List all engine configurations.
+
+    Query params:
+    - limit: int - Maximum number of results (default: 100)
+    - offset: int - Number of results to skip (default: 0)
+    - search: str - Search term for name or host
+    - engine_type: str - Filter by engine type (mysql, postgresql, sqlserver)
+    """
+    try:
+        limit = int(req.params.get("limit", "100"))
+        offset = int(req.params.get("offset", "0"))
+        search = req.params.get("search")
+        engine_type = req.params.get("engine_type")
+
+        engines, total = engine_service.get_all(
+            limit=limit,
+            offset=offset,
+            search=search,
+            engine_type=engine_type,
+        )
+
+        # Get database counts for each engine
+        engine_data = []
+        for engine in engines:
+            data = engine.model_dump(mode="json", exclude={"password"})
+            data["database_count"] = engine_service.get_database_count(engine.id)
+            engine_data.append(data)
+
+        return func.HttpResponse(
+            json.dumps({
+                "items": engine_data,
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error listing engines")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="engines/{engine_id}", methods=["GET"])
+def get_engine(req: func.HttpRequest) -> func.HttpResponse:
+    """Get a specific engine configuration by ID."""
+    try:
+        engine_id = req.route_params.get("engine_id")
+        engine = engine_service.get(engine_id)
+
+        if not engine:
+            return func.HttpResponse(
+                json.dumps({"error": "Engine not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+
+        data = engine.model_dump(mode="json", exclude={"password"})
+        data["database_count"] = engine_service.get_database_count(engine.id)
+
+        return func.HttpResponse(
+            json.dumps(data),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error getting engine")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="engines", methods=["POST"])
+def create_engine(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Create a new engine configuration.
+
+    Request body:
+    {
+        "name": str,
+        "engine_type": str (mysql|postgresql|sqlserver),
+        "host": str,
+        "port": int (optional, defaults based on type),
+        "auth_method": str (optional: user_password|managed_identity|azure_ad|connection_string),
+        "username": str (optional),
+        "password": str (optional),
+        "connection_string": str (optional),
+        "discover_databases": bool (optional, default false)
+    }
+    """
+    try:
+        body = req.get_json()
+        auth_result = get_current_user(req)
+        user = auth_result.user if auth_result.authenticated else None
+
+        # Validate engine type
+        try:
+            engine_type = EngineType(body["engine_type"])
+        except (ValueError, KeyError):
+            return func.HttpResponse(
+                json.dumps({"error": "Invalid engine_type. Must be mysql, postgresql, or sqlserver"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        # Get default port if not provided
+        port = body.get("port") or Engine.get_default_port(engine_type)
+
+        # Parse auth method if provided
+        auth_method = None
+        if body.get("auth_method"):
+            try:
+                auth_method = AuthMethod(body["auth_method"])
+            except ValueError:
+                return func.HttpResponse(
+                    json.dumps({"error": "Invalid auth_method"}),
+                    mimetype="application/json",
+                    status_code=400,
+                )
+
+        # Create engine
+        engine = Engine(
+            id="",
+            name=body["name"],
+            engine_type=engine_type,
+            host=body["host"],
+            port=port,
+            auth_method=auth_method,
+            username=body.get("username"),
+            password=body.get("password"),
+            connection_string=body.get("connection_string"),
+            discovery_enabled=bool(body.get("username") and body.get("password")),
+            created_by=user.email if user else None,
+        )
+
+        created_engine = engine_service.create(engine)
+
+        # Log audit
+        audit_service.log(
+            action=AuditAction.CREATE,
+            resource_type=AuditResourceType.ENGINE,
+            resource_id=created_engine.id,
+            resource_name=created_engine.name,
+            user_id=user.id if user else None,
+            user_email=user.email if user else None,
+            ip_address=get_client_ip(req),
+            details={
+                "engine_id": created_engine.id,
+                "engine_type": engine_type.value,
+                "host": body["host"],
+                "port": port,
+            },
+        )
+
+        response_data = {
+            "engine": created_engine.model_dump(mode="json", exclude={"password"}),
+        }
+
+        # Run discovery if requested
+        if body.get("discover_databases") and created_engine.has_credentials():
+            try:
+                discovered = engine_service.discover_databases(created_engine)
+                response_data["discovered_databases"] = [d.model_dump() for d in discovered]
+            except Exception as e:
+                response_data["discovery_error"] = str(e)
+
+        return func.HttpResponse(
+            json.dumps(response_data),
+            mimetype="application/json",
+            status_code=201,
+        )
+    except ValueError as e:
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=400,
+        )
+    except Exception as e:
+        logger.exception("Error creating engine")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="engines/{engine_id}", methods=["PUT"])
+def update_engine(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Update an engine configuration.
+
+    Request body (all fields optional):
+    {
+        "name": str,
+        "auth_method": str,
+        "username": str,
+        "password": str,
+        "connection_string": str,
+        "apply_to_all_databases": bool (if true, updates DBs with individual credentials too)
+    }
+    """
+    try:
+        engine_id = req.route_params.get("engine_id")
+        body = req.get_json()
+        auth_result = get_current_user(req)
+        user = auth_result.user if auth_result.authenticated else None
+
+        engine = engine_service.get(engine_id)
+        if not engine:
+            return func.HttpResponse(
+                json.dumps({"error": "Engine not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+
+        # Update fields if provided
+        if "name" in body:
+            engine.name = body["name"]
+        if "auth_method" in body:
+            engine.auth_method = AuthMethod(body["auth_method"]) if body["auth_method"] else None
+        if "username" in body:
+            engine.username = body["username"]
+        if "password" in body:
+            engine.password = body["password"]
+        if "connection_string" in body:
+            engine.connection_string = body["connection_string"]
+
+        # Update discovery_enabled based on credentials
+        engine.discovery_enabled = engine.has_credentials()
+
+        updated_engine = engine_service.update(engine)
+
+        # Log audit
+        audit_service.log(
+            action=AuditAction.UPDATE,
+            resource_type=AuditResourceType.ENGINE,
+            resource_id=engine_id,
+            resource_name=updated_engine.name,
+            user_id=user.id if user else None,
+            user_email=user.email if user else None,
+            ip_address=get_client_ip(req),
+            details={
+                "engine_id": engine_id,
+                "engine_type": updated_engine.engine_type.value,
+                "updated_fields": list(body.keys()),
+            },
+        )
+
+        response_data = {
+            "engine": updated_engine.model_dump(mode="json", exclude={"password"}),
+        }
+
+        # If apply_to_all_databases, update database credentials
+        if body.get("apply_to_all_databases"):
+            # Get all databases for this engine
+            databases, _ = db_config_service.get_all()
+            updated_count = 0
+            for db in databases:
+                if db.engine_id == engine_id:
+                    # Set to use engine credentials
+                    db.use_engine_credentials = True
+                    db.auth_method = None
+                    db.username = None
+                    db.password = None
+                    db_config_service.update(db)
+                    updated_count += 1
+            response_data["databases_updated"] = updated_count
+
+        return func.HttpResponse(
+            json.dumps(response_data),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except ValueError as e:
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=400,
+        )
+    except Exception as e:
+        logger.exception("Error updating engine")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="engines/{engine_id}", methods=["DELETE"])
+def delete_engine(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Delete an engine configuration.
+
+    Query params:
+    - delete_databases: bool - If true, cascade delete all associated databases
+    - delete_backups: bool - If true (and delete_databases=true), also delete all backup files and history records
+
+    Note: Will fail if there are databases associated with this engine and delete_databases is not true.
+    """
+    try:
+        engine_id = req.route_params.get("engine_id")
+        auth_result = get_current_user(req)
+        user = auth_result.user if auth_result.authenticated else None
+
+        # Parse cascade options
+        delete_databases = req.params.get("delete_databases", "").lower() == "true"
+        delete_backups = req.params.get("delete_backups", "").lower() == "true"
+
+        engine = engine_service.get(engine_id)
+        if not engine:
+            return func.HttpResponse(
+                json.dumps({"error": "Engine not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+
+        # Check if there are databases using this engine
+        db_count = engine_service.get_database_count(engine_id)
+        databases_deleted = 0
+        backups_deleted = {"deleted_files": 0, "deleted_records": 0, "errors": []}
+
+        if db_count > 0:
+            if not delete_databases:
+                return func.HttpResponse(
+                    json.dumps({
+                        "error": f"Cannot delete engine with {db_count} associated database(s). Delete databases first or use delete_databases=true."
+                    }),
+                    mimetype="application/json",
+                    status_code=400,
+                )
+
+            # Cascade delete databases (and optionally backups)
+            databases, _ = db_service.get_all(engine_id=engine_id)
+
+            for db in databases:
+                # Optionally delete backups first
+                if delete_backups:
+                    backup_result = storage_service.delete_all_backups_for_database(db.id)
+                    backups_deleted["deleted_files"] += backup_result.get("deleted_files", 0)
+                    backups_deleted["deleted_records"] += backup_result.get("deleted_records", 0)
+                    backups_deleted["errors"].extend(backup_result.get("errors", []))
+
+                # Delete database config
+                db_service.delete(db.id)
+                databases_deleted += 1
+
+                # Log audit for each database deleted
+                audit_service.log(
+                    action=AuditAction.DELETE,
+                    resource_type=AuditResourceType.DATABASE,
+                    resource_id=db.id,
+                    resource_name=db.name,
+                    user_id=user.id if user else None,
+                    user_email=user.email if user else None,
+                    ip_address=get_client_ip(req),
+                    details={
+                        "database_type": db.database_type.value,
+                        "engine_id": engine_id,
+                        "host": db.host,
+                        "port": db.port,
+                        "database_name": db.database_name,
+                        "cascade_from_engine": engine_id,
+                        "backups_deleted": delete_backups,
+                    },
+                )
+
+        engine_service.delete(engine_id)
+
+        # Log audit
+        audit_service.log(
+            action=AuditAction.DELETE,
+            resource_type=AuditResourceType.ENGINE,
+            resource_id=engine_id,
+            resource_name=engine.name,
+            user_id=user.id if user else None,
+            user_email=user.email if user else None,
+            ip_address=get_client_ip(req),
+            details={
+                "engine_id": engine_id,
+                "engine_type": engine.engine_type.value,
+                "host": engine.host,
+                "cascade_databases": delete_databases,
+                "cascade_backups": delete_backups,
+                "databases_deleted": databases_deleted if delete_databases else 0,
+            },
+        )
+
+        response_data = {"deleted": True}
+        if delete_databases:
+            response_data["databases_deleted"] = databases_deleted
+            if delete_backups:
+                response_data["backups_deleted"] = backups_deleted
+
+        return func.HttpResponse(
+            json.dumps(response_data),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error deleting engine")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="engines/{engine_id}/test", methods=["POST"])
+def test_engine_connection(req: func.HttpRequest) -> func.HttpResponse:
+    """Test connection to an engine using its credentials."""
+    try:
+        engine_id = req.route_params.get("engine_id")
+
+        engine = engine_service.get(engine_id)
+        if not engine:
+            return func.HttpResponse(
+                json.dumps({"error": "Engine not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+
+        if not engine.has_credentials():
+            return func.HttpResponse(
+                json.dumps({"error": "Engine has no credentials configured"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        # Use connection tester
+        connection_tester = get_connection_tester()
+
+        # Map EngineType to DatabaseType for testing
+        db_type_map = {
+            EngineType.MYSQL: DatabaseType.MYSQL,
+            EngineType.POSTGRESQL: DatabaseType.POSTGRESQL,
+            EngineType.SQLSERVER: DatabaseType.SQLSERVER,
+        }
+
+        result = connection_tester.test_connection(
+            database_type=db_type_map[engine.engine_type],
+            host=engine.host,
+            port=engine.port,
+            database_name="",  # Connect to server, not specific DB
+            username=engine.username,
+            password=engine.password,
+        )
+
+        return func.HttpResponse(
+            json.dumps({
+                "success": result.success,
+                "message": result.message,
+                "latency_ms": result.latency_ms,
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error testing engine connection")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="engines/{engine_id}/discover", methods=["POST"])
+def discover_databases(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Discover databases available on an engine.
+
+    Returns list of databases found on the server, indicating which ones
+    already exist in the system and which are system databases.
+    """
+    try:
+        engine_id = req.route_params.get("engine_id")
+
+        engine = engine_service.get(engine_id)
+        if not engine:
+            return func.HttpResponse(
+                json.dumps({"error": "Engine not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+
+        discovered = engine_service.discover_databases(engine)
+
+        return func.HttpResponse(
+            json.dumps({
+                "databases": [d.model_dump() for d in discovered],
+                "engine_id": engine_id,
+                "engine_name": engine.name,
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except ValueError as e:
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=400,
+        )
+    except Exception as e:
+        logger.exception("Error discovering databases")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="engines/{engine_id}/databases", methods=["POST"])
+def add_databases_from_discovery(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Add multiple databases from discovery results.
+
+    Request body:
+    {
+        "databases": [
+            {
+                "name": str,           # Database name on server
+                "alias": str,          # Display name (optional, defaults to name)
+                "policy_id": str       # Backup policy ID (optional)
+            },
+            ...
+        ],
+        "use_engine_credentials": bool  # Default true
+    }
+    """
+    try:
+        engine_id = req.route_params.get("engine_id")
+        body = req.get_json()
+        auth_result = get_current_user(req)
+        user = auth_result.user if auth_result.authenticated else None
+
+        engine = engine_service.get(engine_id)
+        if not engine:
+            return func.HttpResponse(
+                json.dumps({"error": "Engine not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+
+        use_engine_credentials = body.get("use_engine_credentials", True)
+        databases_to_add = body.get("databases", [])
+
+        if not databases_to_add:
+            return func.HttpResponse(
+                json.dumps({"error": "No databases specified"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        # Map EngineType to DatabaseType
+        db_type_map = {
+            EngineType.MYSQL: DatabaseType.MYSQL,
+            EngineType.POSTGRESQL: DatabaseType.POSTGRESQL,
+            EngineType.SQLSERVER: DatabaseType.SQLSERVER,
+        }
+
+        created = []
+        errors = []
+
+        for db_info in databases_to_add:
+            try:
+                db_config = DatabaseConfig(
+                    id="",
+                    name=db_info.get("alias") or db_info["name"],
+                    database_type=db_type_map[engine.engine_type],
+                    engine_id=engine_id,
+                    use_engine_credentials=use_engine_credentials,
+                    host=engine.host,
+                    port=engine.port,
+                    database_name=db_info["name"],
+                    # If using engine credentials, don't set DB-specific ones
+                    username=None if use_engine_credentials else engine.username,
+                    password=None if use_engine_credentials else engine.password,
+                    policy_id=db_info.get("policy_id", "production-standard"),
+                    created_by=user.email if user else None,
+                )
+
+                created_db = db_config_service.create(db_config)
+                created.append(created_db.model_dump(mode="json", exclude={"password"}))
+
+                # Log audit
+                audit_service.log(
+                    action=AuditAction.CREATE,
+                    resource_type=AuditResourceType.DATABASE,
+                    resource_id=created_db.id,
+                    resource_name=created_db.name,
+                    user_id=user.id if user else None,
+                    user_email=user.email if user else None,
+                    ip_address=get_client_ip(req),
+                    details={
+                        "database_type": created_db.database_type.value,
+                        "engine_id": engine_id,
+                        "host": created_db.host,
+                        "port": created_db.port,
+                        "database_name": created_db.database_name,
+                        "from_discovery": True,
+                    },
+                )
+
+            except Exception as e:
+                errors.append({"database": db_info["name"], "error": str(e)})
+
+        return func.HttpResponse(
+            json.dumps({
+                "created": created,
+                "errors": errors,
+                "total_created": len(created),
+                "total_errors": len(errors),
+            }),
+            mimetype="application/json",
+            status_code=201 if created else 400,
+        )
+    except Exception as e:
+        logger.exception("Error adding databases from discovery")
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
             mimetype="application/json",
