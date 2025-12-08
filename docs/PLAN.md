@@ -226,18 +226,100 @@
 - El chip "Inherited" en la tabla de databases indica visualmente cuáles usan herencia
 - La independencia de cada database siempre es opcional, nunca se fuerza automáticamente
 
-### 🔴 PRÓXIMO PASO INMEDIATO: Seed Data
+### Sprint 3.6: Seed Data ✅ COMPLETADO
 
-#### Seed Data para Testing
 | # | Tarea | Descripción | Estado |
 |---|-------|-------------|--------|
-| SD.1 | Seed Script | Script que crea datos de prueba automáticamente | ⏳ Pendiente |
-| SD.2 | Servidores | Crear engines para MySQL, PostgreSQL, SQL Server | ⏳ Pendiente |
-| SD.3 | Databases | Múltiples DBs por motor (que existan y funcionen) | ⏳ Pendiente |
-| SD.4 | Policies | Asignar policies variadas a las databases | ⏳ Pendiente |
-| SD.5 | Backup History | Crear registros de backups históricos ficticios (sin archivo real) | ⏳ Pendiente |
+| SD.1 | Reset Script | Script para borrar toda la data de Azure Storage | ✅ Completado |
+| SD.2 | Seed Servidores | 3 engines (MySQL, PostgreSQL, SQL Server) | ✅ Completado |
+| SD.3 | Seed Databases | 9 DBs (3 por motor) con distintas configs | ✅ Completado |
+| SD.4 | Seed Policies | 3 policies (critical, standard, development) | ✅ Completado |
+| SD.5 | Seed Users | 3 usuarios (admin, operator, viewer) | ✅ Completado |
+| SD.6 | Backup History | 60 días de historial con ~600 registros | ✅ Completado |
+| SD.7 | Audit Logs | ~500 registros de auditoría | ✅ Completado |
+| SD.8 | Docker DBs | Opción para crear DBs con 50-200MB de datos | ✅ Completado |
 
-**Objetivo:** Poder probar el sistema con datos realistas sin configuración manual.
+**Script:** `scripts/reset-and-seed.py`
+
+**Uso:**
+```bash
+# Full reset + seed (con setup de Docker DBs)
+python scripts/reset-and-seed.py
+
+# Quick mode - sin setup de DBs ni archivos de backup
+python scripts/reset-and-seed.py --skip-db-setup --skip-backups
+
+# Solo reset (borrar toda la data)
+python scripts/reset-and-seed.py --reset-only
+
+# Solo seed (no borrar)
+python scripts/reset-and-seed.py --seed-only
+```
+
+**Datos sembrados:**
+- **3 Servers:** MySQL Production, PostgreSQL Production, SQL Server Production
+- **9 Databases:**
+  - MySQL: ecommerce_db (150MB), analytics_db (100MB), staging_db (50MB)
+  - PostgreSQL: users_db (120MB), inventory_db (80MB), logs_db (200MB)
+  - SQL Server: finance_db (180MB), reports_db (100MB), dev_db (40MB)
+- **3 Users:** admin@dilux.com, operator@dilux.com, viewer@dilux.com
+- **3 Policies:** production-critical, production-standard, development
+- **~600 Backups:** 60 días de historial con 95% success rate
+- **500 Audit Logs:** Variados (backup_completed, user_login, etc.)
+
+### 🔴 PRÓXIMO PASO INMEDIATO: Testing Integral
+
+#### Plan de Testing con Seed Data
+| # | Tarea | Descripción | Estado |
+|---|-------|-------------|--------|
+| T.1 | Reset y Seed | Ejecutar full reset-and-seed | ⏳ Pendiente |
+| T.2 | Dashboard | Verificar stats y gráficos con 60 días de datos | ⏳ Pendiente |
+| T.3 | Backups Page | Paginación, filtros, Info Dialog | ⏳ Pendiente |
+| T.4 | Servers Page | 3 servers con sus 3 DBs cada uno | ⏳ Pendiente |
+| T.5 | Databases Page | Policy inheritance, "Inherited" chips | ⏳ Pendiente |
+| T.6 | Audit Page | 500 logs con filtros funcionando | ⏳ Pendiente |
+| T.7 | Test Connection | Probar conexión a cada DB | ⏳ Pendiente |
+| T.8 | Manual Backup | Trigger backup desde UI | ⏳ Pendiente |
+| T.9 | Download Backup | Descargar un backup existente | ⏳ Pendiente |
+| T.10 | Mobile View | Responsive en todas las páginas | ⏳ Pendiente |
+
+**Qué debería pasar:**
+
+1. **Dashboard:**
+   - Storage Used: ~13GB de datos de backups (fake sizes)
+   - Backups Today: Según periodo seleccionado
+   - Success Rate: ~95% (con algunos failed)
+   - System Health: Todos green excepto posibles alertas de backups fallidos
+
+2. **Servers Page:**
+   - 3 servers listados con sus DBs count
+   - Click en cada uno muestra 3 DBs
+   - Policy assigned a cada server
+
+3. **Databases Page:**
+   - 9 databases (3 por engine)
+   - Columna "Server" muestra engine name
+   - Columna "Policy" con chips "Inherited" donde corresponde
+   - Filtro por server funciona
+
+4. **Backups Page:**
+   - ~600 backups paginados
+   - Filtro por Server, Database, Status funciona
+   - Info dialog muestra detalles (tier, file size, etc.)
+   - Algunos con status "failed" y error_message
+
+5. **Audit Page:**
+   - ~500 logs
+   - Filtros por Action, Server, Type funcionan
+   - Variety de acciones: backup_completed, backup_failed, user_login, etc.
+
+6. **Policies Page:**
+   - 3 policies (system policies)
+   - Pueden verse pero no editarse (is_system=True)
+
+7. **Users Page:**
+   - 3 users: admin, operator, viewer
+   - Tabla con roles
 
 ---
 
