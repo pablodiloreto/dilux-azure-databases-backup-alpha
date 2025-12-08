@@ -3,6 +3,7 @@
 from .storage_service import StorageService
 from .database_config_service import DatabaseConfigService
 from .connection_tester import ConnectionTester, ConnectionTestResult, get_connection_tester
+from .audit_service import AuditService, get_audit_service
 
 __all__ = [
     "StorageService",
@@ -10,4 +11,6 @@ __all__ = [
     "ConnectionTester",
     "ConnectionTestResult",
     "get_connection_tester",
+    "AuditService",
+    "get_audit_service",
 ]

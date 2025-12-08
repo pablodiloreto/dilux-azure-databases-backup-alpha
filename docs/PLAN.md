@@ -1,6 +1,6 @@
 # Plan de Implementación - Dilux Database Backup
 
-**Última actualización:** 2025-12-07
+**Última actualización:** 2025-12-08
 
 ---
 
@@ -17,6 +17,9 @@
 ### Fixes aplicados
 | Fecha | Fix |
 |-------|-----|
+| 2025-12-08 | Layout stability: disableScrollLock global + CSS overrides para prevenir layout shift |
+| 2025-12-08 | Skeleton loading: TableSkeleton, CardListSkeleton, LoadingOverlay con LinearProgress |
+| 2025-12-08 | Audit filters: Autocomplete para Alias (databases), Engine filter, columna "Alias" renombrada |
 | 2025-12-07 | Mobile responsiveness: ResponsiveTable, SettingRow, stats cards grid, todas las páginas |
 | 2025-12-07 | Backup history: Orden correcto descendente por fecha (offset pagination en backend) |
 | 2025-12-07 | Dashboard: Backups y Success Rate con selectores de período sincronizados |
@@ -107,6 +110,16 @@
 - ✅ Mobile: SettingsPage con SettingRow component (evita overlapping)
 - ✅ Mobile: BackupsPage stats cards grid 2x2 alineados
 - ✅ Mobile: StoragePage nueva página con lista de backups
+- ✅ Audit: Sistema completo de logs de auditoría con filtros y paginación
+- ✅ Audit Page: Nueva página /audit para ver historial de acciones (solo Admin)
+- ✅ Audit API: GET /api/audit con filtros, GET /api/audit/actions, GET /api/audit/resource-types
+- ✅ Audit logging integrado en endpoints de databases, backups, policies, users
+- ✅ BackupsPage: Delete individual y bulk con checkboxes (movido desde StoragePage)
+- ✅ StoragePage: Simplificada a solo estadísticas (sin lista de archivos)
+- ✅ Loading Skeletons: TableSkeleton, CardListSkeleton, LoadingOverlay components (MUI theme-aware)
+- ✅ Layout Stability: disableScrollLock global en theme + CSS overrides (previene layout shift)
+- ✅ Audit Filters: Autocomplete para Alias (databases), Engine filter
+- ✅ Audit: Columna "Target" renombrada a "Alias"
 
 ### Sprint 2.5: Backup Policies ✅ COMPLETADO
 
@@ -132,17 +145,29 @@
 
 ### Sprint 3: Production Ready
 
-| # | Tarea | Descripción |
-|---|-------|-------------|
-| 1.2.2 | Update Password API | `PUT /api/databases/{id}/password` |
-| 3.1 | Password Dialog | UI para cambiar password |
-| 3.2 | Test + Save | Probar conexión antes de guardar password |
-| 3.3 | Key Vault | Guardar en Key Vault en producción |
-| 4.1 | Cleanup Job | Timer diario según retention_days |
-| 4.2 | UI Archivos | Lista de blobs con opción eliminar |
-| 5.1 | MSAL React | Login/logout en frontend |
-| 5.2 | JWT Backend | Validar tokens en Function Apps |
-| 5.3 | Bypass Dev | Sin auth cuando ENVIRONMENT=development |
+#### Gestión de Passwords
+| # | Tarea | Descripción | Estado |
+|---|-------|-------------|--------|
+| 3.1 | Update Password API | `PUT /api/databases/{id}/password` | Pendiente |
+| 3.2 | Password Dialog | Modal para cambiar password (separado de edit) | Pendiente |
+| 3.3 | Test + Save | Reutilizar test-connection antes de guardar password | Pendiente |
+| 3.4 | Key Vault | Guardar en Key Vault en producción | Pendiente |
+
+#### Storage Management
+| # | Tarea | Descripción | Estado |
+|---|-------|-------------|--------|
+| 4.1 | Cleanup Job | Timer diario 2AM con retención por tier | ✅ Completado |
+| 4.2 | StoragePage | Página con stats, pie chart, tabla por DB | ✅ Completado |
+| 4.3 | Delete Backup API | `DELETE /api/backups/delete` y `POST /api/backups/delete-bulk` | ✅ Completado |
+| 4.4 | Delete en UI | Botón eliminar por backup individual en StoragePage | ✅ Completado |
+| 4.5 | Bulk Delete | Eliminar múltiples backups seleccionados con checkboxes | ✅ Completado |
+
+#### Autenticación Azure AD
+| # | Tarea | Descripción | Estado |
+|---|-------|-------------|--------|
+| 5.1 | MSAL React | Login/logout en frontend con @azure/msal-react | Pendiente |
+| 5.2 | JWT Backend | Validar tokens en Function Apps | Pendiente |
+| 5.3 | Bypass Dev | Sin auth cuando ENVIRONMENT=development (ya funciona) | ✅ Completado |
 
 ### Sprint 4: Deploy
 

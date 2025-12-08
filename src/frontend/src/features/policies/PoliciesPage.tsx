@@ -23,7 +23,7 @@ import {
   FormControl,
   InputLabel,
 } from '@mui/material'
-import { ResponsiveTable, Column } from '../../components/common'
+import { ResponsiveTable, Column, TableSkeleton } from '../../components/common'
 import {
   Edit as EditIcon,
   Delete as DeleteIcon,
@@ -386,8 +386,8 @@ export function PoliciesPage() {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
+      <Box sx={{ p: 3 }}>
+        <TableSkeleton rows={5} columns={4} />
       </Box>
     )
   }

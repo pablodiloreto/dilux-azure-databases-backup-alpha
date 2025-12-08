@@ -47,9 +47,11 @@ src/frontend/
     │   │   ├── FilterBar.tsx       # Filter container with Search/Clear
     │   │   ├── FilterSelect.tsx    # Dropdown with "All X" default
     │   │   ├── LoadMore.tsx        # Pagination component
+    │   │   ├── LoadingOverlay.tsx  # Loading skeletons and progress indicators
     │   │   └── ResponsiveTable.tsx # Mobile-friendly table/cards component
-    │   └── layout/
-    │       └── MainLayout.tsx  # App shell with sidebar
+    │   ├── layout/
+    │   │   └── MainLayout.tsx  # App shell with sidebar
+    │   └── ThemeWrapper.tsx    # Theme provider with global styles
     │
     ├── features/           # Feature modules
     │   ├── dashboard/
@@ -170,6 +172,7 @@ export default defineConfig({
 | Backups | `/backups` | View backup history with pagination and filters |
 | Policies | `/policies` | Configure backup policies with tiered schedules |
 | Storage | `/storage` | Storage statistics with charts and blob details |
+| Audit | `/audit` | Audit log history with filters (Admin only) |
 | Users | `/users` | User management and access requests |
 | Settings | `/settings` | Application settings (display, defaults) |
 | Status | `/status` | Detailed system status and health checks |
@@ -299,6 +302,41 @@ Pagination component showing count with "Load More" button:
 />
 // Renders: "Showing 25 of 150" with Load More button
 ```
+
+#### LoadingOverlay / Skeletons
+
+Theme-aware loading components for consistent loading states across the app:
+
+```tsx
+import { LoadingOverlay, TableSkeleton, CardListSkeleton } from '../components/common'
+
+// Linear progress bar for refresh (when data already exists)
+<Card sx={{ position: 'relative' }}>
+  <LoadingOverlay loading={isLoading && data.length > 0} />
+  <CardContent>
+    {isLoading && data.length === 0 ? (
+      // Initial loading: show skeleton
+      <TableSkeleton rows={8} columns={6} />
+    ) : (
+      // Data loaded: show table
+      <Table>...</Table>
+    )}
+  </CardContent>
+</Card>
+
+// Mobile card skeleton
+{isLoading && data.length === 0 && <CardListSkeleton count={5} />}
+```
+
+**Components:**
+- `LoadingOverlay` - Subtle LinearProgress bar at top of container (default `variant='linear'`)
+- `TableSkeleton` - Animated skeleton rows mimicking table structure
+- `CardListSkeleton` - Animated skeleton cards for mobile views
+- `StatsCardsSkeleton` - Animated skeleton for stats card grids
+
+**Pattern:**
+- Initial load (`isLoading && data.length === 0`): Show skeleton
+- Refresh (`isLoading && data.length > 0`): Show LinearProgress at top
 
 #### ResponsiveTable
 
@@ -467,6 +505,24 @@ Shows:
 - System information table
 - Supported database types
 
+### AuditPage
+
+Shows:
+- **Audit log table** with columns: Time, User, Type, Action, Engine, Alias, Status
+- **FilterBar** with:
+  - User autocomplete (searchable with debounce)
+  - Filter by action (Create Database, Delete Backup, etc.)
+  - Filter by resource type (database, backup, policy, user)
+  - Filter by status (Success, Failed)
+  - Date range pickers (From/To)
+  - Filter by engine (MySQL, PostgreSQL, SQL Server)
+  - Alias autocomplete (searchable database names)
+- **Detail dialog** - Click row to see full details (resource ID, IP, error message, JSON details)
+- **Load More pagination** - Uses `pageSize` setting
+- **Admin only** - Only visible to users with admin role
+- **Skeleton loading** - TableSkeleton for initial load, LinearProgress for refresh
+- **Mobile**: Shows action as card title, status/time in summary, details on expand
+
 ### UsersPage
 
 Shows:
@@ -535,14 +591,30 @@ export const theme = createTheme({
         root: { textTransform: 'none' },
       },
     },
+    // Disable scroll lock globally to prevent layout shift
+    MuiDialog: { defaultProps: { disableScrollLock: true } },
+    MuiMenu: { defaultProps: { disableScrollLock: true } },
+    MuiPopover: { defaultProps: { disableScrollLock: true } },
+    MuiModal: { defaultProps: { disableScrollLock: true } },
+    MuiDrawer: { defaultProps: { disableScrollLock: true } },
   },
 })
 ```
 
+### ThemeWrapper
+
+`ThemeWrapper.tsx` wraps the app with MUI theme and global styles:
+
+- Provides light/dark theme based on user settings
+- Applies global CSS for layout stability:
+  - `html { overflowY: scroll; scrollbarGutter: stable; }` - Prevents layout shift
+  - `body { overflow: visible; paddingRight: 0; }` - Overrides MUI scroll lock
+
 ### CSS
 
 - MUI components handle most styling
-- Global styles in `index.html` (fonts)
+- Global styles in `ThemeWrapper.tsx` (layout stability)
+- Google Fonts loaded in `index.html`
 - Component-specific styles via MUI's `sx` prop
 
 ---

@@ -23,7 +23,7 @@ import {
   Badge,
   Collapse,
 } from '@mui/material'
-import { ResponsiveTable, Column } from '../../components/common'
+import { ResponsiveTable, Column, LoadingOverlay, TableSkeleton } from '../../components/common'
 import {
   Add as AddIcon,
   Edit as EditIcon,
@@ -540,11 +540,13 @@ export function UsersPage() {
       </Card>
 
       {/* Users Table */}
-      <Card sx={{ overflow: 'hidden' }}>
-        {isLoading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-            <CircularProgress size={24} />
-          </Box>
+      <Card sx={{ overflow: 'hidden', position: 'relative' }}>
+        {/* Linear progress bar - visible when loading with existing data */}
+        <LoadingOverlay loading={isLoading && users.length > 0} />
+
+        {isLoading && users.length === 0 ? (
+          // Initial loading: show skeleton
+          <TableSkeleton rows={6} columns={5} />
         ) : (
           <ResponsiveTable
             columns={tableColumns}

@@ -84,6 +84,32 @@ export const backupsApi = {
     const response = await apiClient.get<DownloadUrlResponse>('/backups/download', { params })
     return response.data.download_url
   },
+
+  /**
+   * Delete a backup file
+   */
+  delete: async (blobName: string): Promise<void> => {
+    await apiClient.delete('/backups/delete', {
+      params: { blob_name: blobName },
+    })
+  },
+
+  /**
+   * Delete multiple backup files
+   */
+  deleteBulk: async (blobNames: string[]): Promise<{ deleted: number; failed: number }> => {
+    const response = await apiClient.post<{ deleted_count: number; error_count: number }>('/backups/delete-bulk', {
+      blob_names: blobNames,
+    })
+    return { deleted: response.data.deleted_count, failed: response.data.error_count }
+  },
+
+  /**
+   * Delete a backup record (for failed backups without files)
+   */
+  deleteRecord: async (backupId: string): Promise<void> => {
+    await apiClient.delete(`/backups/${backupId}`)
+  },
 }
 
 export default backupsApi

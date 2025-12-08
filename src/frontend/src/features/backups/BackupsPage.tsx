@@ -13,6 +13,13 @@ import {
   Paper,
   Tooltip,
   Autocomplete,
+  Checkbox,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
+  Snackbar,
 } from '@mui/material'
 import {
   Download as DownloadIcon,
@@ -22,6 +29,8 @@ import {
   Error as ErrorIcon,
   Storage as StorageIcon,
   Schedule as ScheduleIcon,
+  Delete as DeleteIcon,
+  DeleteSweep as DeleteSweepIcon,
 } from '@mui/icons-material'
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
@@ -32,8 +41,9 @@ import { backupsApi } from '../../api/backups'
 import { databasesApi } from '../../api/databases'
 import { formatFileSize, formatDuration } from '../../utils'
 import type { BackupResult, BackupFilters, DatabaseType, BackupStatus, DatabaseConfig } from '../../types'
-import { FilterBar, FilterSelect, ResponsiveTable, Column } from '../../components/common'
+import { FilterBar, FilterSelect, ResponsiveTable, Column, LoadingOverlay, TableSkeleton } from '../../components/common'
 import { useSettings } from '../../contexts/SettingsContext'
+import { useAuth } from '../../contexts/AuthContext'
 
 const DATABASE_DROPDOWN_LIMIT = 50
 
@@ -56,24 +66,28 @@ function getTriggeredByColor(triggeredBy: string): 'info' | 'default' {
   return triggeredBy === 'scheduler' ? 'info' : 'default'
 }
 
-interface StatsCardProps {
-  icon: React.ReactNode
-  label: string
+interface StatBoxProps {
+  title: string
   value: string | number
-  color?: string
+  icon: React.ReactNode
+  color: string
 }
 
-function StatsCard({ icon, label, value, color }: StatsCardProps) {
+function StatBox({ title, value, icon, color }: StatBoxProps) {
   return (
-    <Paper sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2, flex: '1 1 auto', minWidth: { xs: 'calc(50% - 8px)', sm: 'auto' } }}>
-      <Box sx={{ color: color || 'primary.main' }}>{icon}</Box>
-      <Box>
-        <Typography variant="caption" color="textSecondary">
-          {label}
-        </Typography>
-        <Typography variant="h6" fontWeight={600}>
-          {value}
-        </Typography>
+    <Paper sx={{ p: 2, flex: '1 1 auto', minWidth: { xs: 'calc(50% - 8px)', sm: 'auto' } }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Box>
+          <Typography variant="body2" color="text.secondary" noWrap>
+            {title}
+          </Typography>
+          <Typography variant="h4" fontWeight={500}>
+            {value}
+          </Typography>
+        </Box>
+        <Box sx={{ backgroundColor: `${color}20`, borderRadius: '50%', p: 1.5, display: 'flex' }}>
+          {icon}
+        </Box>
       </Box>
     </Paper>
   )
@@ -98,6 +112,8 @@ const emptyFilters: FilterState = {
 
 export function BackupsPage() {
   const { settings } = useSettings()
+  const { canDeleteBackups } = useAuth()
+
   // Data state
   const [backups, setBackups] = useState<BackupResult[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -122,6 +138,16 @@ export function BackupsPage() {
   // Date pickers
   const [startDate, setStartDate] = useState<Dayjs | null>(null)
   const [endDate, setEndDate] = useState<Dayjs | null>(null)
+
+  // Delete functionality state
+  const [selectedBackups, setSelectedBackups] = useState<Set<string>>(new Set())
+  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; backup?: BackupResult; bulk?: boolean }>({ open: false })
+  const [deleting, setDeleting] = useState(false)
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
+    open: false,
+    message: '',
+    severity: 'success',
+  })
 
   // Initial load: get first 50 databases
   const { data: initialDbData } = useDatabases({ limit: DATABASE_DROPDOWN_LIMIT })
@@ -191,6 +217,8 @@ export function BackupsPage() {
         setBackups((prev) => [...prev, ...response.backups])
       } else {
         setBackups(response.backups)
+        // Clear selection when fetching new data
+        setSelectedBackups(new Set())
       }
 
       setCurrentPage(page)
@@ -279,6 +307,91 @@ export function BackupsPage() {
       window.open(url, '_blank')
     } catch (err) {
       console.error('Failed to get download URL:', err)
+      setSnackbar({ open: true, message: 'Failed to get download URL', severity: 'error' })
+    }
+  }
+
+  // Delete handlers
+  const handleSelectBackup = (backupId: string) => {
+    setSelectedBackups((prev) => {
+      const newSet = new Set(prev)
+      if (newSet.has(backupId)) {
+        newSet.delete(backupId)
+      } else {
+        newSet.add(backupId)
+      }
+      return newSet
+    })
+  }
+
+  const handleSelectAll = () => {
+    // Allow selecting completed (with files) and failed backups (records only)
+    const deletableBackups = backups.filter((b) => b.status === 'completed' || b.status === 'failed')
+    if (selectedBackups.size === deletableBackups.length) {
+      setSelectedBackups(new Set())
+    } else {
+      setSelectedBackups(new Set(deletableBackups.map((b) => b.id)))
+    }
+  }
+
+  const handleDeleteClick = (backup: BackupResult) => {
+    setDeleteDialog({ open: true, backup })
+  }
+
+  const handleBulkDeleteClick = () => {
+    if (selectedBackups.size === 0) return
+    setDeleteDialog({ open: true, bulk: true })
+  }
+
+  const handleDeleteConfirm = async () => {
+    setDeleting(true)
+    try {
+      if (deleteDialog.bulk) {
+        // Separate backups with files (completed) from records only (failed)
+        const selectedBackupsList = backups.filter((b) => selectedBackups.has(b.id))
+        const backupsWithFiles = selectedBackupsList.filter((b) => b.blob_name)
+        const backupsRecordsOnly = selectedBackupsList.filter((b) => !b.blob_name)
+
+        let deletedCount = 0
+
+        // Delete files (completed backups)
+        if (backupsWithFiles.length > 0) {
+          const blobNames = backupsWithFiles.map((b) => b.blob_name!)
+          const result = await backupsApi.deleteBulk(blobNames)
+          deletedCount += result.deleted
+        }
+
+        // Delete records only (failed backups)
+        for (const backup of backupsRecordsOnly) {
+          try {
+            await backupsApi.deleteRecord(backup.id)
+            deletedCount++
+          } catch (err) {
+            console.error(`Failed to delete record ${backup.id}:`, err)
+          }
+        }
+
+        setSnackbar({ open: true, message: `Deleted ${deletedCount} backup(s)`, severity: 'success' })
+        setSelectedBackups(new Set())
+      } else if (deleteDialog.backup) {
+        // Single delete
+        if (deleteDialog.backup.blob_name) {
+          // Has file - delete file (which also deletes blob)
+          await backupsApi.delete(deleteDialog.backup.blob_name)
+        } else {
+          // No file (failed backup) - delete record only
+          await backupsApi.deleteRecord(deleteDialog.backup.id)
+        }
+        setSnackbar({ open: true, message: 'Backup deleted', severity: 'success' })
+      }
+      // Refresh data
+      fetchBackups(1, false, appliedFilters)
+    } catch (err) {
+      console.error('Failed to delete backup(s):', err)
+      setSnackbar({ open: true, message: 'Failed to delete backup(s)', severity: 'error' })
+    } finally {
+      setDeleting(false)
+      setDeleteDialog({ open: false })
     }
   }
 
@@ -294,79 +407,108 @@ export function BackupsPage() {
     },
   }
 
+  // Count of deletable backups (completed with files OR failed records)
+  const deletableBackupsCount = backups.filter((b) => b.status === 'completed' || b.status === 'failed').length
+
   // Table columns definition
-  const tableColumns: Column<BackupResult>[] = useMemo(() => [
-    {
-      id: 'database',
-      label: 'Database',
-      render: (backup) => (
-        <Typography variant="body2" fontWeight={500}>
-          {backup.database_name}
-        </Typography>
-      ),
-      hideInMobileSummary: true, // shown as title
-    },
-    {
-      id: 'type',
-      label: 'Type',
-      render: (backup) => (
-        <Typography variant="body2" textTransform="uppercase" fontSize="0.75rem">
-          {backup.database_type}
-        </Typography>
-      ),
-      hideInMobileSummary: true,
-    },
-    {
-      id: 'status',
-      label: 'Status',
-      render: (backup) => (
-        <Chip
-          size="small"
-          label={backup.status}
-          color={getStatusColor(backup.status)}
-        />
-      ),
-    },
-    {
-      id: 'size',
-      label: 'Size',
-      render: (backup) => formatFileSize(backup.file_size_bytes),
-      hideInMobileSummary: true,
-    },
-    {
-      id: 'duration',
-      label: 'Duration',
-      render: (backup) => formatDuration(backup.duration_seconds),
-      hideInMobileSummary: true,
-    },
-    {
-      id: 'triggeredBy',
-      label: 'Triggered By',
-      render: (backup) => (
-        <Chip
-          size="small"
-          label={backup.triggered_by}
-          color={getTriggeredByColor(backup.triggered_by)}
-          variant="outlined"
-        />
-      ),
-      hideInMobileSummary: true,
-    },
-    {
-      id: 'date',
-      label: 'Date',
-      render: (backup) => (
-        <Box>
-          <Typography variant="body2">
-            {new Date(backup.created_at).toLocaleDateString()}
+  const tableColumns: Column<BackupResult>[] = useMemo(() => {
+    const columns: Column<BackupResult>[] = []
+
+    // Add checkbox column if user can delete
+    if (canDeleteBackups) {
+      columns.push({
+        id: 'select',
+        label: '',
+        render: (backup) => (
+          // Allow selecting completed (with files) and failed (records only) backups
+          backup.status === 'completed' || backup.status === 'failed' ? (
+            <Checkbox
+              size="small"
+              checked={selectedBackups.has(backup.id)}
+              onChange={() => handleSelectBackup(backup.id)}
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : null
+        ),
+        hideInMobileSummary: true,
+      })
+    }
+
+    columns.push(
+      {
+        id: 'database',
+        label: 'Database',
+        render: (backup) => (
+          <Typography variant="body2" fontWeight={500}>
+            {backup.database_name}
           </Typography>
-          <Typography variant="caption" color="textSecondary">
-            {new Date(backup.created_at).toLocaleTimeString()}
+        ),
+        hideInMobileSummary: true, // shown as title
+      },
+      {
+        id: 'type',
+        label: 'Type',
+        render: (backup) => (
+          <Typography variant="body2" textTransform="uppercase" fontSize="0.75rem">
+            {backup.database_type}
           </Typography>
-        </Box>
-      ),
-    },
-  ], [])
+        ),
+        hideInMobileSummary: true,
+      },
+      {
+        id: 'status',
+        label: 'Status',
+        render: (backup) => (
+          <Chip
+            size="small"
+            label={backup.status}
+            color={getStatusColor(backup.status)}
+          />
+        ),
+      },
+      {
+        id: 'size',
+        label: 'Size',
+        render: (backup) => formatFileSize(backup.file_size_bytes),
+        hideInMobileSummary: true,
+      },
+      {
+        id: 'duration',
+        label: 'Duration',
+        render: (backup) => formatDuration(backup.duration_seconds),
+        hideInMobileSummary: true,
+      },
+      {
+        id: 'triggeredBy',
+        label: 'Triggered By',
+        render: (backup) => (
+          <Chip
+            size="small"
+            label={backup.triggered_by}
+            color={getTriggeredByColor(backup.triggered_by)}
+            variant="outlined"
+          />
+        ),
+        hideInMobileSummary: true,
+      },
+      {
+        id: 'date',
+        label: 'Date',
+        render: (backup) => (
+          <Box>
+            <Typography variant="body2">
+              {new Date(backup.created_at).toLocaleDateString()}
+            </Typography>
+            <Typography variant="caption" color="textSecondary">
+              {new Date(backup.created_at).toLocaleTimeString()}
+            </Typography>
+          </Box>
+        ),
+      }
+    )
+
+    return columns
+  }, [canDeleteBackups, selectedBackups])
 
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
@@ -386,27 +528,29 @@ export function BackupsPage() {
 
         {/* Stats Bar */}
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
-          <StatsCard
-            icon={<StorageIcon />}
-            label="Loaded"
+          <StatBox
+            title="Loaded"
             value={`${stats.total}${hasMore ? '+' : ''}`}
+            icon={<StorageIcon sx={{ color: '#1976d2' }} />}
+            color="#1976d2"
           />
-          <StatsCard
-            icon={<SuccessIcon />}
-            label="Success Rate"
+          <StatBox
+            title="Success Rate"
             value={`${stats.successRate}%`}
-            color="success.main"
+            icon={<SuccessIcon sx={{ color: '#2e7d32' }} />}
+            color="#2e7d32"
           />
-          <StatsCard
-            icon={<ErrorIcon />}
-            label="Failed"
+          <StatBox
+            title="Failed"
             value={stats.failed}
-            color="error.main"
+            icon={<ErrorIcon sx={{ color: '#d32f2f' }} />}
+            color="#d32f2f"
           />
-          <StatsCard
-            icon={<ScheduleIcon />}
-            label="Total Size"
+          <StatBox
+            title="Total Size"
             value={formatFileSize(stats.totalSize)}
+            icon={<ScheduleIcon sx={{ color: '#9c27b0' }} />}
+            color="#9c27b0"
           />
         </Box>
 
@@ -495,7 +639,7 @@ export function BackupsPage() {
             slotProps={{
               textField: {
                 size: 'small',
-                sx: { width: 140 },
+                sx: { width: 160 },
                 placeholder: 'From',
               },
             }}
@@ -510,12 +654,33 @@ export function BackupsPage() {
             slotProps={{
               textField: {
                 size: 'small',
-                sx: { width: 140 },
+                sx: { width: 160 },
                 placeholder: 'To',
               },
             }}
           />
         </FilterBar>
+
+        {/* Bulk actions bar */}
+        {canDeleteBackups && selectedBackups.size > 0 && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, p: 1.5, bgcolor: 'action.selected', borderRadius: 1 }}>
+            <Typography variant="body2" fontWeight={500}>
+              {selectedBackups.size} backup(s) selected
+            </Typography>
+            <Button
+              size="small"
+              color="error"
+              variant="contained"
+              startIcon={<DeleteSweepIcon />}
+              onClick={handleBulkDeleteClick}
+            >
+              Delete Selected
+            </Button>
+            <Button size="small" onClick={() => setSelectedBackups(new Set())}>
+              Clear Selection
+            </Button>
+          </Box>
+        )}
 
         {/* Error */}
         {error && (
@@ -525,12 +690,29 @@ export function BackupsPage() {
         )}
 
         {/* Table */}
-        <Card sx={{ overflow: 'hidden' }}>
+        <Card sx={{ overflow: 'hidden', position: 'relative' }}>
+          {/* Linear progress bar - visible when loading with existing data */}
+          <LoadingOverlay loading={isLoading && backups.length > 0} />
+
           <CardContent sx={{ p: { xs: 1, sm: 0 } }}>
-            {isLoading && backups.length === 0 ? (
-              <Box sx={{ p: 2, display: 'flex', justifyContent: 'center' }}>
-                <CircularProgress size={24} />
+            {/* Select All Row */}
+            {canDeleteBackups && deletableBackupsCount > 0 && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
+                <Checkbox
+                  size="small"
+                  checked={deletableBackupsCount > 0 && selectedBackups.size === deletableBackupsCount}
+                  indeterminate={selectedBackups.size > 0 && selectedBackups.size < deletableBackupsCount}
+                  onChange={handleSelectAll}
+                />
+                <Typography variant="body2" color="text.secondary">
+                  Select all deletable backups
+                </Typography>
               </Box>
+            )}
+
+            {isLoading && backups.length === 0 ? (
+              // Initial loading: show skeleton
+              <TableSkeleton rows={8} columns={7} />
             ) : (
               <ResponsiveTable
                 columns={tableColumns}
@@ -539,7 +721,7 @@ export function BackupsPage() {
                 mobileTitle={(backup) => backup.database_name}
                 mobileSummaryColumns={['status', 'date']}
                 actions={(backup) => (
-                  <>
+                  <Box sx={{ display: 'flex', gap: 0.5 }}>
                     {backup.status === 'completed' && backup.blob_name && (
                       <Tooltip title="Download Backup">
                         <IconButton
@@ -558,7 +740,19 @@ export function BackupsPage() {
                         </IconButton>
                       </Tooltip>
                     )}
-                  </>
+                    {/* Delete button for completed and failed backups */}
+                    {canDeleteBackups && (backup.status === 'completed' || backup.status === 'failed') && (
+                      <Tooltip title={backup.blob_name ? 'Delete Backup' : 'Delete Record'}>
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => handleDeleteClick(backup)}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </Box>
                 )}
                 emptyMessage={
                   hasActiveFilters
@@ -594,6 +788,36 @@ export function BackupsPage() {
             </Box>
           </CardContent>
         </Card>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={deleteDialog.open} onClose={() => !deleting && setDeleteDialog({ open: false })}>
+          <DialogTitle>
+            {deleteDialog.bulk ? 'Delete Selected Backups?' : 'Delete Backup?'}
+          </DialogTitle>
+          <DialogContent>
+            <DialogContentText>
+              {deleteDialog.bulk
+                ? `Are you sure you want to delete ${selectedBackups.size} selected backup(s)? This action cannot be undone.`
+                : `Are you sure you want to delete the backup for "${deleteDialog.backup?.database_name}"? This action cannot be undone.`}
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDeleteDialog({ open: false })} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button onClick={handleDeleteConfirm} color="error" variant="contained" disabled={deleting}>
+              {deleting ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Snackbar */}
+        <Snackbar
+          open={snackbar.open}
+          autoHideDuration={4000}
+          onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
+          message={snackbar.message}
+        />
       </Box>
     </LocalizationProvider>
   )

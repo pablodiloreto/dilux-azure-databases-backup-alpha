@@ -206,3 +206,81 @@ export interface AccessRequestsResponse {
   requests: AccessRequest[]
   count: number
 }
+
+// Audit types
+export type AuditAction =
+  | 'backup_completed'
+  | 'backup_failed'
+  | 'backup_deleted'
+  | 'backup_deleted_bulk'
+  | 'backup_deleted_retention'
+  | 'backup_triggered'
+  | 'backup_downloaded'
+  | 'database_created'
+  | 'database_updated'
+  | 'database_deleted'
+  | 'database_test_connection'
+  | 'policy_created'
+  | 'policy_updated'
+  | 'policy_deleted'
+  | 'user_created'
+  | 'user_updated'
+  | 'user_deleted'
+  | 'user_login'
+  | 'access_request_approved'
+  | 'access_request_rejected'
+  | 'settings_updated'
+
+export type AuditResourceType =
+  | 'backup'
+  | 'database'
+  | 'policy'
+  | 'user'
+  | 'settings'
+  | 'access_request'
+
+export type AuditStatus = 'success' | 'failed'
+
+export interface AuditLog {
+  id: string
+  timestamp: string
+  user_id: string
+  user_email: string
+  action: AuditAction
+  resource_type: AuditResourceType
+  resource_id: string
+  resource_name: string
+  details?: Record<string, unknown>
+  status: AuditStatus
+  error_message?: string
+  ip_address?: string
+}
+
+export interface AuditLogsResponse {
+  logs: AuditLog[]
+  count: number
+  total: number
+  has_more: boolean
+}
+
+export interface AuditFilters {
+  startDate?: string
+  endDate?: string
+  userId?: string
+  action?: AuditAction | ''
+  resourceType?: AuditResourceType | ''
+  status?: AuditStatus | ''
+  search?: string
+  databaseType?: string  // Engine filter (mysql, postgresql, sqlserver)
+  resourceName?: string  // Alias/Target filter (partial match on resource_name)
+}
+
+export interface AuditActionOption {
+  value: string
+  label: string
+}
+
+export interface AuditResourceTypeOption {
+  value: string
+  label: string
+}

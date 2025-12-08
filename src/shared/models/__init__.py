@@ -5,6 +5,7 @@ from .backup import BackupJob, BackupResult, BackupStatus, BackupTier
 from .backup_policy import BackupPolicy, TierConfig, get_default_policies
 from .settings import AppSettings
 from .user import User, UserRole, CreateUserInput, UpdateUserInput, AccessRequest, AccessRequestStatus
+from .audit import AuditLog, AuditLogCreate, AuditAction, AuditResourceType, AuditStatus
 
 __all__ = [
     "DatabaseConfig",
@@ -23,4 +24,9 @@ __all__ = [
     "UpdateUserInput",
     "AccessRequest",
     "AccessRequestStatus",
+    "AuditLog",
+    "AuditLogCreate",
+    "AuditAction",
+    "AuditResourceType",
+    "AuditStatus",
 ]

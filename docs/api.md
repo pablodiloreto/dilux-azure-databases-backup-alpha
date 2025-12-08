@@ -307,6 +307,63 @@ Get a download URL for a backup file.
 
 ---
 
+#### `DELETE /api/backups/delete`
+
+Delete a single backup file from blob storage.
+
+**Query Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `blob_name` | string | Yes | Name of the blob to delete |
+
+**Response (Success):**
+```json
+{
+  "message": "Backup 'mysql/db-001/20240115_000005.sql.gz' deleted successfully",
+  "blob_name": "mysql/db-001/20240115_000005.sql.gz"
+}
+```
+
+**Errors:**
+- `400 Bad Request` - blob_name parameter is required
+- `404 Not Found` - Backup file not found
+
+---
+
+#### `POST /api/backups/delete-bulk`
+
+Delete multiple backup files from blob storage.
+
+**Request Body:**
+```json
+{
+  "blob_names": [
+    "mysql/db-001/20240115_000005.sql.gz",
+    "mysql/db-001/20240114_000005.sql.gz"
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Deleted 2 backup(s)",
+  "deleted_count": 2,
+  "not_found_count": 0,
+  "error_count": 0,
+  "results": {
+    "deleted": ["mysql/db-001/20240115_000005.sql.gz", "mysql/db-001/20240114_000005.sql.gz"],
+    "not_found": [],
+    "errors": []
+  }
+}
+```
+
+**Errors:**
+- `400 Bad Request` - blob_names array is required or must be an array
+
+---
+
 ## Data Models
 
 ### DatabaseConfig
@@ -635,3 +692,92 @@ Delete a backup policy. System policies cannot be deleted.
 **Errors:**
 - `400 Bad Request` - Cannot delete system policy
 - `404 Not Found` - Policy not found
+
+---
+
+### Audit Logs
+
+#### `GET /api/audit`
+
+Get audit logs with filtering and pagination. **Requires Admin role.**
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `action` | string | Filter by action type (e.g., `create_database`, `trigger_backup`) |
+| `resource_type` | string | Filter by resource type (`backup`, `database`, `policy`, `user`, `system`) |
+| `status` | string | Filter by status (`success`, `failed`) |
+| `search` | string | Search in resource names and user emails |
+| `start_date` | string | Filter from date (YYYY-MM-DD) |
+| `end_date` | string | Filter until date (YYYY-MM-DD) |
+| `limit` | integer | Results per page (default: 50) |
+| `offset` | integer | Skip N results for pagination (default: 0) |
+
+**Response:**
+```json
+{
+  "logs": [
+    {
+      "id": "audit-001",
+      "action": "create_database",
+      "resource_type": "database",
+      "resource_id": "db-001",
+      "resource_name": "Production MySQL",
+      "user_id": "user-001",
+      "user_email": "admin@example.com",
+      "status": "success",
+      "details": { "database_type": "mysql" },
+      "error_message": null,
+      "ip_address": "192.168.1.1",
+      "timestamp": "2024-01-15T12:00:00.000Z"
+    }
+  ],
+  "total": 100,
+  "has_more": true
+}
+```
+
+---
+
+#### `GET /api/audit/actions`
+
+Get list of available audit action types for filters.
+
+**Response:**
+```json
+{
+  "actions": [
+    { "value": "create_database", "label": "Create Database" },
+    { "value": "update_database", "label": "Update Database" },
+    { "value": "delete_database", "label": "Delete Database" },
+    { "value": "trigger_backup", "label": "Trigger Backup" },
+    { "value": "delete_backup", "label": "Delete Backup" },
+    { "value": "create_policy", "label": "Create Policy" },
+    { "value": "update_policy", "label": "Update Policy" },
+    { "value": "delete_policy", "label": "Delete Policy" },
+    { "value": "create_user", "label": "Create User" },
+    { "value": "update_user", "label": "Update User" },
+    { "value": "delete_user", "label": "Delete User" },
+    { "value": "approve_access", "label": "Approve Access" },
+    { "value": "reject_access", "label": "Reject Access" }
+  ]
+}
+```
+
+---
+
+#### `GET /api/audit/resource-types`
+
+Get list of available resource types for filters.
+
+**Response:**
+```json
+{
+  "resource_types": [
+    { "value": "backup", "label": "Backup" },
+    { "value": "database", "label": "Database" },
+    { "value": "policy", "label": "Policy" },
+    { "value": "user", "label": "User" },
+    { "value": "system", "label": "System" }
+  ]
+}

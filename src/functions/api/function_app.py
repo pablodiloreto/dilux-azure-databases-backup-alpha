@@ -34,8 +34,8 @@ if str(shared_path) not in sys.path:
     sys.path.insert(0, str(shared_path))
 
 from shared.config import get_settings
-from shared.models import DatabaseConfig, DatabaseType, BackupJob, BackupStatus, AppSettings, User, UserRole, BackupPolicy, TierConfig
-from shared.services import StorageService, DatabaseConfigService, get_connection_tester
+from shared.models import DatabaseConfig, DatabaseType, BackupJob, BackupStatus, AppSettings, User, UserRole, BackupPolicy, TierConfig, AuditLog, AuditAction, AuditResourceType, AuditStatus
+from shared.services import StorageService, DatabaseConfigService, get_connection_tester, get_audit_service
 from shared.exceptions import NotFoundError, ValidationError
 from shared.auth import get_current_user, require_auth, require_role
 
@@ -46,8 +46,18 @@ app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 settings = get_settings()
 storage_service = StorageService()
 db_config_service = DatabaseConfigService()
+audit_service = get_audit_service()
 
 logger = logging.getLogger(__name__)
+
+
+def get_client_ip(req: func.HttpRequest) -> str:
+    """Extract client IP address from request headers."""
+    # Check common headers for proxied requests
+    forwarded = req.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return req.headers.get("X-Real-IP", "unknown")
 
 
 # ===========================================
@@ -302,6 +312,11 @@ def list_databases(req: func.HttpRequest) -> func.HttpResponse:
 def create_database(req: func.HttpRequest) -> func.HttpResponse:
     """Create a new database configuration."""
     try:
+        # Get current user for audit
+        auth_result = get_current_user(req, storage_service)
+        user_id = auth_result.user.id if auth_result.authenticated else "anonymous"
+        user_email = auth_result.user.email if auth_result.authenticated else "anonymous"
+
         body = req.get_json()
 
         # Create config from request body
@@ -323,6 +338,22 @@ def create_database(req: func.HttpRequest) -> func.HttpResponse:
         )
 
         created = db_config_service.create(config)
+
+        # Audit log
+        audit_service.log(
+            user_id=user_id,
+            user_email=user_email,
+            action=AuditAction.DATABASE_CREATED,
+            resource_type=AuditResourceType.DATABASE,
+            resource_id=created.id,
+            resource_name=created.name,
+            details={
+                "database_type": created.database_type.value,
+                "host": created.host,
+                "policy_id": created.policy_id,
+            },
+            ip_address=get_client_ip(req),
+        )
 
         return func.HttpResponse(
             json.dumps({
@@ -450,6 +481,11 @@ def get_database(req: func.HttpRequest) -> func.HttpResponse:
 def update_database(req: func.HttpRequest) -> func.HttpResponse:
     """Update a database configuration."""
     try:
+        # Get current user for audit
+        auth_result = get_current_user(req, storage_service)
+        user_id = auth_result.user.id if auth_result.authenticated else "anonymous"
+        user_email = auth_result.user.email if auth_result.authenticated else "anonymous"
+
         database_id = req.route_params.get("database_id")
         body = req.get_json()
 
@@ -462,17 +498,33 @@ def update_database(req: func.HttpRequest) -> func.HttpResponse:
                 status_code=404,
             )
 
-        # Update fields
+        # Track changes for audit
+        changes = {}
         for field in ["name", "host", "port", "database_name", "username",
                       "policy_id", "enabled", "backup_destination",
                       "compression", "tags", "password_secret_name"]:
-            if field in body:
+            if field in body and getattr(existing, field) != body[field]:
+                changes[field] = {"from": getattr(existing, field), "to": body[field]}
                 setattr(existing, field, body[field])
 
         if "database_type" in body:
+            if existing.database_type.value != body["database_type"]:
+                changes["database_type"] = {"from": existing.database_type.value, "to": body["database_type"]}
             existing.database_type = DatabaseType(body["database_type"])
 
         updated = db_config_service.update(existing)
+
+        # Audit log
+        audit_service.log(
+            user_id=user_id,
+            user_email=user_email,
+            action=AuditAction.DATABASE_UPDATED,
+            resource_type=AuditResourceType.DATABASE,
+            resource_id=updated.id,
+            resource_name=updated.name,
+            details={"changes": changes} if changes else None,
+            ip_address=get_client_ip(req),
+        )
 
         return func.HttpResponse(
             json.dumps({
@@ -501,7 +553,24 @@ def update_database(req: func.HttpRequest) -> func.HttpResponse:
 def delete_database(req: func.HttpRequest) -> func.HttpResponse:
     """Delete a database configuration."""
     try:
+        # Get current user for audit
+        auth_result = get_current_user(req, storage_service)
+        user_id = auth_result.user.id if auth_result.authenticated else "anonymous"
+        user_email = auth_result.user.email if auth_result.authenticated else "anonymous"
+
         database_id = req.route_params.get("database_id")
+
+        # Get database info before deleting (for audit)
+        existing = db_config_service.get(database_id)
+        if not existing:
+            return func.HttpResponse(
+                json.dumps({"error": f"Database '{database_id}' not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+
+        database_name = existing.name
+
         deleted = db_config_service.delete(database_id)
 
         if not deleted:
@@ -510,6 +579,21 @@ def delete_database(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype="application/json",
                 status_code=404,
             )
+
+        # Audit log
+        audit_service.log(
+            user_id=user_id,
+            user_email=user_email,
+            action=AuditAction.DATABASE_DELETED,
+            resource_type=AuditResourceType.DATABASE,
+            resource_id=database_id,
+            resource_name=database_name,
+            details={
+                "database_type": existing.database_type.value,
+                "host": existing.host,
+            },
+            ip_address=get_client_ip(req),
+        )
 
         return func.HttpResponse(
             json.dumps({"message": f"Database '{database_id}' deleted"}),
@@ -534,6 +618,11 @@ def delete_database(req: func.HttpRequest) -> func.HttpResponse:
 def trigger_backup(req: func.HttpRequest) -> func.HttpResponse:
     """Trigger a manual backup for a database."""
     try:
+        # Get current user for audit
+        auth_result = get_current_user(req, storage_service)
+        user_id = auth_result.user.id if auth_result.authenticated else "anonymous"
+        user_email = auth_result.user.email if auth_result.authenticated else "anonymous"
+
         database_id = req.route_params.get("database_id")
         config = db_config_service.get(database_id)
 
@@ -561,6 +650,23 @@ def trigger_backup(req: func.HttpRequest) -> func.HttpResponse:
 
         # Send to queue
         message_id = storage_service.send_backup_job(job.to_queue_message())
+
+        # Audit log
+        audit_service.log(
+            user_id=user_id,
+            user_email=user_email,
+            action=AuditAction.BACKUP_TRIGGERED,
+            resource_type=AuditResourceType.BACKUP,
+            resource_id=job.id,
+            resource_name=config.name,
+            details={
+                "database_id": config.id,
+                "database_alias": config.name,
+                "database_type": config.database_type.value,
+                "triggered_by": "manual",
+            },
+            ip_address=get_client_ip(req),
+        )
 
         return func.HttpResponse(
             json.dumps({
@@ -685,6 +791,11 @@ def download_backup(req: func.HttpRequest) -> func.HttpResponse:
     - expiry_hours: int - Hours until URL expires (default 24)
     """
     try:
+        # Get current user for audit
+        auth_result = get_current_user(req, storage_service)
+        user_id = auth_result.user.id if auth_result.authenticated else "anonymous"
+        user_email = auth_result.user.email if auth_result.authenticated else "anonymous"
+
         blob_name = req.params.get("blob_name")
         if not blob_name:
             return func.HttpResponse(
@@ -700,6 +811,41 @@ def download_backup(req: func.HttpRequest) -> func.HttpResponse:
             expiry_hours=expiry_hours,
         )
 
+        # Extract database info from blob_name (format: engine/database_id/filename)
+        blob_parts = blob_name.split("/")
+        database_type = blob_parts[0] if len(blob_parts) >= 1 else None
+        database_id = blob_parts[1] if len(blob_parts) >= 2 else None
+        file_name = blob_parts[-1] if blob_parts else blob_name
+
+        # Try to get database alias
+        database_alias = None
+        if database_id:
+            try:
+                db_config = db_config_service.get(database_id)
+                if db_config:
+                    database_alias = db_config.name
+            except Exception:
+                pass
+
+        # Audit log
+        audit_service.log(
+            user_id=user_id,
+            user_email=user_email,
+            action=AuditAction.BACKUP_DOWNLOADED,
+            resource_type=AuditResourceType.BACKUP,
+            resource_id=blob_name,
+            resource_name=database_alias or file_name,
+            details={
+                "blob_name": blob_name,
+                "file_name": file_name,
+                "database_type": database_type,
+                "database_id": database_id,
+                "database_alias": database_alias,
+                "expiry_hours": expiry_hours,
+            },
+            ip_address=get_client_ip(req),
+        )
+
         return func.HttpResponse(
             json.dumps({
                 "download_url": download_url,
@@ -711,6 +857,255 @@ def download_backup(req: func.HttpRequest) -> func.HttpResponse:
         )
     except Exception as e:
         logger.exception("Error generating download URL")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="backups/delete", methods=["DELETE"])
+def delete_backup_file(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Delete a backup file from blob storage.
+
+    Query params:
+    - blob_name: str - Name of the blob to delete
+    """
+    try:
+        # Get current user for audit
+        auth_result = get_current_user(req, storage_service)
+        user_id = auth_result.user.id if auth_result.authenticated else "anonymous"
+        user_email = auth_result.user.email if auth_result.authenticated else "anonymous"
+
+        blob_name = req.params.get("blob_name")
+        if not blob_name:
+            return func.HttpResponse(
+                json.dumps({"error": "blob_name parameter is required"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        deleted = storage_service.delete_backup(blob_name=blob_name)
+
+        if deleted:
+            logger.info(f"Backup deleted: {blob_name}")
+
+            # Extract database info from blob_name (format: engine/database_id/filename)
+            blob_parts = blob_name.split("/")
+            database_type = blob_parts[0] if len(blob_parts) >= 1 else None
+            database_id = blob_parts[1] if len(blob_parts) >= 2 else None
+            file_name = blob_parts[-1] if blob_parts else blob_name
+
+            # Try to get database alias
+            database_alias = None
+            if database_id:
+                try:
+                    db_config = db_config_service.get(database_id)
+                    if db_config:
+                        database_alias = db_config.name
+                except Exception:
+                    pass
+
+            # Audit log
+            audit_service.log(
+                user_id=user_id,
+                user_email=user_email,
+                action=AuditAction.BACKUP_DELETED,
+                resource_type=AuditResourceType.BACKUP,
+                resource_id=blob_name,
+                resource_name=database_alias or file_name,
+                details={
+                    "blob_name": blob_name,
+                    "file_name": file_name,
+                    "database_type": database_type,
+                    "database_id": database_id,
+                    "database_alias": database_alias,
+                    "type": "file",
+                },
+                ip_address=get_client_ip(req),
+            )
+
+            return func.HttpResponse(
+                json.dumps({
+                    "message": f"Backup '{blob_name}' deleted successfully",
+                    "blob_name": blob_name,
+                }),
+                mimetype="application/json",
+                status_code=200,
+            )
+        else:
+            return func.HttpResponse(
+                json.dumps({"error": f"Backup '{blob_name}' not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+    except Exception as e:
+        logger.exception("Error deleting backup")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="backups/{backup_id}", methods=["DELETE"])
+def delete_backup_record(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Delete a backup record from the history table.
+    Useful for cleaning up failed backup records that have no associated file.
+
+    Path params:
+    - backup_id: str - ID of the backup record to delete
+    """
+    try:
+        # Get current user for audit
+        auth_result = get_current_user(req, storage_service)
+        user_id = auth_result.user.id if auth_result.authenticated else "anonymous"
+        user_email = auth_result.user.email if auth_result.authenticated else "anonymous"
+
+        backup_id = req.route_params.get("backup_id")
+        if not backup_id:
+            return func.HttpResponse(
+                json.dumps({"error": "backup_id is required"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        deleted_backup = storage_service.delete_backup_result(backup_id)
+
+        if deleted_backup:
+            logger.info(f"Backup record deleted: {backup_id}")
+
+            # Audit log - resource_name is just the database name, backup status goes in details
+            audit_service.log(
+                user_id=user_id,
+                user_email=user_email,
+                action=AuditAction.BACKUP_DELETED,
+                resource_type=AuditResourceType.BACKUP,
+                resource_id=backup_id,
+                resource_name=deleted_backup.database_name,
+                details={
+                    "backup_id": backup_id,
+                    "type": "record_only",
+                    "database_name": deleted_backup.database_name,
+                    "database_type": deleted_backup.database_type.value,
+                    "backup_status": deleted_backup.status.value,
+                },
+                ip_address=get_client_ip(req),
+            )
+
+            return func.HttpResponse(
+                json.dumps({
+                    "message": f"Backup record '{backup_id}' deleted successfully",
+                    "backup_id": backup_id,
+                }),
+                mimetype="application/json",
+                status_code=200,
+            )
+        else:
+            return func.HttpResponse(
+                json.dumps({"error": f"Backup record '{backup_id}' not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+    except Exception as e:
+        logger.exception("Error deleting backup record")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="backups/delete-bulk", methods=["POST"])
+def delete_backup_files_bulk(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Delete multiple backup files from blob storage.
+
+    Request body:
+    {
+        "blob_names": ["path/to/backup1.sql.gz", "path/to/backup2.sql.gz"]
+    }
+    """
+    try:
+        # Get current user for audit
+        auth_result = get_current_user(req, storage_service)
+        user_id = auth_result.user.id if auth_result.authenticated else "anonymous"
+        user_email = auth_result.user.email if auth_result.authenticated else "anonymous"
+
+        body = req.get_json()
+        blob_names = body.get("blob_names", [])
+
+        if not blob_names:
+            return func.HttpResponse(
+                json.dumps({"error": "blob_names array is required"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        if not isinstance(blob_names, list):
+            return func.HttpResponse(
+                json.dumps({"error": "blob_names must be an array"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        results = {
+            "deleted": [],
+            "not_found": [],
+            "errors": [],
+        }
+
+        for blob_name in blob_names:
+            try:
+                deleted = storage_service.delete_backup(blob_name=blob_name)
+                if deleted:
+                    results["deleted"].append(blob_name)
+                else:
+                    results["not_found"].append(blob_name)
+            except Exception as e:
+                results["errors"].append({"blob_name": blob_name, "error": str(e)})
+
+        logger.info(f"Bulk delete: {len(results['deleted'])} deleted, {len(results['not_found'])} not found, {len(results['errors'])} errors")
+
+        # Audit log for bulk delete
+        if results["deleted"]:
+            audit_service.log(
+                user_id=user_id,
+                user_email=user_email,
+                action=AuditAction.BACKUP_DELETED_BULK,
+                resource_type=AuditResourceType.BACKUP,
+                resource_id="bulk",
+                resource_name=f"{len(results['deleted'])} backups",
+                details={
+                    "deleted_count": len(results["deleted"]),
+                    "deleted_files": results["deleted"],
+                    "not_found_count": len(results["not_found"]),
+                    "error_count": len(results["errors"]),
+                },
+                ip_address=get_client_ip(req),
+            )
+
+        return func.HttpResponse(
+            json.dumps({
+                "message": f"Deleted {len(results['deleted'])} backup(s)",
+                "deleted_count": len(results["deleted"]),
+                "not_found_count": len(results["not_found"]),
+                "error_count": len(results["errors"]),
+                "results": results,
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except ValueError:
+        return func.HttpResponse(
+            json.dumps({"error": "Invalid JSON body"}),
+            mimetype="application/json",
+            status_code=400,
+        )
+    except Exception as e:
+        logger.exception("Error in bulk delete")
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
             mimetype="application/json",
@@ -838,21 +1233,45 @@ def get_app_settings(req: func.HttpRequest) -> func.HttpResponse:
 def update_app_settings(req: func.HttpRequest) -> func.HttpResponse:
     """Update application settings."""
     try:
+        # Get current user for audit
+        auth_result = get_current_user(req, storage_service)
+        user_id = auth_result.user.id if auth_result.authenticated else "anonymous"
+        user_email = auth_result.user.email if auth_result.authenticated else "anonymous"
+
         body = req.get_json()
 
         # Get current settings and update
         current = storage_service.get_settings()
 
-        if "dark_mode" in body:
+        # Track changes for audit
+        changes = {}
+        if "dark_mode" in body and current.dark_mode != body["dark_mode"]:
+            changes["dark_mode"] = {"from": current.dark_mode, "to": body["dark_mode"]}
             current.dark_mode = body["dark_mode"]
-        if "default_retention_days" in body:
+        if "default_retention_days" in body and current.default_retention_days != body["default_retention_days"]:
+            changes["default_retention_days"] = {"from": current.default_retention_days, "to": body["default_retention_days"]}
             current.default_retention_days = body["default_retention_days"]
-        if "default_compression" in body:
+        if "default_compression" in body and current.default_compression != body["default_compression"]:
+            changes["default_compression"] = {"from": current.default_compression, "to": body["default_compression"]}
             current.default_compression = body["default_compression"]
-        if "access_requests_enabled" in body:
+        if "access_requests_enabled" in body and current.access_requests_enabled != body["access_requests_enabled"]:
+            changes["access_requests_enabled"] = {"from": current.access_requests_enabled, "to": body["access_requests_enabled"]}
             current.access_requests_enabled = body["access_requests_enabled"]
 
         saved = storage_service.save_settings(current)
+
+        # Audit log
+        if changes:
+            audit_service.log(
+                user_id=user_id,
+                user_email=user_email,
+                action=AuditAction.SETTINGS_UPDATED,
+                resource_type=AuditResourceType.SETTINGS,
+                resource_id="app-settings",
+                resource_name="Application Settings",
+                details={"changes": changes},
+                ip_address=get_client_ip(req),
+            )
 
         return func.HttpResponse(
             json.dumps({
@@ -1123,6 +1542,18 @@ def create_user(req: func.HttpRequest) -> func.HttpResponse:
 
         saved = storage_service.save_user(user)
 
+        # Audit log
+        audit_service.log(
+            user_id=auth_result.user.id,
+            user_email=auth_result.user.email,
+            action=AuditAction.USER_CREATED,
+            resource_type=AuditResourceType.USER,
+            resource_id=saved.id,
+            resource_name=saved.email,
+            details={"role": role.value},
+            ip_address=get_client_ip(req),
+        )
+
         return func.HttpResponse(
             json.dumps({
                 "message": "User created. They will be activated on first Azure AD login.",
@@ -1243,13 +1674,21 @@ def update_user(req: func.HttpRequest) -> func.HttpResponse:
                     status_code=400,
                 )
 
+        # Track changes for audit
+        changes = {}
+
         # Update fields
         if "name" in body:
+            if user.name != body["name"]:
+                changes["name"] = {"from": user.name, "to": body["name"]}
             user.name = body["name"]
 
         if "role" in body:
             try:
-                user.role = UserRole(body["role"].lower())
+                new_role = UserRole(body["role"].lower())
+                if user.role != new_role:
+                    changes["role"] = {"from": user.role.value, "to": new_role.value}
+                user.role = new_role
             except ValueError:
                 return func.HttpResponse(
                     json.dumps({"error": f"Invalid role: {body['role']}"}),
@@ -1258,9 +1697,23 @@ def update_user(req: func.HttpRequest) -> func.HttpResponse:
                 )
 
         if "enabled" in body:
+            if user.enabled != body["enabled"]:
+                changes["enabled"] = {"from": user.enabled, "to": body["enabled"]}
             user.enabled = body["enabled"]
 
         saved = storage_service.save_user(user)
+
+        # Audit log
+        audit_service.log(
+            user_id=auth_result.user.id,
+            user_email=auth_result.user.email,
+            action=AuditAction.USER_UPDATED,
+            resource_type=AuditResourceType.USER,
+            resource_id=saved.id,
+            resource_name=saved.email,
+            details={"changes": changes} if changes else None,
+            ip_address=get_client_ip(req),
+        )
 
         return func.HttpResponse(
             json.dumps({
@@ -1310,6 +1763,17 @@ def delete_user(req: func.HttpRequest) -> func.HttpResponse:
                 status_code=400,
             )
 
+        # Get user info before deleting (for audit)
+        user_to_delete = storage_service.get_user(user_id)
+        if not user_to_delete:
+            return func.HttpResponse(
+                json.dumps({"error": f"User '{user_id}' not found"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+
+        user_email = user_to_delete.email
+
         deleted = storage_service.delete_user(user_id)
 
         if not deleted:
@@ -1318,6 +1782,17 @@ def delete_user(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype="application/json",
                 status_code=404,
             )
+
+        # Audit log
+        audit_service.log(
+            user_id=auth_result.user.id,
+            user_email=auth_result.user.email,
+            action=AuditAction.USER_DELETED,
+            resource_type=AuditResourceType.USER,
+            resource_id=user_id,
+            resource_name=user_email,
+            ip_address=get_client_ip(req),
+        )
 
         return func.HttpResponse(
             json.dumps({"message": f"User '{user_id}' deleted"}),
@@ -1471,6 +1946,18 @@ def approve_access_request(req: func.HttpRequest) -> func.HttpResponse:
         access_request.resolved_by = auth_result.user.id
         storage_service.save_access_request(access_request)
 
+        # Audit log
+        audit_service.log(
+            user_id=auth_result.user.id,
+            user_email=auth_result.user.email,
+            action=AuditAction.ACCESS_REQUEST_APPROVED,
+            resource_type=AuditResourceType.ACCESS_REQUEST,
+            resource_id=request_id,
+            resource_name=access_request.email,
+            details={"role": role.value},
+            ip_address=get_client_ip(req),
+        )
+
         return func.HttpResponse(
             json.dumps({
                 "message": f"Access request approved. User '{access_request.email}' created with role '{role.value}'",
@@ -1549,6 +2036,18 @@ def reject_access_request(req: func.HttpRequest) -> func.HttpResponse:
         access_request.resolved_by = auth_result.user.id
         access_request.rejection_reason = reason
         storage_service.save_access_request(access_request)
+
+        # Audit log
+        audit_service.log(
+            user_id=auth_result.user.id,
+            user_email=auth_result.user.email,
+            action=AuditAction.ACCESS_REQUEST_REJECTED,
+            resource_type=AuditResourceType.ACCESS_REQUEST,
+            resource_id=request_id,
+            resource_name=access_request.email,
+            details={"reason": reason} if reason else None,
+            ip_address=get_client_ip(req),
+        )
 
         return func.HttpResponse(
             json.dumps({
@@ -1653,6 +2152,19 @@ def create_backup_policy(req: func.HttpRequest) -> func.HttpResponse:
 
         saved = storage_service.save_backup_policy(policy)
 
+        # Audit log
+        auth_result = get_current_user(req, storage_service)
+        if auth_result.authenticated:
+            audit_service.log(
+                user_id=auth_result.user.id,
+                user_email=auth_result.user.email,
+                action=AuditAction.POLICY_CREATED,
+                resource_type=AuditResourceType.POLICY,
+                resource_id=saved.id,
+                resource_name=saved.name,
+                ip_address=get_client_ip(req),
+            )
+
         return func.HttpResponse(
             json.dumps({
                 "message": "Backup policy created",
@@ -1750,6 +2262,19 @@ def update_backup_policy(req: func.HttpRequest) -> func.HttpResponse:
 
         saved = storage_service.save_backup_policy(existing)
 
+        # Audit log
+        auth_result = get_current_user(req, storage_service)
+        if auth_result.authenticated:
+            audit_service.log(
+                user_id=auth_result.user.id,
+                user_email=auth_result.user.email,
+                action=AuditAction.POLICY_UPDATED,
+                resource_type=AuditResourceType.POLICY,
+                resource_id=saved.id,
+                resource_name=saved.name,
+                ip_address=get_client_ip(req),
+            )
+
         return func.HttpResponse(
             json.dumps({
                 "message": "Backup policy updated",
@@ -1812,6 +2337,8 @@ def delete_backup_policy(req: func.HttpRequest) -> func.HttpResponse:
                 status_code=400,
             )
 
+        policy_name = policy.name
+
         deleted = storage_service.delete_backup_policy(policy_id)
 
         if not deleted:
@@ -1821,6 +2348,19 @@ def delete_backup_policy(req: func.HttpRequest) -> func.HttpResponse:
                 status_code=500,
             )
 
+        # Audit log
+        auth_result = get_current_user(req, storage_service)
+        if auth_result.authenticated:
+            audit_service.log(
+                user_id=auth_result.user.id,
+                user_email=auth_result.user.email,
+                action=AuditAction.POLICY_DELETED,
+                resource_type=AuditResourceType.POLICY,
+                resource_id=policy_id,
+                resource_name=policy_name,
+                ip_address=get_client_ip(req),
+            )
+
         return func.HttpResponse(
             json.dumps({"message": f"Policy '{policy_id}' deleted"}),
             mimetype="application/json",
@@ -1828,6 +2368,191 @@ def delete_backup_policy(req: func.HttpRequest) -> func.HttpResponse:
         )
     except Exception as e:
         logger.exception("Error deleting backup policy")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+# ===========================================
+# Audit Log Endpoints
+# ===========================================
+
+
+@app.route(route="audit", methods=["GET"])
+def list_audit_logs(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    List audit logs with filters and pagination.
+
+    Query params:
+    - start_date: str - Filter from date (YYYY-MM-DD)
+    - end_date: str - Filter until date (YYYY-MM-DD)
+    - user_id: str - Filter by user ID
+    - action: str - Filter by action type
+    - resource_type: str - Filter by resource type
+    - status: str - Filter by status (success/failed)
+    - search: str - Search in resource_name and user_email
+    - limit: int - Results per page (default: 50)
+    - offset: int - Skip N results (default: 0)
+    """
+    try:
+        # Parse query params
+        start_date = None
+        end_date = None
+
+        if req.params.get("start_date"):
+            start_date = datetime.strptime(req.params["start_date"], "%Y-%m-%d")
+        if req.params.get("end_date"):
+            end_date = datetime.strptime(req.params["end_date"], "%Y-%m-%d")
+
+        # Parse enum filters
+        action = None
+        if req.params.get("action"):
+            try:
+                action = AuditAction(req.params["action"])
+            except ValueError:
+                pass
+
+        resource_type = None
+        if req.params.get("resource_type"):
+            try:
+                resource_type = AuditResourceType(req.params["resource_type"])
+            except ValueError:
+                pass
+
+        status = None
+        if req.params.get("status"):
+            try:
+                status = AuditStatus(req.params["status"])
+            except ValueError:
+                pass
+
+        user_id = req.params.get("user_id")
+        search = req.params.get("search")
+        database_type = req.params.get("database_type")
+        resource_name = req.params.get("resource_name")
+        limit = int(req.params.get("limit", "50"))
+        offset = int(req.params.get("offset", "0"))
+
+        # Query audit logs
+        logs, total = audit_service.get_logs(
+            start_date=start_date,
+            end_date=end_date,
+            user_id=user_id,
+            action=action,
+            resource_type=resource_type,
+            status=status,
+            search=search,
+            database_type=database_type,
+            resource_name=resource_name,
+            limit=limit,
+            offset=offset,
+        )
+
+        # Serialize logs
+        logs_data = []
+        for log in logs:
+            log_dict = log.model_dump(mode="json")
+            log_dict["action"] = log.action.value
+            log_dict["resource_type"] = log.resource_type.value
+            log_dict["status"] = log.status.value
+            logs_data.append(log_dict)
+
+        return func.HttpResponse(
+            json.dumps({
+                "logs": logs_data,
+                "count": len(logs_data),
+                "total": total,
+                "has_more": offset + len(logs_data) < total,
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error listing audit logs")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="audit/actions", methods=["GET"])
+def list_audit_actions(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    List available audit action types for filter dropdown.
+    """
+    try:
+        actions = [
+            {"value": action.value, "label": action.value.replace("_", " ").title()}
+            for action in AuditAction
+        ]
+        return func.HttpResponse(
+            json.dumps({"actions": actions}),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error listing audit actions")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="audit/resource-types", methods=["GET"])
+def list_audit_resource_types(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    List available audit resource types for filter dropdown.
+    """
+    try:
+        resource_types = [
+            {"value": rt.value, "label": rt.value.replace("_", " ").title()}
+            for rt in AuditResourceType
+        ]
+        return func.HttpResponse(
+            json.dumps({"resource_types": resource_types}),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error listing audit resource types")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="audit/stats", methods=["GET"])
+def get_audit_stats(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Get audit log statistics.
+
+    Query params:
+    - start_date: str - Filter from date (YYYY-MM-DD)
+    - end_date: str - Filter until date (YYYY-MM-DD)
+    """
+    try:
+        start_date = None
+        end_date = None
+
+        if req.params.get("start_date"):
+            start_date = datetime.strptime(req.params["start_date"], "%Y-%m-%d")
+        if req.params.get("end_date"):
+            end_date = datetime.strptime(req.params["end_date"], "%Y-%m-%d")
+
+        stats = audit_service.get_stats(start_date=start_date, end_date=end_date)
+
+        return func.HttpResponse(
+            json.dumps(stats),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error getting audit stats")
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
             mimetype="application/json",

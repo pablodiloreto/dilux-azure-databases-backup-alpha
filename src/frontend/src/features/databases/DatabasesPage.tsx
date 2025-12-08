@@ -34,7 +34,7 @@ import { DatabaseFormDialog } from './DatabaseFormDialog'
 import { apiClient } from '../../api/client'
 import { databasesApi } from '../../api/databases'
 import { getPolicySummary } from '../../utils/format'
-import { FilterBar, FilterSelect, LoadMore, ResponsiveTable, Column } from '../../components/common'
+import { FilterBar, FilterSelect, LoadMore, ResponsiveTable, Column, LoadingOverlay, TableSkeleton } from '../../components/common'
 import { useSettings } from '../../contexts/SettingsContext'
 
 const DATABASE_TYPES = [
@@ -514,14 +514,14 @@ export function DatabasesPage() {
       )}
 
       {/* Table */}
-      <Card sx={{ overflow: 'hidden' }}>
+      <Card sx={{ overflow: 'hidden', position: 'relative' }}>
+        {/* Linear progress bar - visible when loading with existing data */}
+        <LoadingOverlay loading={isLoading && databases.length > 0} />
+
         <CardContent sx={{ p: { xs: 1, sm: 0 } }}>
           {isLoading && databases.length === 0 ? (
-            <Box sx={{ p: 3 }}>
-              {[1, 2, 3, 4].map((i) => (
-                <Skeleton key={i} height={60} sx={{ my: 1 }} />
-              ))}
-            </Box>
+            // Initial loading: show skeleton
+            <TableSkeleton rows={6} columns={5} />
           ) : (
             <ResponsiveTable
               columns={tableColumns}

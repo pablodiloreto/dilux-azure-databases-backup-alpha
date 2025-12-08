@@ -1,5 +1,6 @@
 export { FilterBar, FilterSelect } from './FilterBar'
 export type { FilterOption } from './FilterBar'
 export { LoadMore } from './LoadMore'
+export { LoadingOverlay, TableSkeleton, CardListSkeleton, StatsCardsSkeleton } from './LoadingOverlay'
 export { ResponsiveTable } from './ResponsiveTable'
 export type { Column } from './ResponsiveTable'

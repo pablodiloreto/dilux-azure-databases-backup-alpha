@@ -16,6 +16,7 @@ interface AuthContextType {
   canManageUsers: boolean
   canManageDatabases: boolean
   canTriggerBackup: boolean
+  canDeleteBackups: boolean
   canManageSettings: boolean
 }
 
@@ -60,6 +61,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const canManageUsers = isAdmin
   const canManageDatabases = isAdmin || isOperator
   const canTriggerBackup = isAdmin || isOperator
+  const canDeleteBackups = isAdmin || isOperator
   const canManageSettings = isAdmin
 
   const value: AuthContextType = {
@@ -75,6 +77,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     canManageUsers,
     canManageDatabases,
     canTriggerBackup,
+    canDeleteBackups,
     canManageSettings,
   }
 

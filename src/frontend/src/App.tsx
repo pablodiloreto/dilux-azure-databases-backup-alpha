@@ -8,6 +8,7 @@ import { StoragePage } from './features/storage/StoragePage'
 import { SettingsPage } from './features/settings/SettingsPage'
 import { StatusPage } from './features/status/StatusPage'
 import { UsersPage } from './features/users/UsersPage'
+import { AuditPage } from './features/audit/AuditPage'
 import { AuthProvider } from './contexts/AuthContext'
 
 function App() {
@@ -24,6 +25,7 @@ function App() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/status" element={<StatusPage />} />
           <Route path="/users" element={<UsersPage />} />
+          <Route path="/audit" element={<AuditPage />} />
         </Routes>
       </MainLayout>
     </AuthProvider>

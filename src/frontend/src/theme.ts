@@ -83,6 +83,32 @@ export const getTheme = (mode: 'light' | 'dark') =>
           },
         },
       },
+      // Disable scroll lock globally to prevent layout shift
+      MuiDialog: {
+        defaultProps: {
+          disableScrollLock: true,
+        },
+      },
+      MuiMenu: {
+        defaultProps: {
+          disableScrollLock: true,
+        },
+      },
+      MuiPopover: {
+        defaultProps: {
+          disableScrollLock: true,
+        },
+      },
+      MuiModal: {
+        defaultProps: {
+          disableScrollLock: true,
+        },
+      },
+      MuiDrawer: {
+        defaultProps: {
+          disableScrollLock: true,
+        },
+      },
     },
   })
 

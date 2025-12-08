@@ -39,6 +39,7 @@ import {
   MonitorHeart as StatusIcon,
   People as UsersIcon,
   Inventory as StorageStatsIcon,
+  History as AuditIcon,
 } from '@mui/icons-material'
 import { useSettings } from '../../contexts/SettingsContext'
 import { useAuth } from '../../contexts/AuthContext'
@@ -62,8 +63,9 @@ const menuItems = [
   { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
   { text: 'Databases', icon: <StorageIcon />, path: '/databases' },
   { text: 'Backups', icon: <BackupIcon />, path: '/backups' },
-  { text: 'Policies', icon: <PolicyIcon />, path: '/policies' },
   { text: 'Storage', icon: <StorageStatsIcon />, path: '/storage' },
+  { text: 'Policies', icon: <PolicyIcon />, path: '/policies' },
+  { text: 'Audit', icon: <AuditIcon />, path: '/audit', adminOnly: true },
 ]
 
 // Breadcrumb config
@@ -76,6 +78,7 @@ const breadcrumbNameMap: Record<string, string> = {
   '/settings': 'Settings',
   '/status': 'System Status',
   '/users': 'User Management',
+  '/audit': 'Audit',
 }
 
 export function MainLayout({ children }: MainLayoutProps) {
@@ -143,7 +146,9 @@ export function MainLayout({ children }: MainLayoutProps) {
 
       {/* Main menu */}
       <List sx={{ flexGrow: 1 }}>
-        {menuItems.map((item) => (
+        {menuItems
+          .filter((item) => !item.adminOnly || canManageUsers)
+          .map((item) => (
           <ListItem key={item.text} disablePadding sx={{ display: 'block' }}>
             <Tooltip title={showText ? '' : item.text} placement="right" arrow>
               <ListItemButton

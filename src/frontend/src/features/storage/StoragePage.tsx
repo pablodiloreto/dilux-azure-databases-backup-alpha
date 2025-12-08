@@ -8,19 +8,15 @@ import {
   Paper,
   Skeleton,
   Alert,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Chip,
   LinearProgress,
+  Button,
 } from '@mui/material'
 import {
   Storage as StorageIcon,
   Folder as FolderIcon,
   PieChart as PieChartIcon,
+  Refresh as RefreshIcon,
 } from '@mui/icons-material'
 import { apiClient } from '../../api/client'
 
@@ -168,20 +164,21 @@ export function StoragePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        setLoading(true)
-        const response = await apiClient.get<StorageStats>('/storage-stats')
-        setStats(response.data)
-        setError(null)
-      } catch (err) {
-        console.error('Failed to load storage stats:', err)
-        setError('Failed to load storage statistics')
-      } finally {
-        setLoading(false)
-      }
+  const fetchStats = async () => {
+    try {
+      setLoading(true)
+      const response = await apiClient.get<StorageStats>('/storage-stats')
+      setStats(response.data)
+      setError(null)
+    } catch (err) {
+      console.error('Failed to load storage stats:', err)
+      setError('Failed to load storage statistics')
+    } finally {
+      setLoading(false)
     }
+  }
+
+  useEffect(() => {
     fetchStats()
   }, [])
 
@@ -201,11 +198,19 @@ export function StoragePage() {
   return (
     <Box sx={{ maxWidth: '100%', overflow: 'hidden' }}>
       {/* Header */}
-      <Typography variant="h4" gutterBottom>
-        Storage
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, flexWrap: 'wrap', gap: 1 }}>
+        <Typography variant="h4">Storage</Typography>
+        <Button
+          variant="outlined"
+          startIcon={<RefreshIcon />}
+          onClick={fetchStats}
+          disabled={loading}
+        >
+          Refresh
+        </Button>
+      </Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        View storage usage statistics and breakdown by database
+        Storage usage statistics for backup files
       </Typography>
 
       {error && (
@@ -263,7 +268,7 @@ export function StoragePage() {
           </Card>
         </Grid>
 
-        {/* Type Breakdown Table */}
+        {/* Type Breakdown */}
         <Grid item xs={12} md={7}>
           <Card sx={{ height: '100%' }}>
             <CardContent>
@@ -273,54 +278,52 @@ export function StoragePage() {
               {loading ? (
                 <Box>
                   {[1, 2, 3, 4].map((i) => (
-                    <Skeleton key={i} height={50} sx={{ my: 1 }} />
+                    <Skeleton key={i} height={40} sx={{ my: 0.5 }} />
                   ))}
                 </Box>
               ) : (
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Type</TableCell>
-                        <TableCell align="right">Size</TableCell>
-                        <TableCell align="right">% of Total</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {[
-                        { type: 'mysql', label: 'MySQL', data: stats?.by_type.mysql },
-                        { type: 'postgresql', label: 'PostgreSQL', data: stats?.by_type.postgresql },
-                        { type: 'sqlserver', label: 'SQL Server', data: stats?.by_type.sqlserver },
-                        { type: 'azure_sql', label: 'Azure SQL', data: stats?.by_type.azure_sql },
-                      ]
-                        .filter((t) => t.data && t.data.size_bytes > 0)
-                        .map((t) => (
-                          <TableRow key={t.type}>
-                            <TableCell>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Box
-                                  sx={{
-                                    width: 12,
-                                    height: 12,
-                                    borderRadius: 1,
-                                    bgcolor: getDatabaseTypeColor(t.type),
-                                  }}
-                                />
-                                {t.label}
-                              </Box>
-                            </TableCell>
-                            <TableCell align="right">{t.data?.size_formatted}</TableCell>
-                            <TableCell align="right">
-                              {stats && stats.total_size_bytes > 0
-                                ? ((t.data?.size_bytes || 0) / stats.total_size_bytes * 100).toFixed(1)
-                                : 0}
-                              %
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
+                <Box>
+                  {[
+                    { type: 'mysql', label: 'MySQL', data: stats?.by_type.mysql },
+                    { type: 'postgresql', label: 'PostgreSQL', data: stats?.by_type.postgresql },
+                    { type: 'sqlserver', label: 'SQL Server', data: stats?.by_type.sqlserver },
+                    { type: 'azure_sql', label: 'Azure SQL', data: stats?.by_type.azure_sql },
+                  ]
+                    .filter((t) => t.data && t.data.size_bytes > 0)
+                    .map((t) => (
+                      <Box key={t.type} sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1 }}>
+                        <Box
+                          sx={{
+                            width: 12,
+                            height: 12,
+                            borderRadius: 1,
+                            bgcolor: getDatabaseTypeColor(t.type),
+                            flexShrink: 0,
+                          }}
+                        />
+                        <Typography variant="body2" sx={{ minWidth: 80 }}>
+                          {t.label}
+                        </Typography>
+                        <Box sx={{ flex: 1 }}>
+                          <LinearProgress
+                            variant="determinate"
+                            value={stats && stats.total_size_bytes > 0 ? ((t.data?.size_bytes || 0) / stats.total_size_bytes) * 100 : 0}
+                            sx={{
+                              height: 8,
+                              borderRadius: 1,
+                              bgcolor: 'action.hover',
+                              '& .MuiLinearProgress-bar': {
+                                bgcolor: getDatabaseTypeColor(t.type),
+                              },
+                            }}
+                          />
+                        </Box>
+                        <Typography variant="body2" color="text.secondary" sx={{ minWidth: 70, textAlign: 'right' }}>
+                          {t.data?.size_formatted}
+                        </Typography>
+                      </Box>
+                    ))}
+                </Box>
               )}
             </CardContent>
           </Card>
@@ -336,7 +339,7 @@ export function StoragePage() {
           {loading ? (
             <Box>
               {[1, 2, 3].map((i) => (
-                <Skeleton key={i} height={70} sx={{ my: 1 }} />
+                <Skeleton key={i} height={50} sx={{ my: 0.5 }} />
               ))}
             </Box>
           ) : stats?.by_database.length === 0 ? (
@@ -344,66 +347,48 @@ export function StoragePage() {
               No backup data available
             </Typography>
           ) : (
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Database</TableCell>
-                    <TableCell>Type</TableCell>
-                    <TableCell align="right">Backups</TableCell>
-                    <TableCell align="right">Size</TableCell>
-                    <TableCell sx={{ width: '30%' }}>Usage</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {stats?.by_database.map((db) => (
-                    <TableRow key={db.database_id} hover>
-                      <TableCell>
-                        <Typography variant="body1" fontWeight={500}>
-                          {db.database_name}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          size="small"
-                          label={db.database_type.toUpperCase()}
-                          sx={{
-                            bgcolor: `${getDatabaseTypeColor(db.database_type)}20`,
-                            color: getDatabaseTypeColor(db.database_type),
-                          }}
-                        />
-                      </TableCell>
-                      <TableCell align="right">{db.backup_count}</TableCell>
-                      <TableCell align="right">{db.size_formatted}</TableCell>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Box sx={{ flex: 1 }}>
-                            <LinearProgress
-                              variant="determinate"
-                              value={(db.size_bytes / maxSize) * 100}
-                              sx={{
-                                height: 8,
-                                borderRadius: 1,
-                                bgcolor: 'action.hover',
-                                '& .MuiLinearProgress-bar': {
-                                  bgcolor: getDatabaseTypeColor(db.database_type),
-                                },
-                              }}
-                            />
-                          </Box>
-                          <Typography variant="caption" color="text.secondary" sx={{ minWidth: 45 }}>
-                            {stats.total_size_bytes > 0
-                              ? ((db.size_bytes / stats.total_size_bytes) * 100).toFixed(1)
-                              : 0}
-                            %
-                          </Typography>
-                        </Box>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+            <Box>
+              {stats?.by_database.map((db) => (
+                <Box key={db.database_id} sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider', '&:last-child': { borderBottom: 'none' } }}>
+                  <Box sx={{ minWidth: 150, flex: '0 0 auto' }}>
+                    <Typography variant="body2" fontWeight={500}>
+                      {db.database_name}
+                    </Typography>
+                    <Chip
+                      size="small"
+                      label={db.database_type.toUpperCase()}
+                      sx={{
+                        mt: 0.5,
+                        bgcolor: `${getDatabaseTypeColor(db.database_type)}20`,
+                        color: getDatabaseTypeColor(db.database_type),
+                        fontSize: '0.7rem',
+                        height: 20,
+                      }}
+                    />
+                  </Box>
+                  <Box sx={{ flex: 1 }}>
+                    <LinearProgress
+                      variant="determinate"
+                      value={(db.size_bytes / maxSize) * 100}
+                      sx={{
+                        height: 8,
+                        borderRadius: 1,
+                        bgcolor: 'action.hover',
+                        '& .MuiLinearProgress-bar': {
+                          bgcolor: getDatabaseTypeColor(db.database_type),
+                        },
+                      }}
+                    />
+                  </Box>
+                  <Box sx={{ minWidth: 80, textAlign: 'right' }}>
+                    <Typography variant="body2">{db.size_formatted}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {db.backup_count} files
+                    </Typography>
+                  </Box>
+                </Box>
+              ))}
+            </Box>
           )}
         </CardContent>
       </Card>

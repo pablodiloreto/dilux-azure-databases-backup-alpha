@@ -310,6 +310,64 @@ class StorageService:
         table_client.upsert_entity(entity)
         logger.info(f"Saved backup result: {result.id}")
 
+    def delete_backup_result(self, backup_id: str) -> Optional[BackupResult]:
+        """
+        Delete a backup result record from table storage by ID.
+
+        This searches for the record since we don't have the exact PartitionKey/RowKey.
+
+        Args:
+            backup_id: The backup result ID to delete
+
+        Returns:
+            The deleted BackupResult if found and deleted, None if not found
+        """
+        table_client = self._clients.get_table_client(
+            self._settings.history_table_name
+        )
+
+        try:
+            # Search for the entity by ID - check both RowKey formats
+            # New format: RowKey contains the ID after underscore (inverted_ticks_id)
+            # Legacy format: RowKey is just the ID
+            entities = table_client.query_entities(
+                query_filter=f"RowKey ge '{backup_id}' and RowKey lt '{backup_id}z'"
+            )
+
+            for entity in entities:
+                row_key = entity["RowKey"]
+                # Check if this entity matches our backup_id
+                if row_key == backup_id or row_key.endswith(f"_{backup_id}"):
+                    # Parse the backup result before deleting
+                    backup_result = BackupResult.from_table_entity(entity)
+                    table_client.delete_entity(
+                        partition_key=entity["PartitionKey"],
+                        row_key=entity["RowKey"]
+                    )
+                    logger.info(f"Deleted backup result record: {backup_id}")
+                    return backup_result
+
+            # Also try searching with inverted timestamp format
+            entities = table_client.query_entities(query_filter=None)
+            for entity in entities:
+                row_key = entity["RowKey"]
+                if row_key == backup_id or row_key.endswith(f"_{backup_id}"):
+                    # Parse the backup result before deleting
+                    backup_result = BackupResult.from_table_entity(entity)
+                    table_client.delete_entity(
+                        partition_key=entity["PartitionKey"],
+                        row_key=entity["RowKey"]
+                    )
+                    logger.info(f"Deleted backup result record: {backup_id}")
+                    return backup_result
+
+            logger.warning(f"Backup result not found for deletion: {backup_id}")
+            return None
+
+        except Exception as e:
+            logger.exception(f"Error deleting backup result {backup_id}: {e}")
+            raise
+
     def get_backup_history(
         self,
         database_id: Optional[str] = None,

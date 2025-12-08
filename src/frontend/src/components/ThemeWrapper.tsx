@@ -7,10 +7,21 @@ interface ThemeWrapperProps {
   children: React.ReactNode
 }
 
-// Global styles for mobile responsiveness
+// Global styles for mobile responsiveness and layout stability
 const globalStyles = (
   <GlobalStyles
     styles={{
+      html: {
+        // Prevent layout shift when scrollbar appears/disappears (e.g., when modals open)
+        // Use !important to override MUI's inline styles on body
+        overflowY: 'scroll !important' as never,
+        scrollbarGutter: 'stable',
+      },
+      body: {
+        // Override MUI Dialog/Modal scroll lock behavior
+        overflow: 'visible !important' as never,
+        paddingRight: '0 !important' as never,
+      },
       'html, body': {
         overflowX: 'hidden',
         width: '100%',
