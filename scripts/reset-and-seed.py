@@ -70,6 +70,7 @@ SQLSERVER_CONTAINER = "dilux-sqlserver"
 
 # Database credentials
 DB_PASSWORD = "DevPassword123!"
+SQLSERVER_PASSWORD = "YourStrong@Passw0rd"
 
 # Table names
 # Note: engines and databases are both stored in "databaseconfigs" table with different PartitionKeys
@@ -118,7 +119,7 @@ SERVERS = [
         "id": "srv-mysql-prod",
         "name": "MySQL Production",
         "engine_type": "mysql",
-        "host": "dilux-mysql",
+        "host": "mysql",  # Docker Compose service name
         "port": 3306,
         "username": "root",
         "password": DB_PASSWORD,
@@ -128,7 +129,7 @@ SERVERS = [
         "id": "srv-postgres-prod",
         "name": "PostgreSQL Production",
         "engine_type": "postgresql",
-        "host": "dilux-postgres",
+        "host": "postgres",  # Docker Compose service name
         "port": 5432,
         "username": "postgres",
         "password": DB_PASSWORD,
@@ -138,10 +139,10 @@ SERVERS = [
         "id": "srv-sqlserver-prod",
         "name": "SQL Server Production",
         "engine_type": "sqlserver",
-        "host": "dilux-sqlserver",
+        "host": "sqlserver",  # Docker Compose service name
         "port": 1433,
         "username": "sa",
-        "password": DB_PASSWORD,
+        "password": SQLSERVER_PASSWORD,
         "policy_id": "production-critical",
     },
 ]
@@ -493,10 +494,10 @@ def create_postgresql_database(db_name: str, size_mb: int):
     """Create a PostgreSQL database with test data."""
     logger.info(f"  Creating PostgreSQL database: {db_name} (~{size_mb}MB)")
 
-    # Create database
+    # Create database (use bash -c for proper pipe handling)
     run_docker_command(
         POSTGRES_CONTAINER,
-        f"psql -U postgres -c \"SELECT 1 FROM pg_database WHERE datname='{db_name}'\" | grep -q 1 || psql -U postgres -c \"CREATE DATABASE {db_name}\"",
+        f"bash -c \"psql -U postgres -tc \\\"SELECT 1 FROM pg_database WHERE datname='{db_name}'\\\" | grep -q 1 || psql -U postgres -c \\\"CREATE DATABASE {db_name}\\\"\"",
         check=False
     )
 
@@ -550,7 +551,7 @@ def create_sqlserver_database(db_name: str, size_mb: int):
     """Create a SQL Server database with test data."""
     logger.info(f"  Creating SQL Server database: {db_name} (~{size_mb}MB)")
 
-    sqlcmd = f"/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P '{DB_PASSWORD}' -C"
+    sqlcmd = f"/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P '{SQLSERVER_PASSWORD}' -C"
 
     # Create database
     run_docker_command(
@@ -651,17 +652,38 @@ def seed_backup_policies(table_service: TableServiceClient):
     now = datetime.utcnow().isoformat()
 
     for policy in BACKUP_POLICIES:
+        # Use flat structure matching BackupPolicy.to_table_entity() format
         entity = {
             "PartitionKey": "backup_policy",
             "RowKey": policy["id"],
             "name": policy["name"],
             "description": policy.get("description", ""),
             "is_system": policy["is_system"],
-            "hourly": json.dumps(policy["hourly"]),
-            "daily": json.dumps(policy["daily"]),
-            "weekly": json.dumps(policy["weekly"]),
-            "monthly": json.dumps(policy["monthly"]),
-            "yearly": json.dumps(policy["yearly"]),
+            # Hourly tier
+            "hourly_enabled": policy["hourly"].get("enabled", False),
+            "hourly_keep_count": policy["hourly"].get("keep_count", 0),
+            "hourly_interval_hours": policy["hourly"].get("interval_hours", 1),
+            # Daily tier
+            "daily_enabled": policy["daily"].get("enabled", False),
+            "daily_keep_count": policy["daily"].get("keep_count", 0),
+            "daily_time": policy["daily"].get("time", "02:00"),
+            # Weekly tier
+            "weekly_enabled": policy["weekly"].get("enabled", False),
+            "weekly_keep_count": policy["weekly"].get("keep_count", 0),
+            "weekly_day_of_week": policy["weekly"].get("day_of_week", 0),
+            "weekly_time": policy["weekly"].get("time", "03:00"),
+            # Monthly tier
+            "monthly_enabled": policy["monthly"].get("enabled", False),
+            "monthly_keep_count": policy["monthly"].get("keep_count", 0),
+            "monthly_day_of_month": policy["monthly"].get("day_of_month", 1),
+            "monthly_time": policy["monthly"].get("time", "04:00"),
+            # Yearly tier
+            "yearly_enabled": policy["yearly"].get("enabled", False),
+            "yearly_keep_count": policy["yearly"].get("keep_count", 0),
+            "yearly_month": policy["yearly"].get("month", 1),
+            "yearly_day_of_month": policy["yearly"].get("day_of_month", 1),
+            "yearly_time": policy["yearly"].get("time", "05:00"),
+            # Metadata
             "created_at": now,
             "updated_at": now,
         }

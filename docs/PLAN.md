@@ -17,6 +17,9 @@
 ### Fixes aplicados
 | Fecha | Fix |
 |-------|-----|
+| 2025-12-08 | Storage Stats: Fix parsing blob path (`{db_id}/{YYYY}/...` en lugar de `{db_type}/{db_id}/...`) |
+| 2025-12-08 | Backup History Filter: Fix `db_config_service.list()` → `db_config_service.get_all()` |
+| 2025-12-08 | SQL Server: Container inestable por recursos (requiere 2GB RAM mínimo en Codespace) |
 | 2025-12-08 | Policy Assignment: Engine.policy_id + Database.use_engine_policy para herencia de policies |
 | 2025-12-08 | ServerFormDialog: Selector de Backup Policy, checkbox "Apply policy to all databases" |
 | 2025-12-08 | DatabaseFormDialog: Opción "Use Server Policy" cuando engine tiene policy definida |
@@ -272,16 +275,29 @@ python scripts/reset-and-seed.py --seed-only
 #### Plan de Testing con Seed Data
 | # | Tarea | Descripción | Estado |
 |---|-------|-------------|--------|
-| T.1 | Reset y Seed | Ejecutar full reset-and-seed | ⏳ Pendiente |
-| T.2 | Dashboard | Verificar stats y gráficos con 60 días de datos | ⏳ Pendiente |
-| T.3 | Backups Page | Paginación, filtros, Info Dialog | ⏳ Pendiente |
-| T.4 | Servers Page | 3 servers con sus 3 DBs cada uno | ⏳ Pendiente |
-| T.5 | Databases Page | Policy inheritance, "Inherited" chips | ⏳ Pendiente |
-| T.6 | Audit Page | 500 logs con filtros funcionando | ⏳ Pendiente |
-| T.7 | Test Connection | Probar conexión a cada DB | ⏳ Pendiente |
+| T.1 | Reset y Seed | Ejecutar full reset-and-seed | ✅ Completado |
+| T.2 | Dashboard | Verificar stats y gráficos con 60 días de datos | ✅ Completado |
+| T.3 | Backups Page | Paginación, filtros, Info Dialog | ✅ Completado |
+| T.4 | Servers Page | 3 servers con sus 3 DBs cada uno | ✅ Completado |
+| T.5 | Databases Page | Policy inheritance, "Inherited" chips | ✅ Completado |
+| T.6 | Audit Page | 500 logs con filtros funcionando | ⏳ Pendiente (solo 1 log en seed) |
+| T.7 | Test Connection | Probar conexión a cada DB | ✅ Completado (MySQL/PostgreSQL OK, SQL Server requiere más RAM) |
 | T.8 | Manual Backup | Trigger backup desde UI | ⏳ Pendiente |
 | T.9 | Download Backup | Descargar un backup existente | ⏳ Pendiente |
 | T.10 | Mobile View | Responsive en todas las páginas | ⏳ Pendiente |
+
+#### Bugs Encontrados y Corregidos
+| # | Bug | Fix | Estado |
+|---|-----|-----|--------|
+| B.1 | Filtro por server en backup history fallaba | `db_config_service.list()` → `get_all()` | ✅ Corregido |
+| B.2 | SQL Server container inestable | Limitación de recursos Codespace (requiere 2GB RAM) | ⚠️ Documentado |
+| B.3 | "Databases without server" en Storage page | Fix parsing blob path en storage-stats | ✅ Corregido |
+| B.4 | Solo 1 audit log en seed | Pendiente agregar más en seed script | ⏳ Pendiente |
+
+#### Mejoras UX Pendientes
+| # | Mejora | Descripción | Estado |
+|---|--------|-------------|--------|
+| UX.1 | Discovery popup paginado | Agregar "Load more" para servers con muchas DBs | ⏳ Pendiente |
 
 **Qué debería pasar:**
 

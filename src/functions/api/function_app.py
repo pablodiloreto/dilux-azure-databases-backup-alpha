@@ -864,7 +864,7 @@ def list_backups(req: func.HttpRequest) -> func.HttpResponse:
         # If engine_id is provided, get all database IDs for that engine
         database_ids = None
         if engine_id and not database_id:
-            databases = db_config_service.list(engine_id=engine_id)
+            databases, _ = db_config_service.get_all(engine_id=engine_id)
             database_ids = [db.id for db in databases] if databases else []
 
         results, total_count, has_more = storage_service.get_backup_history_paged(
@@ -1345,48 +1345,50 @@ def get_storage_stats(req: func.HttpRequest) -> func.HttpResponse:
         by_engine: dict = {}
 
         for f in files:
-            # Parse blob name: {db_type}/{db_id}/{filename}
+            # Parse blob name: {db_id}/{YYYY}/{MM}/{DD}/{filename}
+            # Example: db-mysql-analytics/2025/12/05/backup-xxx.sql.gz
             parts = f.get("name", "").split("/")
-            if len(parts) >= 2:
-                db_type = parts[0]
-                db_id = parts[1]
+            if len(parts) >= 1:
+                db_id = parts[0]  # First part is database_id
                 size = f.get("size", 0)
-
-                # By type
-                if db_type in by_type:
-                    by_type[db_type] += size
 
                 # Get database info
                 db = db_map.get(db_id)
                 engine_id = db.engine_id if db and db.engine_id else None
+                db_type = db.database_type if db else None
 
-                # By database
-                if db_id not in by_database:
-                    by_database[db_id] = {
-                        "database_id": db_id,
-                        "database_name": db.name if db else "Unknown",
-                        "database_type": db.database_type if db else db_type,
-                        "engine_id": engine_id,
-                        "size_bytes": 0,
-                        "backup_count": 0,
-                    }
-                by_database[db_id]["size_bytes"] += size
-                by_database[db_id]["backup_count"] += 1
+                # By type
+                if db_type and db_type in by_type:
+                    by_type[db_type] += size
 
-                # By engine
-                if engine_id:
-                    if engine_id not in by_engine:
-                        engine = engine_map.get(engine_id)
-                        by_engine[engine_id] = {
+                # By database - only track if we found the database in our config
+                if db:
+                    if db_id not in by_database:
+                        by_database[db_id] = {
+                            "database_id": db_id,
+                            "database_name": db.name,
+                            "database_type": db.database_type,
                             "engine_id": engine_id,
-                            "engine_name": engine.name if engine else "Unknown",
-                            "engine_type": engine.engine_type.value if engine else db_type,
                             "size_bytes": 0,
                             "backup_count": 0,
-                            "database_count": 0,
                         }
-                    by_engine[engine_id]["size_bytes"] += size
-                    by_engine[engine_id]["backup_count"] += 1
+                    by_database[db_id]["size_bytes"] += size
+                    by_database[db_id]["backup_count"] += 1
+
+                    # By engine
+                    if engine_id:
+                        if engine_id not in by_engine:
+                            engine = engine_map.get(engine_id)
+                            by_engine[engine_id] = {
+                                "engine_id": engine_id,
+                                "engine_name": engine.name if engine else "Unknown",
+                                "engine_type": engine.engine_type.value if engine else db_type,
+                                "size_bytes": 0,
+                                "backup_count": 0,
+                                "database_count": 0,
+                            }
+                        by_engine[engine_id]["size_bytes"] += size
+                        by_engine[engine_id]["backup_count"] += 1
 
         # Count databases per engine
         for db_data in by_database.values():
@@ -3284,7 +3286,7 @@ def test_engine_connection(req: func.HttpRequest) -> func.HttpResponse:
             database_type=db_type_map[engine.engine_type],
             host=engine.host,
             port=engine.port,
-            database_name="",  # Connect to server, not specific DB
+            database="",  # Connect to server, not specific DB
             username=engine.username,
             password=engine.password,
         )
@@ -3293,7 +3295,7 @@ def test_engine_connection(req: func.HttpRequest) -> func.HttpResponse:
             json.dumps({
                 "success": result.success,
                 "message": result.message,
-                "latency_ms": result.latency_ms,
+                "latency_ms": result.duration_ms,
             }),
             mimetype="application/json",
             status_code=200,
