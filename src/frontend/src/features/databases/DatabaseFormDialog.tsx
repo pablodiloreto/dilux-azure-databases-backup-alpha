@@ -83,6 +83,7 @@ export function DatabaseFormDialog({
     username: '',
     password: '',
     policy_id: 'production-standard',
+    use_engine_policy: false,
     engine_id: undefined,
     use_engine_credentials: false,
     enabled: true,
@@ -146,6 +147,7 @@ export function DatabaseFormDialog({
         username: database.username,
         password: '', // Password is not returned from API
         policy_id: database.policy_id || 'production-standard',
+        use_engine_policy: database.use_engine_policy || false,
         engine_id: database.engine_id,
         use_engine_credentials: database.use_engine_credentials || false,
         enabled: database.enabled,
@@ -200,6 +202,8 @@ export function DatabaseFormDialog({
         // If engine has credentials, offer to use them
         use_engine_credentials: engine.auth_method === 'user_password' && !!engine.username,
         username: engine.username || prev.username,
+        // If engine has policy, offer to use it
+        use_engine_policy: !!engine.policy_id,
       }))
     } else {
       // Clear engine-related fields
@@ -207,6 +211,7 @@ export function DatabaseFormDialog({
         ...prev,
         engine_id: undefined,
         use_engine_credentials: false,
+        use_engine_policy: false,
       }))
     }
   }
@@ -394,11 +399,31 @@ export function DatabaseFormDialog({
               <FormControl fullWidth>
                 <InputLabel>Backup Policy</InputLabel>
                 <Select
-                  value={formData.policy_id || 'production-standard'}
+                  value={formData.use_engine_policy ? '__server__' : (formData.policy_id || 'production-standard')}
                   label="Backup Policy"
-                  onChange={(e) => handleChange('policy_id', e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    if (value === '__server__') {
+                      handleChange('use_engine_policy', true)
+                    } else {
+                      setFormData((prev) => ({
+                        ...prev,
+                        use_engine_policy: false,
+                        policy_id: value,
+                      }))
+                    }
+                  }}
                   disabled={loadingPolicies}
                 >
+                  {/* Server policy option - only if engine has policy */}
+                  {selectedEngine?.policy_id && (
+                    <MenuItem value="__server__">
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+                        <span>Use Server Policy</span>
+                        <Chip label="Inherited" size="small" color="info" sx={{ height: 18, fontSize: '0.65rem' }} />
+                      </Box>
+                    </MenuItem>
+                  )}
                   {loadingPolicies ? (
                     <MenuItem value="production-standard">Loading...</MenuItem>
                   ) : (
@@ -418,7 +443,23 @@ export function DatabaseFormDialog({
             </Grid>
 
             {/* Policy Summary */}
-            {selectedPolicy && (
+            {formData.use_engine_policy && selectedEngine?.policy_id ? (
+              <Grid item xs={12}>
+                <Alert severity="info" icon={<Cable />}>
+                  <Typography variant="body2">
+                    Using policy from server: <strong>{policies.find(p => p.id === selectedEngine.policy_id)?.name || selectedEngine.policy_id}</strong>
+                  </Typography>
+                  {(() => {
+                    const enginePolicy = policies.find(p => p.id === selectedEngine.policy_id)
+                    return enginePolicy ? (
+                      <Typography variant="caption" color="text.secondary">
+                        Retention: {getPolicySummary(enginePolicy)}
+                      </Typography>
+                    ) : null
+                  })()}
+                </Alert>
+              </Grid>
+            ) : selectedPolicy && (
               <Grid item xs={12}>
                 <Box sx={{ p: 1.5, bgcolor: 'action.hover', borderRadius: 1 }}>
                   <Typography variant="caption" color="text.secondary" display="block">

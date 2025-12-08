@@ -110,9 +110,11 @@ config = DatabaseConfig(
     database_name="myapp",
     username="backup_user",
     password="secret",
-    schedule="0 0 * * *",
+    engine_id="engine-001",              # Link to Engine
+    use_engine_credentials=True,         # Inherit credentials from engine
+    policy_id="production-standard",     # Backup policy ID
+    use_engine_policy=False,             # If True, inherit policy from engine
     enabled=True,
-    retention_days=30,
 )
 
 # Convert to/from Azure Table Storage
@@ -190,6 +192,7 @@ engine = Engine(
     auth_method=AuthMethod.USER_PASSWORD,
     username="backup_user",
     password="secret",
+    policy_id="production-standard",  # Default policy for databases on this engine
     discovery_enabled=True,
 )
 

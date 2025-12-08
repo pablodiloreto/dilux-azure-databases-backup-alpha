@@ -341,6 +341,7 @@ def create_database(req: func.HttpRequest) -> func.HttpResponse:
         # Get engine_id and use_engine_credentials
         engine_id = body.get("engine_id")
         use_engine_credentials = body.get("use_engine_credentials", False)
+        use_engine_policy = body.get("use_engine_policy", False)
 
         # If using engine credentials, get them from the engine
         username = body.get("username")
@@ -351,6 +352,9 @@ def create_database(req: func.HttpRequest) -> func.HttpResponse:
             if engine:
                 username = engine.username
                 password = engine.password
+
+        # Determine policy_id - if using engine policy, don't set it here
+        policy_id = body.get("policy_id", "production-standard") if not use_engine_policy else None
 
         # Create config from request body
         config = DatabaseConfig(
@@ -365,7 +369,8 @@ def create_database(req: func.HttpRequest) -> func.HttpResponse:
             username=username,
             password=password,
             password_secret_name=body.get("password_secret_name"),
-            policy_id=body.get("policy_id", "production-standard"),
+            policy_id=policy_id,
+            use_engine_policy=use_engine_policy,
             enabled=body.get("enabled", True),
             backup_destination=body.get("backup_destination"),
             compression=body.get("compression", True),
@@ -568,7 +573,7 @@ def update_database(req: func.HttpRequest) -> func.HttpResponse:
         # Track changes for audit
         changes = {}
         for field in ["name", "host", "port", "database_name", "username",
-                      "policy_id", "enabled", "backup_destination",
+                      "policy_id", "use_engine_policy", "enabled", "backup_destination",
                       "compression", "tags", "password_secret_name", "engine_id", "use_engine_credentials"]:
             if field in body and getattr(existing, field) != body[field]:
                 changes[field] = {"from": getattr(existing, field), "to": body[field]}
@@ -2953,6 +2958,7 @@ def create_engine(req: func.HttpRequest) -> func.HttpResponse:
             username=body.get("username"),
             password=body.get("password"),
             connection_string=body.get("connection_string"),
+            policy_id=body.get("policy_id"),
             discovery_enabled=bool(body.get("username") and body.get("password")),
             created_by=user.email if user else None,
         )
@@ -3048,6 +3054,8 @@ def update_engine(req: func.HttpRequest) -> func.HttpResponse:
             engine.password = body["password"]
         if "connection_string" in body:
             engine.connection_string = body["connection_string"]
+        if "policy_id" in body:
+            engine.policy_id = body["policy_id"] if body["policy_id"] else None
 
         # Update discovery_enabled based on credentials
         engine.discovery_enabled = engine.has_credentials()
@@ -3089,6 +3097,18 @@ def update_engine(req: func.HttpRequest) -> func.HttpResponse:
                     db_config_service.update(db)
                     updated_count += 1
             response_data["databases_updated"] = updated_count
+
+        # If apply_policy_to_all_databases, set all databases to use engine's policy
+        if body.get("apply_policy_to_all_databases") and updated_engine.policy_id:
+            databases, _ = db_config_service.get_all()
+            policy_updated_count = 0
+            for db in databases:
+                if db.engine_id == engine_id:
+                    # Set to use engine policy
+                    db.use_engine_policy = True
+                    db_config_service.update(db)
+                    policy_updated_count += 1
+            response_data["databases_policy_updated"] = policy_updated_count
 
         return func.HttpResponse(
             json.dumps(response_data),

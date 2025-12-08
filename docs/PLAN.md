@@ -17,6 +17,11 @@
 ### Fixes aplicados
 | Fecha | Fix |
 |-------|-----|
+| 2025-12-08 | Policy Assignment: Engine.policy_id + Database.use_engine_policy para herencia de policies |
+| 2025-12-08 | ServerFormDialog: Selector de Backup Policy, checkbox "Apply policy to all databases" |
+| 2025-12-08 | DatabaseFormDialog: Opción "Use Server Policy" cuando engine tiene policy definida |
+| 2025-12-08 | DatabasesPage: Indicador "Inherited" en columna Policy cuando usa policy del server |
+| 2025-12-08 | Scheduler: Resuelve policy desde engine cuando database.use_engine_policy=True |
 | 2025-12-08 | DatabaseFormDialog: Selector de Server + Toggle "Use server credentials" |
 | 2025-12-08 | DatabasesPage: Columna Server, devuelve `engine_name` desde API |
 | 2025-12-08 | Backend: `use_engine_credentials` en create/update/test-connection |
@@ -189,7 +194,39 @@
 | 5.2 | JWT Backend | Validar tokens en Function Apps | ⏳ Pendiente |
 | 5.3 | Bypass Dev | Sin auth cuando ENVIRONMENT=development | ✅ Completado |
 
-### 🔴 PRÓXIMO PASO INMEDIATO: Seed Data + Policy Assignment
+### Sprint 3.5: Policy Assignment ✅ COMPLETADO
+
+| # | Tarea | Descripción | Estado |
+|---|-------|-------------|--------|
+| PA.1 | Policy a Server | Opción de asignar policy a nivel de Engine | ✅ Completado |
+| PA.2 | Herencia | DBs pueden heredar policy del server o usar propia | ✅ Completado |
+| PA.3 | UI Engine | Selector de policy en ServerFormDialog | ✅ Completado |
+| PA.4 | UI Database | Mostrar si policy es heredada o propia | ✅ Completado |
+| PA.5 | Scheduler | Respetar policy de engine cuando DB no tiene propia | ✅ Completado |
+
+**Implementación técnica:**
+- Engine model: Nuevo campo `policy_id` para definir policy por defecto del servidor
+- Database model: Nuevo campo `use_engine_policy` (boolean) para heredar policy del engine
+- API: Endpoints de Engine actualizados para manejar `policy_id` y `apply_policy_to_all_databases`
+- Scheduler: Resuelve policy desde engine cuando `use_engine_policy=True`
+- Frontend: Selector de policy en ServerFormDialog, opción "Use Server Policy" en DatabaseFormDialog
+- UI: Indicador "Inherited" en columna Policy de DatabasesPage
+
+**Comportamiento de la herencia:**
+
+| Escenario | Comportamiento |
+|-----------|----------------|
+| Server existente + agregar policy | Databases existentes **NO cambian** (independencia) |
+| Crear database nueva en server con policy | Se **pre-selecciona** herencia (pero se puede cambiar) |
+| Cambiar policy del server | Solo afecta databases con **herencia activa** |
+| Checkbox "Apply policy to all" | Fuerza herencia en **todas** las databases del server |
+
+**Notas de UX:**
+- La opción "Use Server Policy" en DatabaseFormDialog solo aparece si el server tiene policy definida
+- El chip "Inherited" en la tabla de databases indica visualmente cuáles usan herencia
+- La independencia de cada database siempre es opcional, nunca se fuerza automáticamente
+
+### 🔴 PRÓXIMO PASO INMEDIATO: Seed Data
 
 #### Seed Data para Testing
 | # | Tarea | Descripción | Estado |
@@ -201,17 +238,6 @@
 | SD.5 | Backup History | Crear registros de backups históricos ficticios (sin archivo real) | ⏳ Pendiente |
 
 **Objetivo:** Poder probar el sistema con datos realistas sin configuración manual.
-
-#### Policy Assignment (PENDIENTE CRÍTICO)
-| # | Tarea | Descripción | Estado |
-|---|-------|-------------|--------|
-| PA.1 | Policy a Server | Opción de asignar policy a nivel de Engine | ⏳ Pendiente |
-| PA.2 | Herencia | DBs pueden heredar policy del server o usar propia | ⏳ Pendiente |
-| PA.3 | UI Engine | Selector de policy en ServerFormDialog | ⏳ Pendiente |
-| PA.4 | UI Database | Mostrar si policy es heredada o propia | ⏳ Pendiente |
-| PA.5 | Scheduler | Respetar policy de engine cuando DB no tiene propia | ⏳ Pendiente |
-
-**Problema actual:** Las policies solo se aplican a nivel de database. No hay forma de aplicar una policy a un server y que sus databases la hereden.
 
 ---
 

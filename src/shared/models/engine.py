@@ -68,6 +68,12 @@ class Engine(BaseModel):
         description="Full connection string (for connection_string auth)"
     )
 
+    # Default backup policy for databases on this engine
+    policy_id: Optional[str] = Field(
+        default=None,
+        description="Default backup policy ID for databases on this engine"
+    )
+
     # Discovery
     discovery_enabled: bool = Field(
         default=False,
@@ -130,6 +136,7 @@ class Engine(BaseModel):
             "username": self.username or "",
             "password_secret_name": self.password_secret_name or "",
             "connection_string": self.connection_string or "",
+            "policy_id": self.policy_id or "",
             "discovery_enabled": self.discovery_enabled,
             "last_discovery": self.last_discovery.isoformat() if self.last_discovery else "",
             "created_at": self.created_at.isoformat(),
@@ -163,6 +170,7 @@ class Engine(BaseModel):
             password=entity.get("password") or None,
             password_secret_name=entity.get("password_secret_name") or None,
             connection_string=entity.get("connection_string") or None,
+            policy_id=entity.get("policy_id") or None,
             discovery_enabled=entity.get("discovery_enabled", False),
             last_discovery=last_discovery,
             created_at=datetime.fromisoformat(entity["created_at"]),
@@ -185,6 +193,12 @@ class CreateEngineInput(BaseModel):
     password: Optional[str] = None
     connection_string: Optional[str] = None
 
+    # Default backup policy
+    policy_id: Optional[str] = Field(
+        default=None,
+        description="Default backup policy ID for databases on this engine"
+    )
+
     # Discovery
     discover_databases: bool = Field(
         default=False,
@@ -203,10 +217,22 @@ class UpdateEngineInput(BaseModel):
     password: Optional[str] = None
     connection_string: Optional[str] = None
 
+    # Default backup policy
+    policy_id: Optional[str] = Field(
+        default=None,
+        description="Default backup policy ID for databases on this engine"
+    )
+
     # Apply to all databases using engine credentials
     apply_to_all_databases: bool = Field(
         default=False,
         description="Also update databases with individual credentials"
+    )
+
+    # Apply policy to all databases using engine policy
+    apply_policy_to_all_databases: bool = Field(
+        default=False,
+        description="Set all databases on this engine to use the engine's policy"
     )
 
 

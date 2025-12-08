@@ -433,7 +433,24 @@ export function DatabasesPage() {
       id: 'policy',
       label: 'Policy',
       render: (db) => {
-        const policy = policies.get(db.policy_id)
+        // Check if using inherited policy from engine
+        if (db.use_engine_policy) {
+          // Find the engine to get its policy
+          const engine = serversList.find(s => s.id === db.engine_id)
+          const inheritedPolicy = engine?.policy_id ? policies.get(engine.policy_id) : null
+          return (
+            <Tooltip title={inheritedPolicy ? `Inherited from server\n${getPolicySummary(inheritedPolicy)}` : 'Using server policy'}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Typography variant="body2" color="info.main">
+                  {inheritedPolicy?.name || 'Server Policy'}
+                </Typography>
+                <Chip label="Inherited" size="small" color="info" sx={{ height: 18, fontSize: '0.6rem' }} />
+              </Box>
+            </Tooltip>
+          )
+        }
+
+        const policy = db.policy_id ? policies.get(db.policy_id) : null
         if (!policy) {
           return (
             <Typography variant="body2" color="text.secondary">

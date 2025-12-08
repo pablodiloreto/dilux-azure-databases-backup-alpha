@@ -85,9 +85,13 @@ class DatabaseConfig(BaseModel):
     )
 
     # Backup configuration
-    policy_id: str = Field(
+    policy_id: Optional[str] = Field(
         default="production-standard",
-        description="ID of the backup policy to use"
+        description="ID of the backup policy to use (ignored if use_engine_policy=True)"
+    )
+    use_engine_policy: bool = Field(
+        default=False,
+        description="If True, inherit backup policy from engine. If False, use database-specific policy."
     )
     enabled: bool = Field(default=True, description="Whether backups are enabled")
 
@@ -187,7 +191,8 @@ class DatabaseConfig(BaseModel):
             "auth_method": self.auth_method.value if self.auth_method else "",
             "username": self.username or "",
             "password_secret_name": self.password_secret_name or "",
-            "policy_id": self.policy_id,
+            "policy_id": self.policy_id or "",
+            "use_engine_policy": self.use_engine_policy,
             "enabled": self.enabled,
             # Legacy fields - keep for backward compatibility
             "schedule": self.schedule or "",
@@ -218,7 +223,8 @@ class DatabaseConfig(BaseModel):
             tags = {}
 
         # Handle migration: if policy_id doesn't exist, default to production-standard
-        policy_id = entity.get("policy_id", "production-standard")
+        policy_id = entity.get("policy_id") or "production-standard"
+        use_engine_policy = entity.get("use_engine_policy", False)
 
         # Handle auth_method (new field)
         auth_method_str = entity.get("auth_method", "")
@@ -246,6 +252,7 @@ class DatabaseConfig(BaseModel):
             password_secret_name=entity.get("password_secret_name") or None,
             # Backup config
             policy_id=policy_id,
+            use_engine_policy=use_engine_policy,
             enabled=entity.get("enabled", True),
             # Legacy fields
             schedule=entity.get("schedule") or None,

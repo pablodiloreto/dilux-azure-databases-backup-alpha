@@ -23,7 +23,7 @@ if str(shared_path) not in sys.path:
 
 from shared.config import get_settings
 from shared.models import DatabaseConfig, BackupJob, BackupPolicy, BackupTier
-from shared.services import StorageService, DatabaseConfigService
+from shared.services import StorageService, DatabaseConfigService, EngineService
 
 # Initialize Function App
 app = func.FunctionApp()
@@ -32,6 +32,7 @@ app = func.FunctionApp()
 settings = get_settings()
 storage_service = StorageService()
 db_config_service = DatabaseConfigService()
+engine_service = EngineService()
 
 logger = logging.getLogger(__name__)
 
@@ -213,10 +214,30 @@ def dynamic_scheduler(timer: func.TimerRequest) -> None:
 
         jobs_queued = 0
 
+        # Cache engines for policy inheritance lookup
+        engine_cache: dict[str, any] = {}
+
         for db_config in databases:
             try:
-                # Get the policy for this database
-                policy_id = db_config.policy_id or "production-standard"
+                # Resolve policy_id - check if using engine's policy
+                policy_id = None
+
+                if db_config.use_engine_policy and db_config.engine_id:
+                    # Get engine's policy
+                    if db_config.engine_id not in engine_cache:
+                        engine = engine_service.get(db_config.engine_id)
+                        engine_cache[db_config.engine_id] = engine
+
+                    engine = engine_cache.get(db_config.engine_id)
+                    if engine and engine.policy_id:
+                        policy_id = engine.policy_id
+                        logger.debug(
+                            f"Database {db_config.name} using engine policy: {policy_id}"
+                        )
+
+                # Fallback to database's own policy or default
+                if not policy_id:
+                    policy_id = db_config.policy_id or "production-standard"
 
                 if policy_id not in policy_cache:
                     policy = storage_service.get_backup_policy(policy_id)
@@ -329,16 +350,31 @@ def cleanup_old_backups(timer: func.TimerRequest) -> None:
         databases, _ = db_config_service.get_all()
         logger.info(f"Found {len(databases)} databases to check for cleanup")
 
-        # Cache policies
+        # Cache policies and engines
         policy_cache: dict[str, BackupPolicy] = {}
+        engine_cache: dict[str, any] = {}
 
         total_deleted = 0
         total_errors = 0
 
         for db_config in databases:
             try:
-                # Get policy
-                policy_id = db_config.policy_id or "production-standard"
+                # Resolve policy_id - check if using engine's policy
+                policy_id = None
+
+                if db_config.use_engine_policy and db_config.engine_id:
+                    # Get engine's policy
+                    if db_config.engine_id not in engine_cache:
+                        engine = engine_service.get(db_config.engine_id)
+                        engine_cache[db_config.engine_id] = engine
+
+                    engine = engine_cache.get(db_config.engine_id)
+                    if engine and engine.policy_id:
+                        policy_id = engine.policy_id
+
+                # Fallback to database's own policy or default
+                if not policy_id:
+                    policy_id = db_config.policy_id or "production-standard"
 
                 if policy_id not in policy_cache:
                     policy = storage_service.get_backup_policy(policy_id)

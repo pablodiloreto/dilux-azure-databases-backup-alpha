@@ -10,7 +10,8 @@ export interface DatabaseConfig {
   port: number
   database_name: string
   username: string
-  policy_id: string
+  policy_id: string | null
+  use_engine_policy?: boolean
   engine_id?: string
   engine_name?: string
   use_engine_credentials?: boolean
@@ -64,6 +65,7 @@ export interface CreateDatabaseInput {
   username: string
   password: string
   policy_id?: string
+  use_engine_policy?: boolean
   engine_id?: string
   use_engine_credentials?: boolean
   enabled?: boolean
@@ -77,6 +79,7 @@ export interface UpdateDatabaseInput {
   database_name?: string
   username?: string
   policy_id?: string
+  use_engine_policy?: boolean
   enabled?: boolean
   compression?: boolean
 }
@@ -310,6 +313,7 @@ export interface Engine {
   username: string | null
   password_secret_name: string | null
   connection_string: string | null
+  policy_id: string | null
   discovery_enabled: boolean
   last_discovery: string | null
   created_at: string
@@ -327,6 +331,7 @@ export interface CreateEngineInput {
   username?: string
   password?: string
   connection_string?: string
+  policy_id?: string
   discover_databases?: boolean
 }
 
@@ -336,7 +341,9 @@ export interface UpdateEngineInput {
   username?: string
   password?: string
   connection_string?: string
+  policy_id?: string | null
   apply_to_all_databases?: boolean
+  apply_policy_to_all_databases?: boolean
 }
 
 export interface EnginesResponse {

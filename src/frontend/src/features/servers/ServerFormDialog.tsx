@@ -17,8 +17,10 @@ import {
   Alert,
   Typography,
   Divider,
+  Chip,
 } from '@mui/material'
-import type { Engine, CreateEngineInput, EngineType, AuthMethod } from '../../types'
+import type { Engine, CreateEngineInput, EngineType, AuthMethod, BackupPolicy } from '../../types'
+import { apiClient } from '../../api/client'
 
 interface ServerFormDialogProps {
   open: boolean
@@ -45,10 +47,33 @@ export function ServerFormDialog({ open, onClose, onSubmit, server }: ServerForm
   const [authMethod, setAuthMethod] = useState<AuthMethod | ''>('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [policyId, setPolicyId] = useState<string>('')
   const [discoverDatabases, setDiscoverDatabases] = useState(true)
   const [applyToAllDatabases, setApplyToAllDatabases] = useState(false)
+  const [applyPolicyToAllDatabases, setApplyPolicyToAllDatabases] = useState(false)
+
+  // Policies for dropdown
+  const [policies, setPolicies] = useState<BackupPolicy[]>([])
+  const [loadingPolicies, setLoadingPolicies] = useState(false)
 
   const isEditing = !!server
+
+  // Load policies when dialog opens
+  useEffect(() => {
+    if (open) {
+      setLoadingPolicies(true)
+      apiClient.get('/backup-policies')
+        .then(response => {
+          setPolicies(response.data.policies || [])
+        })
+        .catch(() => {
+          setPolicies([])
+        })
+        .finally(() => {
+          setLoadingPolicies(false)
+        })
+    }
+  }, [open])
 
   // Reset form when dialog opens
   useEffect(() => {
@@ -61,8 +86,10 @@ export function ServerFormDialog({ open, onClose, onSubmit, server }: ServerForm
         setAuthMethod(server.auth_method || '')
         setUsername(server.username || '')
         setPassword('')
+        setPolicyId(server.policy_id || '')
         setDiscoverDatabases(false)
         setApplyToAllDatabases(false)
+        setApplyPolicyToAllDatabases(false)
       } else {
         setName('')
         setServerType('mysql')
@@ -71,8 +98,10 @@ export function ServerFormDialog({ open, onClose, onSubmit, server }: ServerForm
         setAuthMethod('user_password')
         setUsername('')
         setPassword('')
+        setPolicyId('')
         setDiscoverDatabases(true)
         setApplyToAllDatabases(false)
+        setApplyPolicyToAllDatabases(false)
       }
       setError(null)
     }
@@ -90,7 +119,10 @@ export function ServerFormDialog({ open, onClose, onSubmit, server }: ServerForm
     setIsSubmitting(true)
 
     try {
-      const data: CreateEngineInput = {
+      const data: CreateEngineInput & {
+        apply_to_all_databases?: boolean
+        apply_policy_to_all_databases?: boolean
+      } = {
         name,
         engine_type: serverType,
         host,
@@ -108,13 +140,23 @@ export function ServerFormDialog({ open, onClose, onSubmit, server }: ServerForm
         }
       }
 
+      // Add policy_id if set
+      if (policyId) {
+        data.policy_id = policyId
+      }
+
       if (!isEditing && discoverDatabases) {
         data.discover_databases = true
       }
 
       // For editing, add apply_to_all_databases flag
       if (isEditing && applyToAllDatabases) {
-        (data as { apply_to_all_databases?: boolean }).apply_to_all_databases = true
+        data.apply_to_all_databases = true
+      }
+
+      // For editing, add apply_policy_to_all_databases flag
+      if (isEditing && applyPolicyToAllDatabases && policyId) {
+        data.apply_policy_to_all_databases = true
       }
 
       await onSubmit(data)
@@ -231,6 +273,41 @@ export function ServerFormDialog({ open, onClose, onSubmit, server }: ServerForm
             </Alert>
           )}
 
+          <Divider sx={{ my: 1 }} />
+
+          {/* Backup Policy */}
+          <Typography variant="subtitle2" color="text.secondary">
+            Default Backup Policy (optional)
+          </Typography>
+
+          <FormControl fullWidth disabled={isSubmitting || loadingPolicies}>
+            <InputLabel>Backup Policy</InputLabel>
+            <Select
+              value={policyId}
+              label="Backup Policy"
+              onChange={(e) => setPolicyId(e.target.value)}
+            >
+              <MenuItem value="">None (databases use their own policy)</MenuItem>
+              {policies.map((policy) => (
+                <MenuItem key={policy.id} value={policy.id}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {policy.name}
+                    {policy.is_system && (
+                      <Chip label="System" size="small" color="default" sx={{ height: 20 }} />
+                    )}
+                  </Box>
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {policyId && (
+            <Alert severity="info" sx={{ mt: 1 }}>
+              Databases on this server can inherit this policy. When a database uses "Server Policy",
+              it will automatically use the policy defined here.
+            </Alert>
+          )}
+
           {/* Options */}
           {!isEditing && authMethod && (
             <FormControlLabel
@@ -246,16 +323,30 @@ export function ServerFormDialog({ open, onClose, onSubmit, server }: ServerForm
           )}
 
           {isEditing && server?.database_count && server.database_count > 0 && (
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={applyToAllDatabases}
-                  onChange={(e) => setApplyToAllDatabases(e.target.checked)}
-                  disabled={isSubmitting}
+            <>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={applyToAllDatabases}
+                    onChange={(e) => setApplyToAllDatabases(e.target.checked)}
+                    disabled={isSubmitting}
+                  />
+                }
+                label={`Apply credential changes to ${server.database_count} database(s)`}
+              />
+              {policyId && (
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={applyPolicyToAllDatabases}
+                      onChange={(e) => setApplyPolicyToAllDatabases(e.target.checked)}
+                      disabled={isSubmitting}
+                    />
+                  }
+                  label={`Set ${server.database_count} database(s) to use this server's policy`}
                 />
-              }
-              label={`Apply credential changes to ${server.database_count} database(s)`}
-            />
+              )}
+            </>
           )}
         </Box>
       </DialogContent>
