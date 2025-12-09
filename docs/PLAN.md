@@ -280,7 +280,7 @@ python scripts/reset-and-seed.py --seed-only
 | T.3 | Backups Page | Paginación, filtros, Info Dialog | ✅ Completado |
 | T.4 | Servers Page | 3 servers con sus 3 DBs cada uno | ✅ Completado |
 | T.5 | Databases Page | Policy inheritance, "Inherited" chips | ✅ Completado |
-| T.6 | Audit Page | 500 logs con filtros funcionando | ⏳ Pendiente (solo 1 log en seed) |
+| T.6 | Audit Page | 500 logs con filtros funcionando | ✅ Completado (501 logs generados) |
 | T.7 | Test Connection | Probar conexión a cada DB | ✅ Completado (MySQL/PostgreSQL OK, SQL Server requiere más RAM) |
 | T.8 | Manual Backup | Trigger backup desde UI | ⏳ Pendiente |
 | T.9 | Download Backup | Descargar un backup existente | ⏳ Pendiente |
@@ -292,12 +292,12 @@ python scripts/reset-and-seed.py --seed-only
 | B.1 | Filtro por server en backup history fallaba | `db_config_service.list()` → `get_all()` | ✅ Corregido |
 | B.2 | SQL Server container inestable | Limitación de recursos Codespace (requiere 2GB RAM) | ⚠️ Documentado |
 | B.3 | "Databases without server" en Storage page | Fix parsing blob path en storage-stats | ✅ Corregido |
-| B.4 | Solo 1 audit log en seed | Pendiente agregar más en seed script | ⏳ Pendiente |
+| B.4 | Solo 1 audit log en seed | Script standalone `scripts/generate_audit_logs.py` | ✅ Corregido |
 
-#### Mejoras UX Pendientes
+#### Mejoras UX Completadas
 | # | Mejora | Descripción | Estado |
 |---|--------|-------------|--------|
-| UX.1 | Discovery popup paginado | Agregar "Load more" para servers con muchas DBs | ⏳ Pendiente |
+| UX.1 | Discovery popup paginado | Search + "Load more" para servers con muchas DBs | ✅ Completado |
 
 **Qué debería pasar:**
 
