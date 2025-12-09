@@ -25,6 +25,12 @@ class Settings(BaseSettings):
         default="UseDevelopmentStorage=true",
         alias="STORAGE_CONNECTION_STRING"
     )
+    # Public URL for blob downloads (for dev/Codespaces where internal Docker hostname differs from browser-accessible URL)
+    # In production with Azure Storage, leave empty to use the default blob URL
+    storage_public_url: Optional[str] = Field(
+        default=None,
+        alias="STORAGE_PUBLIC_URL"
+    )
     backup_container_name: str = Field(default="backups")
     backup_queue_name: str = Field(default="backup-jobs")
     history_table_name: str = Field(default="backuphistory")

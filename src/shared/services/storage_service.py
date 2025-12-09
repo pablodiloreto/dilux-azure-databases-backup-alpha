@@ -148,7 +148,37 @@ class StorageService:
             expiry=datetime.utcnow() + timedelta(hours=expiry_hours),
         )
 
-        return f"{blob_client.url}?{sas_token}"
+        # Get base URL - handle dev environments where internal Docker hostname differs from browser URL
+        base_url = blob_client.url
+
+        # Check if we need to rewrite the URL for browser access
+        if self._settings.storage_public_url:
+            # Explicit public URL configured
+            from urllib.parse import urlparse
+            parsed = urlparse(base_url)
+            public_parsed = urlparse(self._settings.storage_public_url)
+            base_url = base_url.replace(
+                f"{parsed.scheme}://{parsed.netloc}",
+                f"{public_parsed.scheme}://{public_parsed.netloc}"
+            )
+        elif "azurite:" in base_url:
+            # Auto-detect Codespaces and rewrite azurite URL
+            import os
+            codespace_name = os.environ.get("CODESPACE_NAME")
+            forwarding_domain = os.environ.get("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "app.github.dev")
+
+            if codespace_name:
+                # Running in GitHub Codespaces - use forwarded port URL
+                # http://azurite:10000/... -> https://{codespace}-10000.{domain}/...
+                base_url = base_url.replace(
+                    "http://azurite:10000",
+                    f"https://{codespace_name}-10000.{forwarding_domain}"
+                )
+            else:
+                # Local Docker - use localhost
+                base_url = base_url.replace("http://azurite:10000", "http://localhost:10000")
+
+        return f"{base_url}?{sas_token}"
 
     def list_backups(
         self,
