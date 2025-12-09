@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   Dialog,
   DialogTitle,
@@ -22,8 +22,9 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  InputAdornment,
 } from '@mui/material'
-import { Storage as StorageIcon } from '@mui/icons-material'
+import { Storage as StorageIcon, Search as SearchIcon } from '@mui/icons-material'
 import type { Engine, BackupPolicy, BackupPoliciesResponse } from '../../types'
 import { enginesApi } from '../../api/engines'
 import { apiClient } from '../../api/client'
@@ -42,6 +43,8 @@ interface DatabaseSelection {
   exists: boolean
 }
 
+const PAGE_SIZE = 50
+
 export function DiscoverDialog({ open, onClose, engine }: DiscoverDialogProps) {
   const [isDiscovering, setIsDiscovering] = useState(false)
   const [isAdding, setIsAdding] = useState(false)
@@ -50,6 +53,8 @@ export function DiscoverDialog({ open, onClose, engine }: DiscoverDialogProps) {
   const [policies, setPolicies] = useState<BackupPolicy[]>([])
   const [defaultPolicyId, setDefaultPolicyId] = useState('')
   const [discoveryDone, setDiscoveryDone] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [displayLimit, setDisplayLimit] = useState(PAGE_SIZE)
 
   // Load policies on mount
   useEffect(() => {
@@ -79,8 +84,30 @@ export function DiscoverDialog({ open, onClose, engine }: DiscoverDialogProps) {
       setDiscoveryDone(false)
       setIsDiscovering(false)
       setIsAdding(false)
+      setSearchQuery('')
+      setDisplayLimit(PAGE_SIZE)
     }
   }, [open])
+
+  // Filter and paginate databases
+  const filteredDatabases = useMemo(() => {
+    if (!searchQuery.trim()) return databases
+    const query = searchQuery.toLowerCase()
+    return databases.filter(db =>
+      db.name.toLowerCase().includes(query) ||
+      db.alias.toLowerCase().includes(query)
+    )
+  }, [databases, searchQuery])
+
+  const displayedDatabases = useMemo(() => {
+    return filteredDatabases.slice(0, displayLimit)
+  }, [filteredDatabases, displayLimit])
+
+  const hasMoreToShow = filteredDatabases.length > displayLimit
+
+  const handleLoadMore = () => {
+    setDisplayLimit(prev => prev + PAGE_SIZE)
+  }
 
   const handleDiscover = async () => {
     setIsDiscovering(true)
@@ -229,21 +256,50 @@ export function DiscoverDialog({ open, onClose, engine }: DiscoverDialogProps) {
 
                 <Divider sx={{ mb: 2 }} />
 
-                {/* Select all */}
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={selectedCount === newDatabases.length && newDatabases.length > 0}
-                      indeterminate={selectedCount > 0 && selectedCount < newDatabases.length}
-                      onChange={(e) => handleToggleAll(e.target.checked)}
-                    />
-                  }
-                  label={`Select all (${selectedCount} of ${databases.length} selected)`}
-                />
+                {/* Search field */}
+                {databases.length > 10 && (
+                  <TextField
+                    size="small"
+                    placeholder="Search databases..."
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value)
+                      setDisplayLimit(PAGE_SIZE) // Reset pagination on search
+                    }}
+                    sx={{ mb: 2, width: '100%' }}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <SearchIcon fontSize="small" />
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                )}
+
+                {/* Summary and Select all */}
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={selectedCount === newDatabases.length && newDatabases.length > 0}
+                        indeterminate={selectedCount > 0 && selectedCount < newDatabases.length}
+                        onChange={(e) => handleToggleAll(e.target.checked)}
+                      />
+                    }
+                    label={`Select all new (${selectedCount} selected)`}
+                  />
+                  <Typography variant="body2" color="text.secondary">
+                    {searchQuery
+                      ? `${filteredDatabases.length} of ${databases.length} shown`
+                      : `${databases.length} database${databases.length !== 1 ? 's' : ''} found`
+                    }
+                  </Typography>
+                </Box>
 
                 {/* Database list */}
                 <List sx={{ maxHeight: 400, overflow: 'auto' }}>
-                  {databases.map((db) => (
+                  {displayedDatabases.map((db) => (
                     <ListItem
                       key={db.name}
                       sx={{
@@ -299,6 +355,15 @@ export function DiscoverDialog({ open, onClose, engine }: DiscoverDialogProps) {
                     </ListItem>
                   ))}
                 </List>
+
+                {/* Load more button */}
+                {hasMoreToShow && (
+                  <Box sx={{ textAlign: 'center', py: 2 }}>
+                    <Button onClick={handleLoadMore} variant="text">
+                      Load more ({filteredDatabases.length - displayLimit} remaining)
+                    </Button>
+                  </Box>
+                )}
               </>
             )}
           </Box>
