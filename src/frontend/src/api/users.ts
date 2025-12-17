@@ -84,6 +84,21 @@ export const usersApi = {
   },
 }
 
+export const authApi = {
+  /**
+   * Log authentication events (login/logout)
+   * Called by frontend when actual login/logout occurs
+   */
+  logEvent: async (event: 'login' | 'logout'): Promise<void> => {
+    try {
+      await apiClient.post('/auth/events', { event })
+    } catch (error) {
+      // Don't fail silently but also don't break the auth flow
+      console.error('Failed to log auth event:', error)
+    }
+  },
+}
+
 export const accessRequestsApi = {
   /**
    * List pending access requests (admin only)

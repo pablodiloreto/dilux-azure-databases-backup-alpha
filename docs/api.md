@@ -13,8 +13,11 @@ The API is implemented as an Azure Function App with HTTP triggers. In developme
 
 ## Authentication
 
-- **Development:** No authentication required
-- **Production:** Azure AD Bearer token required
+- **Development (AUTH_MODE=mock):** Uses mock user, no Azure AD required
+- **Development (AUTH_MODE=azure):** Requires Azure AD Bearer token (from MSAL React frontend)
+- **Production:** Azure AD Bearer token required via EasyAuth headers
+
+See `docs/AUTH_SETUP.md` for setup instructions.
 
 ---
 
@@ -629,6 +632,41 @@ Update application settings.
 
 ---
 
+### Authentication Events
+
+#### `POST /api/auth/events`
+
+Log authentication events (login/logout). Called by frontend when actual login/logout occurs.
+
+**Request Body:**
+```json
+{
+  "event": "login"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `event` | string | Yes | Event type: `login` or `logout` |
+
+**Response (Success):**
+```json
+{
+  "message": "Event logged"
+}
+```
+
+**Errors:**
+- `400 Bad Request` - Invalid event type (must be "login" or "logout")
+- `401 Unauthorized` - User not authenticated
+
+**Notes:**
+- This endpoint should only be called by the frontend when the user actually performs a login (clicks login button and completes Azure AD popup) or logout action.
+- It should NOT be called on page navigation or token refresh.
+- The backend middleware validates the token but does NOT log login events on every request - that would create false audit entries.
+
+---
+
 ### Engines (Servers)
 
 #### `GET /api/engines`
@@ -1114,4 +1152,13 @@ Each audit action includes specific fields in the `details` object:
 
 | Action | Details Fields |
 |--------|----------------|
-| `settings_updated` | `changes`
+| `settings_updated` | `changes` |
+
+#### Authentication Actions
+
+| Action | Details Fields |
+|--------|----------------|
+| `user_login` | `event: login` |
+| `user_logout` | `event: logout` |
+
+**Note:** Login/logout events are logged when the frontend calls `POST /api/auth/events`. The backend middleware does NOT log login events on every API request - only when the user actually performs a login (via Azure AD popup) or logout action.

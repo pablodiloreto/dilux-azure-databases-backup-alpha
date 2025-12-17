@@ -285,6 +285,7 @@ class EngineService:
 
         # Discover databases based on engine type
         discovered = []
+        discovery_error = None
 
         try:
             if engine.engine_type == EngineType.MYSQL:
@@ -295,11 +296,27 @@ class EngineService:
                 discovered = self._discover_sqlserver(engine, existing_db_names, system_dbs)
         except Exception as e:
             logger.error(f"Failed to discover databases on {engine.name}: {e}")
-            raise ValueError(f"Failed to discover databases: {str(e)}")
+            discovery_error = str(e)
+
+        # Always include existing configured databases, even if discovery failed
+        discovered_names = {db.name for db in discovered}
+        existing_configs = [db for db in existing_dbs if db.engine_id == engine.id]
+
+        for db_config in existing_configs:
+            if db_config.database_name not in discovered_names:
+                discovered.append(DiscoveredDatabase(
+                    name=db_config.database_name,
+                    exists=True,
+                    is_system=False,
+                ))
 
         # Update last_discovery timestamp
         engine.last_discovery = datetime.utcnow()
         self.update(engine)
+
+        # If discovery failed and no existing DBs, raise the error
+        if discovery_error and not existing_configs:
+            raise ValueError(f"Failed to discover databases: {discovery_error}")
 
         return discovered
 
@@ -413,7 +430,8 @@ class EngineService:
         discovered = []
         for line in result.stdout.strip().split("\n"):
             db_name = line.strip()
-            if not db_name or db_name.startswith("-"):
+            # Skip empty lines, separator lines, and sqlcmd messages
+            if not db_name or db_name.startswith("-") or db_name.startswith("(") or "rows affected" in db_name.lower():
                 continue
 
             is_system = db_name.lower() in system_dbs

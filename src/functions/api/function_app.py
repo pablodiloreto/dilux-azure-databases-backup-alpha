@@ -1527,6 +1527,90 @@ def update_app_settings(req: func.HttpRequest) -> func.HttpResponse:
 
 
 # ===========================================
+# Auth Events Endpoints
+# ===========================================
+
+
+@app.route(route="auth/events", methods=["POST"])
+def log_auth_event(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Log authentication events (login/logout).
+
+    Called by the frontend when the user actually performs login or logout.
+
+    Body:
+    {
+        "event": "login" | "logout"
+    }
+    """
+    try:
+        auth_result = get_current_user(req, storage_service)
+
+        if not auth_result.authenticated:
+            return func.HttpResponse(
+                json.dumps({"error": auth_result.error}),
+                mimetype="application/json",
+                status_code=401,
+            )
+
+        try:
+            data = req.get_json()
+        except ValueError:
+            return func.HttpResponse(
+                json.dumps({"error": "Invalid JSON"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        event = data.get("event")
+        if event not in ["login", "logout"]:
+            return func.HttpResponse(
+                json.dumps({"error": "Invalid event. Must be 'login' or 'logout'"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        user = auth_result.user
+        client_ip = get_client_ip(req)
+
+        if event == "login":
+            audit_service.log(
+                user_id=user.id,
+                user_email=user.email,
+                action=AuditAction.USER_LOGIN,
+                resource_type=AuditResourceType.USER,
+                resource_id=user.id,
+                resource_name=user.email,
+                details={"event": "login", "role": user.role.value},
+                ip_address=client_ip,
+            )
+        else:  # logout
+            audit_service.log(
+                user_id=user.id,
+                user_email=user.email,
+                action=AuditAction.USER_LOGOUT,
+                resource_type=AuditResourceType.USER,
+                resource_id=user.id,
+                resource_name=user.email,
+                details={"event": "logout"},
+                ip_address=client_ip,
+            )
+
+        return func.HttpResponse(
+            json.dumps({"success": True}),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.exception("Error logging auth event")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+# ===========================================
 # User Management Endpoints
 # ===========================================
 

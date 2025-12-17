@@ -46,7 +46,6 @@ interface DatabaseSelection {
 const PAGE_SIZE = 50
 
 export function DiscoverDialog({ open, onClose, engine }: DiscoverDialogProps) {
-  const [isDiscovering, setIsDiscovering] = useState(false)
   const [isAdding, setIsAdding] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [databases, setDatabases] = useState<DatabaseSelection[]>([])
@@ -76,18 +75,42 @@ export function DiscoverDialog({ open, onClose, engine }: DiscoverDialogProps) {
     }
   }, [open])
 
-  // Reset state when dialog opens
+  // Reset state and auto-discover when dialog opens
   useEffect(() => {
     if (open) {
       setDatabases([])
       setError(null)
       setDiscoveryDone(false)
-      setIsDiscovering(false)
       setIsAdding(false)
       setSearchQuery('')
       setDisplayLimit(PAGE_SIZE)
+      // Auto-discover when dialog opens
+      handleDiscoverAuto()
     }
   }, [open])
+
+  // Auto-discover function (called on open)
+  const handleDiscoverAuto = async () => {
+    setError(null)
+
+    try {
+      const result = await enginesApi.discoverDatabases(engine.id)
+      const selections: DatabaseSelection[] = result.databases
+        .filter(db => !db.is_system)
+        .map(db => ({
+          name: db.name,
+          alias: db.name,
+          policyId: defaultPolicyId,
+          selected: !db.exists,
+          exists: db.exists,
+        }))
+      setDatabases(selections)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to discover databases')
+    } finally {
+      setDiscoveryDone(true)
+    }
+  }
 
   // Filter and paginate databases
   const filteredDatabases = useMemo(() => {
@@ -107,30 +130,6 @@ export function DiscoverDialog({ open, onClose, engine }: DiscoverDialogProps) {
 
   const handleLoadMore = () => {
     setDisplayLimit(prev => prev + PAGE_SIZE)
-  }
-
-  const handleDiscover = async () => {
-    setIsDiscovering(true)
-    setError(null)
-
-    try {
-      const result = await enginesApi.discoverDatabases(engine.id)
-      const selections: DatabaseSelection[] = result.databases
-        .filter(db => !db.is_system)
-        .map(db => ({
-          name: db.name,
-          alias: db.name,
-          policyId: defaultPolicyId,
-          selected: !db.exists,
-          exists: db.exists,
-        }))
-      setDatabases(selections)
-      setDiscoveryDone(true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to discover databases')
-    } finally {
-      setIsDiscovering(false)
-    }
   }
 
   const handleToggleAll = (checked: boolean) => {
@@ -210,28 +209,18 @@ export function DiscoverDialog({ open, onClose, engine }: DiscoverDialogProps) {
 
         {!discoveryDone ? (
           <Box sx={{ textAlign: 'center', py: 4 }}>
+            <CircularProgress size={40} sx={{ mb: 2 }} />
             <Typography variant="body1" gutterBottom>
-              Discover all databases on this server and add them to your backup configuration.
+              Discovering databases on {engine.host}:{engine.port}...
             </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              This will connect to {engine.host}:{engine.port} and list all available databases.
-            </Typography>
-            <Button
-              variant="contained"
-              onClick={handleDiscover}
-              disabled={isDiscovering}
-              startIcon={isDiscovering ? <CircularProgress size={20} /> : <StorageIcon />}
-            >
-              {isDiscovering ? 'Discovering...' : 'Discover Databases'}
-            </Button>
           </Box>
         ) : (
           <Box>
-            {databases.length === 0 ? (
+            {databases.length === 0 && !error ? (
               <Alert severity="info">
-                No new databases found on this server.
+                No databases found on this server, or all databases are system databases.
               </Alert>
-            ) : (
+            ) : databases.length > 0 ? (
               <>
                 {/* Default policy selector */}
                 <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 2 }}>
@@ -365,7 +354,7 @@ export function DiscoverDialog({ open, onClose, engine }: DiscoverDialogProps) {
                   </Box>
                 )}
               </>
-            )}
+            ) : null}
           </Box>
         )}
       </DialogContent>

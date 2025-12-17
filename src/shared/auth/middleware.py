@@ -9,21 +9,25 @@ Supports:
 import json
 import logging
 import os
+import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from functools import wraps
 from typing import Callable, Optional, Union
 
 import azure.functions as func
 
-from ..models import User, UserRole
+from ..models import User, UserRole, AccessRequest, AccessRequestStatus, AuditAction, AuditResourceType, AuditStatus
 from ..services import StorageService
+from ..services.audit_service import get_audit_service
 
 logger = logging.getLogger(__name__)
 
 # Environment check
 IS_DEVELOPMENT = os.environ.get("ENVIRONMENT", "").lower() == "development"
+AUTH_MODE = os.environ.get("AUTH_MODE", "mock").lower()  # 'azure' or 'mock'
 
-# Dev mode mock user (used when ENVIRONMENT=development)
+# Dev mode mock user (used when ENVIRONMENT=development and AUTH_MODE=mock)
 DEV_USER_ID = "dev-user-00000000-0000-0000-0000-000000000000"
 DEV_USER_EMAIL = "admin@dilux.tech"
 DEV_USER_NAME = "Dev Admin"
@@ -116,11 +120,33 @@ def _validate_azure_ad_token(req: func.HttpRequest) -> Optional[dict]:
             logger.warning(f"Failed to decode X-MS-CLIENT-PRINCIPAL: {e}")
 
     # For manual JWT validation (if EasyAuth is not enabled)
+    # This is used in development with AUTH_MODE=azure
     auth_header = req.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
-        # In production, you would validate the JWT here
-        # For now, we rely on EasyAuth
-        logger.warning("Manual JWT validation not implemented - use EasyAuth")
+        token = auth_header[7:]  # Remove "Bearer " prefix
+        try:
+            # Decode JWT without verification (for development)
+            # In production, EasyAuth validates the token
+            import base64
+            # JWT has 3 parts: header.payload.signature
+            parts = token.split(".")
+            if len(parts) >= 2:
+                # Decode payload (add padding if needed)
+                payload = parts[1]
+                padding = 4 - len(payload) % 4
+                if padding != 4:
+                    payload += "=" * padding
+                claims_json = base64.urlsafe_b64decode(payload).decode("utf-8")
+                claims = json.loads(claims_json)
+
+                # Extract user info from Azure AD token claims
+                return {
+                    "oid": claims.get("oid") or claims.get("sub"),
+                    "preferred_username": claims.get("preferred_username") or claims.get("email") or claims.get("upn"),
+                    "name": claims.get("name") or claims.get("given_name", ""),
+                }
+        except Exception as e:
+            logger.warning(f"Failed to decode JWT token: {e}")
 
     return None
 
@@ -142,8 +168,8 @@ def get_current_user(
     if storage_service is None:
         storage_service = StorageService()
 
-    # Development bypass
-    if IS_DEVELOPMENT:
+    # Development bypass (only when AUTH_MODE is mock)
+    if IS_DEVELOPMENT and AUTH_MODE == "mock":
         return _get_dev_user(storage_service)
 
     # Validate Azure AD token
@@ -162,6 +188,10 @@ def get_current_user(
     # Check if user exists in our system
     user = storage_service.get_user(user_id)
 
+    # Get audit service for logging
+    audit_service = get_audit_service()
+    client_ip = req.headers.get("X-Forwarded-For", req.headers.get("X-Real-IP", "unknown"))
+
     if not user:
         # Check if this is first run (no users at all)
         if not storage_service.has_any_users():
@@ -172,24 +202,102 @@ def get_current_user(
                 name=name,
             )
             logger.info(f"Created first admin: {email}")
+            # Log first admin creation
+            audit_service.log(
+                user_id=user_id,
+                user_email=email,
+                action=AuditAction.USER_LOGIN,
+                resource_type=AuditResourceType.USER,
+                resource_id=user_id,
+                resource_name=email,
+                details={"event": "first_admin_created"},
+                ip_address=client_ip,
+            )
             return AuthResult(authenticated=True, user=user, is_first_run=True)
         else:
             # User not in our system and not first run
+            logger.warning(f"Access denied for unregistered user: {email} (id: {user_id})")
+
+            # Create access request if enabled
+            try:
+                settings = storage_service.get_settings()
+                if settings.access_requests_enabled:
+                    # Check if request already exists for this user
+                    existing_requests = storage_service.get_pending_access_requests()
+                    already_requested = any(r.email == email for r in existing_requests)
+
+                    if not already_requested:
+                        access_request = AccessRequest(
+                            id=str(uuid.uuid4()),
+                            azure_ad_id=user_id,
+                            email=email,
+                            name=name,
+                            status=AccessRequestStatus.PENDING,
+                            requested_at=datetime.now(timezone.utc),
+                        )
+                        storage_service.save_access_request(access_request)
+                        logger.info(f"Created access request for: {email}")
+
+                        # Log access request creation
+                        audit_service.log(
+                            user_id=user_id,
+                            user_email=email,
+                            action=AuditAction.USER_LOGIN,
+                            resource_type=AuditResourceType.ACCESS_REQUEST,
+                            resource_id=access_request.id,
+                            resource_name=email,
+                            details={"event": "access_request_created"},
+                            ip_address=client_ip,
+                        )
+            except Exception as e:
+                logger.error(f"Failed to create access request: {e}")
+
+            # Log failed login attempt
+            audit_service.log(
+                user_id=user_id,
+                user_email=email,
+                action=AuditAction.USER_LOGIN,
+                resource_type=AuditResourceType.USER,
+                resource_id=user_id,
+                resource_name=email,
+                details={"event": "login_denied_not_registered"},
+                status=AuditStatus.FAILED,
+                error_message=f"User {email} not registered",
+                ip_address=client_ip,
+            )
+
             return AuthResult(
                 authenticated=False,
-                error="Access denied. Your account is not registered in this application. "
+                error=f"Access denied for '{email}'. Your account is not registered in this application. "
                       "Please contact an administrator.",
             )
 
     # Check if user is enabled
     if not user.enabled:
+        # Log disabled user login attempt
+        audit_service.log(
+            user_id=user_id,
+            user_email=email,
+            action=AuditAction.USER_LOGIN,
+            resource_type=AuditResourceType.USER,
+            resource_id=user_id,
+            resource_name=email,
+            details={"event": "login_denied_disabled"},
+            status=AuditStatus.FAILED,
+            error_message=f"User {email} is disabled",
+            ip_address=client_ip,
+        )
         return AuthResult(
             authenticated=False,
             error="Your account has been disabled. Please contact an administrator.",
         )
 
-    # Update last login
+    # Update last login timestamp (for activity tracking, not audit logging)
     storage_service.update_last_login(user_id)
+
+    # NOTE: Login audit events are NOT logged here because get_current_user() is called
+    # on every request for authentication. Login/logout events should be logged by the
+    # frontend when the user actually performs login (via Azure AD popup) or logout.
 
     return AuthResult(authenticated=True, user=user)
 

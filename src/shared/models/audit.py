@@ -40,6 +40,7 @@ class AuditAction(str, Enum):
     USER_UPDATED = "user_updated"
     USER_DELETED = "user_deleted"
     USER_LOGIN = "user_login"
+    USER_LOGOUT = "user_logout"
     ACCESS_REQUEST_APPROVED = "access_request_approved"
     ACCESS_REQUEST_REJECTED = "access_request_rejected"
 

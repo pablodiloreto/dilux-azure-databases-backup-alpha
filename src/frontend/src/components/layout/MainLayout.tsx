@@ -44,6 +44,8 @@ import {
 } from '@mui/icons-material'
 import { useSettings } from '../../contexts/SettingsContext'
 import { useAuth } from '../../contexts/AuthContext'
+import { Login as LoginIcon } from '@mui/icons-material'
+import { Chip, Button, CircularProgress } from '@mui/material'
 
 const DRAWER_WIDTH = 240
 const DRAWER_WIDTH_COLLAPSED = 64
@@ -98,7 +100,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   const { settings, toggleDarkMode } = useSettings()
-  const { user, canManageUsers } = useAuth()
+  const { user, canManageUsers, isAuthenticated, isLoading, login, logout, authMode } = useAuth()
 
   const drawerWidth = collapsed && !isMobile ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH
 
@@ -120,10 +122,21 @@ export function MainLayout({ children }: MainLayoutProps) {
     setAnchorEl(null)
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     handleUserMenuClose()
-    // TODO: Implement Azure AD logout
-    console.log('Logout clicked - will implement with Azure AD')
+    try {
+      await logout()
+    } catch (err) {
+      console.error('Logout failed:', err)
+    }
+  }
+
+  const handleLogin = async () => {
+    try {
+      await login()
+    } catch (err) {
+      console.error('Login failed:', err)
+    }
   }
 
   // Generate breadcrumbs from current path
@@ -437,21 +450,46 @@ export function MainLayout({ children }: MainLayoutProps) {
             </IconButton>
           </Tooltip>
 
-          {/* User menu */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography variant="body2" sx={{ display: { xs: 'none', md: 'block' } }}>
-              {user?.name || 'Loading...'}
-            </Typography>
-            <Tooltip title="Account settings">
-              <IconButton onClick={handleUserMenuOpen} sx={{ p: 0 }}>
-                <Avatar
-                  alt={user?.name || 'User'}
-                  src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'U')}&background=1976d2&color=fff`}
-                  sx={{ width: 36, height: 36 }}
-                />
-              </IconButton>
-            </Tooltip>
-          </Box>
+          {/* Auth mode indicator (dev only) */}
+          {authMode === 'mock' && (
+            <Chip
+              label="Mock Auth"
+              size="small"
+              color="warning"
+              sx={{ mr: 1, display: { xs: 'none', sm: 'flex' } }}
+            />
+          )}
+
+          {/* User menu / Login button */}
+          {isLoading ? (
+            <CircularProgress size={24} color="inherit" />
+          ) : isAuthenticated ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="body2" sx={{ display: { xs: 'none', md: 'block' } }}>
+                {user?.name || 'User'}
+              </Typography>
+              <Tooltip title="Account settings">
+                <IconButton onClick={handleUserMenuOpen} sx={{ p: 0 }}>
+                  <Avatar
+                    alt={user?.name || 'User'}
+                    src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'U')}&background=1976d2&color=fff`}
+                    sx={{ width: 36, height: 36 }}
+                  />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          ) : (
+            <Button
+              color="inherit"
+              startIcon={<LoginIcon />}
+              onClick={handleLogin}
+              variant="outlined"
+              size="small"
+              sx={{ borderColor: 'rgba(255,255,255,0.5)' }}
+            >
+              Sign In
+            </Button>
+          )}
           <Menu
             anchorEl={anchorEl}
             open={Boolean(anchorEl)}

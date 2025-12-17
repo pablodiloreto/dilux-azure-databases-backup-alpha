@@ -11,11 +11,15 @@ import { StatusPage } from './features/status/StatusPage'
 import { UsersPage } from './features/users/UsersPage'
 import { AuditPage } from './features/audit/AuditPage'
 import { AuthProvider } from './contexts/AuthContext'
+import { MsalAuthProvider } from './auth'
+import { AuthGuard } from './components/auth'
 
 function App() {
   return (
-    <AuthProvider>
-      <MainLayout>
+    <MsalAuthProvider>
+      <AuthProvider>
+        <AuthGuard>
+        <MainLayout>
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
@@ -30,8 +34,10 @@ function App() {
           <Route path="/users" element={<UsersPage />} />
           <Route path="/audit" element={<AuditPage />} />
         </Routes>
-      </MainLayout>
-    </AuthProvider>
+        </MainLayout>
+        </AuthGuard>
+      </AuthProvider>
+    </MsalAuthProvider>
   )
 }
 
