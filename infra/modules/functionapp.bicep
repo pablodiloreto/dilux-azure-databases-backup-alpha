@@ -23,6 +23,10 @@ param appServicePlanId string
 @description('Storage Account name')
 param storageAccountName string
 
+@description('Storage Account connection string (for Functions runtime)')
+@secure()
+param storageConnectionString string
+
 @description('Storage Account blob endpoint')
 param storageBlobEndpoint string
 
@@ -48,21 +52,18 @@ param additionalAppSettings object = {}
 // Variables
 // ============================================================================
 
-// Base app settings - Using Managed Identity for Storage
+// Base app settings
+// Note: AzureWebJobsStorage uses connection string (required for Consumption plan)
+// Our application code uses Managed Identity via STORAGE_* settings
 var baseAppSettings = {
-  // Azure Functions runtime uses Managed Identity with these settings
-  AzureWebJobsStorage__accountName: storageAccountName
-  AzureWebJobsStorage__blobServiceUri: storageBlobEndpoint
-  AzureWebJobsStorage__queueServiceUri: storageQueueEndpoint
-  AzureWebJobsStorage__tableServiceUri: storageTableEndpoint
-
-  // Content share for deployment (still needs the account name)
+  // Azure Functions runtime (requires connection string for Consumption/Y1 plan)
+  AzureWebJobsStorage: storageConnectionString
+  WEBSITE_CONTENTAZUREFILECONNECTIONSTRING: storageConnectionString
   WEBSITE_CONTENTSHARE: toLower(functionAppName)
 
   // Functions runtime settings
   FUNCTIONS_EXTENSION_VERSION: '~4'
   FUNCTIONS_WORKER_RUNTIME: 'python'
-  PYTHON_VERSION: '3.10'
 
   // App settings for our code (uses Managed Identity via DefaultAzureCredential)
   STORAGE_ACCOUNT_NAME: storageAccountName
@@ -101,8 +102,8 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
   properties: {
     serverFarmId: appServicePlanId
     httpsOnly: true
+    reserved: true // Required for Linux
     siteConfig: {
-      pythonVersion: '3.10'
       linuxFxVersion: 'PYTHON|3.10'
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
@@ -115,7 +116,7 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
       }
       appSettings: [for setting in items(appSettings): {
         name: setting.key
-        value: setting.value
+        value: string(setting.value)
       }]
     }
   }

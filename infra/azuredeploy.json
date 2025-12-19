@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "14703893511246006334"
+      "templateHash": "15464003464897992678"
     }
   },
   "parameters": {
@@ -1155,6 +1155,9 @@
           "storageAccountName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
           },
+          "storageConnectionString": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.connectionString.value]"
+          },
           "storageBlobEndpoint": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.blobEndpoint.value]"
           },
@@ -1187,7 +1190,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "6005228098789446251"
+              "templateHash": "17177861528579309150"
             }
           },
           "parameters": {
@@ -1219,6 +1222,12 @@
               "type": "string",
               "metadata": {
                 "description": "Storage Account name"
+              }
+            },
+            "storageConnectionString": {
+              "type": "securestring",
+              "metadata": {
+                "description": "Storage Account connection string (for Functions runtime)"
               }
             },
             "storageBlobEndpoint": {
@@ -1269,14 +1278,11 @@
           },
           "variables": {
             "baseAppSettings": {
-              "AzureWebJobsStorage__accountName": "[parameters('storageAccountName')]",
-              "AzureWebJobsStorage__blobServiceUri": "[parameters('storageBlobEndpoint')]",
-              "AzureWebJobsStorage__queueServiceUri": "[parameters('storageQueueEndpoint')]",
-              "AzureWebJobsStorage__tableServiceUri": "[parameters('storageTableEndpoint')]",
+              "AzureWebJobsStorage": "[parameters('storageConnectionString')]",
+              "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING": "[parameters('storageConnectionString')]",
               "WEBSITE_CONTENTSHARE": "[toLower(parameters('functionAppName'))]",
               "FUNCTIONS_EXTENSION_VERSION": "~4",
               "FUNCTIONS_WORKER_RUNTIME": "python",
-              "PYTHON_VERSION": "3.10",
               "STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
               "STORAGE_BLOB_ENDPOINT": "[parameters('storageBlobEndpoint')]",
               "STORAGE_QUEUE_ENDPOINT": "[parameters('storageQueueEndpoint')]",
@@ -1301,6 +1307,7 @@
               "properties": {
                 "serverFarmId": "[parameters('appServicePlanId')]",
                 "httpsOnly": true,
+                "reserved": true,
                 "siteConfig": {
                   "copy": [
                     {
@@ -1308,11 +1315,10 @@
                       "count": "[length(items(variables('appSettings')))]",
                       "input": {
                         "name": "[items(variables('appSettings'))[copyIndex('appSettings')].key]",
-                        "value": "[items(variables('appSettings'))[copyIndex('appSettings')].value]"
+                        "value": "[string(items(variables('appSettings'))[copyIndex('appSettings')].value)]"
                       }
                     }
                   ],
-                  "pythonVersion": "3.10",
                   "linuxFxVersion": "PYTHON|3.10",
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
@@ -1392,6 +1398,9 @@
           "storageAccountName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
           },
+          "storageConnectionString": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.connectionString.value]"
+          },
           "storageBlobEndpoint": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.blobEndpoint.value]"
           },
@@ -1421,7 +1430,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "6005228098789446251"
+              "templateHash": "17177861528579309150"
             }
           },
           "parameters": {
@@ -1453,6 +1462,12 @@
               "type": "string",
               "metadata": {
                 "description": "Storage Account name"
+              }
+            },
+            "storageConnectionString": {
+              "type": "securestring",
+              "metadata": {
+                "description": "Storage Account connection string (for Functions runtime)"
               }
             },
             "storageBlobEndpoint": {
@@ -1503,14 +1518,11 @@
           },
           "variables": {
             "baseAppSettings": {
-              "AzureWebJobsStorage__accountName": "[parameters('storageAccountName')]",
-              "AzureWebJobsStorage__blobServiceUri": "[parameters('storageBlobEndpoint')]",
-              "AzureWebJobsStorage__queueServiceUri": "[parameters('storageQueueEndpoint')]",
-              "AzureWebJobsStorage__tableServiceUri": "[parameters('storageTableEndpoint')]",
+              "AzureWebJobsStorage": "[parameters('storageConnectionString')]",
+              "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING": "[parameters('storageConnectionString')]",
               "WEBSITE_CONTENTSHARE": "[toLower(parameters('functionAppName'))]",
               "FUNCTIONS_EXTENSION_VERSION": "~4",
               "FUNCTIONS_WORKER_RUNTIME": "python",
-              "PYTHON_VERSION": "3.10",
               "STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
               "STORAGE_BLOB_ENDPOINT": "[parameters('storageBlobEndpoint')]",
               "STORAGE_QUEUE_ENDPOINT": "[parameters('storageQueueEndpoint')]",
@@ -1535,6 +1547,7 @@
               "properties": {
                 "serverFarmId": "[parameters('appServicePlanId')]",
                 "httpsOnly": true,
+                "reserved": true,
                 "siteConfig": {
                   "copy": [
                     {
@@ -1542,11 +1555,10 @@
                       "count": "[length(items(variables('appSettings')))]",
                       "input": {
                         "name": "[items(variables('appSettings'))[copyIndex('appSettings')].key]",
-                        "value": "[items(variables('appSettings'))[copyIndex('appSettings')].value]"
+                        "value": "[string(items(variables('appSettings'))[copyIndex('appSettings')].value)]"
                       }
                     }
                   ],
-                  "pythonVersion": "3.10",
                   "linuxFxVersion": "PYTHON|3.10",
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
@@ -1626,6 +1638,9 @@
           "storageAccountName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
           },
+          "storageConnectionString": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.connectionString.value]"
+          },
           "storageBlobEndpoint": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.blobEndpoint.value]"
           },
@@ -1655,7 +1670,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "6005228098789446251"
+              "templateHash": "17177861528579309150"
             }
           },
           "parameters": {
@@ -1687,6 +1702,12 @@
               "type": "string",
               "metadata": {
                 "description": "Storage Account name"
+              }
+            },
+            "storageConnectionString": {
+              "type": "securestring",
+              "metadata": {
+                "description": "Storage Account connection string (for Functions runtime)"
               }
             },
             "storageBlobEndpoint": {
@@ -1737,14 +1758,11 @@
           },
           "variables": {
             "baseAppSettings": {
-              "AzureWebJobsStorage__accountName": "[parameters('storageAccountName')]",
-              "AzureWebJobsStorage__blobServiceUri": "[parameters('storageBlobEndpoint')]",
-              "AzureWebJobsStorage__queueServiceUri": "[parameters('storageQueueEndpoint')]",
-              "AzureWebJobsStorage__tableServiceUri": "[parameters('storageTableEndpoint')]",
+              "AzureWebJobsStorage": "[parameters('storageConnectionString')]",
+              "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING": "[parameters('storageConnectionString')]",
               "WEBSITE_CONTENTSHARE": "[toLower(parameters('functionAppName'))]",
               "FUNCTIONS_EXTENSION_VERSION": "~4",
               "FUNCTIONS_WORKER_RUNTIME": "python",
-              "PYTHON_VERSION": "3.10",
               "STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
               "STORAGE_BLOB_ENDPOINT": "[parameters('storageBlobEndpoint')]",
               "STORAGE_QUEUE_ENDPOINT": "[parameters('storageQueueEndpoint')]",
@@ -1769,6 +1787,7 @@
               "properties": {
                 "serverFarmId": "[parameters('appServicePlanId')]",
                 "httpsOnly": true,
+                "reserved": true,
                 "siteConfig": {
                   "copy": [
                     {
@@ -1776,11 +1795,10 @@
                       "count": "[length(items(variables('appSettings')))]",
                       "input": {
                         "name": "[items(variables('appSettings'))[copyIndex('appSettings')].key]",
-                        "value": "[items(variables('appSettings'))[copyIndex('appSettings')].value]"
+                        "value": "[string(items(variables('appSettings'))[copyIndex('appSettings')].value)]"
                       }
                     }
                   ],
-                  "pythonVersion": "3.10",
                   "linuxFxVersion": "PYTHON|3.10",
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
