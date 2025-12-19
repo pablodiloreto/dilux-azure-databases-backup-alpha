@@ -87,10 +87,20 @@ resource deploymentScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
       DOWNLOAD_URL="https://github.com/$GITHUB_REPO/archive/refs/tags/$VERSION.tar.gz"
       curl -L -o release.tar.gz "$DOWNLOAD_URL"
 
-      # Extract
-      tar -xzf release.tar.gz
+      # Extract (ignore symlinks, we'll handle them manually)
+      echo "Extracting..."
+      tar -xzf release.tar.gz --warning=no-unknown-keyword 2>/dev/null || tar -xzf release.tar.gz
       REPO_NAME=$(echo $GITHUB_REPO | cut -d'/' -f2)
       cd "${REPO_NAME}-${VERSION#v}"
+
+      # Fix symlinks - copy shared folder to each function directory
+      echo "Setting up shared code..."
+      rm -rf src/functions/api/shared 2>/dev/null || true
+      rm -rf src/functions/scheduler/shared 2>/dev/null || true
+      rm -rf src/functions/processor/shared 2>/dev/null || true
+      cp -r src/shared src/functions/api/shared
+      cp -r src/shared src/functions/scheduler/shared
+      cp -r src/shared src/functions/processor/shared
 
       echo "=========================================="
       echo "Building Frontend..."
