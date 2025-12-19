@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "6315780357261457069"
+      "templateHash": "8626981612657192485"
     }
   },
   "parameters": {
@@ -52,9 +52,9 @@
     },
     "appVersion": {
       "type": "string",
-      "defaultValue": "1.0.0",
+      "defaultValue": "v1.0.0",
       "metadata": {
-        "description": "Current version of the application."
+        "description": "Version to deploy (GitHub release tag, e.g., v1.0.0)"
       }
     },
     "skipAppRegistration": {
@@ -83,9 +83,23 @@
       "Environment": "Production",
       "ManagedBy": "Bicep",
       "Version": "[parameters('appVersion')]"
-    }
+    },
+    "contributorRoleId": "b24988ac-6180-42a0-ab88-20f7382dd24c"
   },
   "resources": [
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(resourceGroup().id, variables('deploymentIdentityName'), 'contributor-for-code-deploy')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('contributorRoleId'))]",
+        "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'deployment-identity'), '2025-04-01').outputs.principalId.value]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'deployment-identity')]"
+      ]
+    },
     {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
@@ -2482,6 +2496,213 @@
         "[resourceId('Microsoft.Resources/deployments', 'functionapp-processor-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'storage-deployment')]"
       ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "code-deployment",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          },
+          "identityId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deployment-identity'), '2025-04-01').outputs.identityId.value]"
+          },
+          "version": {
+            "value": "[parameters('appVersion')]"
+          },
+          "staticWebAppName": {
+            "value": "[variables('staticWebAppName')]"
+          },
+          "apiFunctionAppName": {
+            "value": "[variables('functionAppApiName')]"
+          },
+          "schedulerFunctionAppName": {
+            "value": "[variables('functionAppSchedulerName')]"
+          },
+          "processorFunctionAppName": {
+            "value": "[variables('functionAppProcessorName')]"
+          },
+          "resourceGroupName": {
+            "value": "[resourceGroup().name]"
+          },
+          "apiBaseUrl": {
+            "value": "[format('https://{0}.azurewebsites.net', variables('functionAppApiName'))]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "4498657028607610007"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Tags to apply"
+              }
+            },
+            "identityId": {
+              "type": "string",
+              "metadata": {
+                "description": "User-assigned Managed Identity ID for running the script"
+              }
+            },
+            "gitHubRepo": {
+              "type": "string",
+              "defaultValue": "pablodiloreto/dilux-azure-databases-backup-alpha",
+              "metadata": {
+                "description": "GitHub repository (owner/repo)"
+              }
+            },
+            "version": {
+              "type": "string",
+              "metadata": {
+                "description": "Version to deploy (GitHub release tag)"
+              }
+            },
+            "staticWebAppName": {
+              "type": "string",
+              "metadata": {
+                "description": "Static Web App name"
+              }
+            },
+            "apiFunctionAppName": {
+              "type": "string",
+              "metadata": {
+                "description": "API Function App name"
+              }
+            },
+            "schedulerFunctionAppName": {
+              "type": "string",
+              "metadata": {
+                "description": "Scheduler Function App name"
+              }
+            },
+            "processorFunctionAppName": {
+              "type": "string",
+              "metadata": {
+                "description": "Processor Function App name"
+              }
+            },
+            "resourceGroupName": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource group name"
+              }
+            },
+            "apiBaseUrl": {
+              "type": "string",
+              "metadata": {
+                "description": "API base URL for frontend build"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Resources/deploymentScripts",
+              "apiVersion": "2023-08-01",
+              "name": "deploy-application-code",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "kind": "AzureCLI",
+              "identity": {
+                "type": "UserAssigned",
+                "userAssignedIdentities": {
+                  "[format('{0}', parameters('identityId'))]": {}
+                }
+              },
+              "properties": {
+                "azCliVersion": "2.50.0",
+                "timeout": "PT30M",
+                "retentionInterval": "PT1H",
+                "cleanupPreference": "OnSuccess",
+                "environmentVariables": [
+                  {
+                    "name": "GITHUB_REPO",
+                    "value": "[parameters('gitHubRepo')]"
+                  },
+                  {
+                    "name": "VERSION",
+                    "value": "[parameters('version')]"
+                  },
+                  {
+                    "name": "STATIC_WEB_APP_NAME",
+                    "value": "[parameters('staticWebAppName')]"
+                  },
+                  {
+                    "name": "API_FUNCTION_APP_NAME",
+                    "value": "[parameters('apiFunctionAppName')]"
+                  },
+                  {
+                    "name": "SCHEDULER_FUNCTION_APP_NAME",
+                    "value": "[parameters('schedulerFunctionAppName')]"
+                  },
+                  {
+                    "name": "PROCESSOR_FUNCTION_APP_NAME",
+                    "value": "[parameters('processorFunctionAppName')]"
+                  },
+                  {
+                    "name": "RESOURCE_GROUP",
+                    "value": "[parameters('resourceGroupName')]"
+                  },
+                  {
+                    "name": "VITE_API_BASE_URL",
+                    "value": "[parameters('apiBaseUrl')]"
+                  }
+                ],
+                "scriptContent": "      #!/bin/bash\n      set -e\n\n      echo \"==========================================\"\n      echo \"Deploying Dilux Database Backup\"\n      echo \"Version: $VERSION\"\n      echo \"==========================================\"\n\n      # Install dependencies\n      echo \"Installing dependencies...\"\n      apk add --no-cache nodejs npm python3 py3-pip zip unzip curl\n\n      # Download release from GitHub\n      echo \"Downloading release $VERSION from GitHub...\"\n      DOWNLOAD_URL=\"https://github.com/$GITHUB_REPO/archive/refs/tags/$VERSION.tar.gz\"\n      curl -L -o release.tar.gz \"$DOWNLOAD_URL\"\n\n      # Extract\n      tar -xzf release.tar.gz\n      REPO_NAME=$(echo $GITHUB_REPO | cut -d'/' -f2)\n      cd \"${REPO_NAME}-${VERSION#v}\"\n\n      echo \"==========================================\"\n      echo \"Building Frontend...\"\n      echo \"==========================================\"\n      cd src/frontend\n      npm ci\n      npm run build\n      cd ../..\n\n      echo \"==========================================\"\n      echo \"Deploying Frontend to Static Web App...\"\n      echo \"==========================================\"\n      # Get deployment token\n      SWA_TOKEN=$(az staticwebapp secrets list --name $STATIC_WEB_APP_NAME --resource-group $RESOURCE_GROUP --query \"properties.apiKey\" -o tsv)\n\n      # Install SWA CLI and deploy\n      npm install -g @azure/static-web-apps-cli\n      cd src/frontend\n      swa deploy ./dist --deployment-token $SWA_TOKEN --env production\n      cd ../..\n\n      echo \"==========================================\"\n      echo \"Deploying API Function App...\"\n      echo \"==========================================\"\n      cd src/functions/api\n      # Create deployment package\n      pip install --target=\".python_packages/lib/site-packages\" -r requirements.txt\n      zip -r ../../../api.zip . -x \"*.pyc\" -x \"__pycache__/*\" -x \".venv/*\" -x \"local.settings.json\"\n      cd ../../..\n      az functionapp deployment source config-zip \\\n        --resource-group $RESOURCE_GROUP \\\n        --name $API_FUNCTION_APP_NAME \\\n        --src api.zip\n\n      echo \"==========================================\"\n      echo \"Deploying Scheduler Function App...\"\n      echo \"==========================================\"\n      cd src/functions/scheduler\n      pip install --target=\".python_packages/lib/site-packages\" -r requirements.txt\n      zip -r ../../../scheduler.zip . -x \"*.pyc\" -x \"__pycache__/*\" -x \".venv/*\" -x \"local.settings.json\"\n      cd ../../..\n      az functionapp deployment source config-zip \\\n        --resource-group $RESOURCE_GROUP \\\n        --name $SCHEDULER_FUNCTION_APP_NAME \\\n        --src scheduler.zip\n\n      echo \"==========================================\"\n      echo \"Deploying Processor Function App...\"\n      echo \"==========================================\"\n      cd src/functions/processor\n      pip install --target=\".python_packages/lib/site-packages\" -r requirements.txt\n      zip -r ../../../processor.zip . -x \"*.pyc\" -x \"__pycache__/*\" -x \".venv/*\" -x \"local.settings.json\"\n      cd ../../..\n      az functionapp deployment source config-zip \\\n        --resource-group $RESOURCE_GROUP \\\n        --name $PROCESSOR_FUNCTION_APP_NAME \\\n        --src processor.zip\n\n      echo \"==========================================\"\n      echo \"Deployment Complete!\"\n      echo \"==========================================\"\n\n      # Output results\n      echo \"{\\\"status\\\": \\\"success\\\", \\\"version\\\": \\\"$VERSION\\\"}\" > $AZ_SCRIPTS_OUTPUT_PATH\n    "
+              }
+            }
+          ],
+          "outputs": {
+            "status": {
+              "type": "string",
+              "metadata": {
+                "description": "Deployment script status"
+              },
+              "value": "[reference(resourceId('Microsoft.Resources/deploymentScripts', 'deploy-application-code'), '2023-08-01').provisioningState]"
+            },
+            "deployedVersion": {
+              "type": "string",
+              "metadata": {
+                "description": "Deployed version"
+              },
+              "value": "[parameters('version')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'deployment-identity')]",
+        "[resourceId('Microsoft.Resources/deployments', 'functionapp-api-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'functionapp-processor-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'functionapp-scheduler-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'rbac-api-storage')]",
+        "[resourceId('Microsoft.Authorization/roleAssignments', guid(resourceGroup().id, variables('deploymentIdentityName'), 'contributor-for-code-deploy'))]",
+        "[resourceId('Microsoft.Resources/deployments', 'rbac-processor-storage')]",
+        "[resourceId('Microsoft.Resources/deployments', 'rbac-scheduler-storage')]",
+        "[resourceId('Microsoft.Resources/deployments', 'staticwebapp-deployment')]"
+      ]
     }
   ],
   "outputs": {
@@ -2567,7 +2788,14 @@
       "metadata": {
         "description": "Next steps message"
       },
-      "value": "[if(or(parameters('skipAppRegistration'), not(reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.success.value)), 'App Registration requires manual setup. Check deployment logs for instructions.', format('Deployment complete! Access the app at {0}', reference(resourceId('Microsoft.Resources/deployments', 'staticwebapp-deployment'), '2025-04-01').outputs.defaultHostname.value))]"
+      "value": "[if(or(parameters('skipAppRegistration'), not(reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.success.value)), 'App Registration requires manual setup. Check deployment logs for instructions.', format('Deployment complete! Access the app at https://{0}', reference(resourceId('Microsoft.Resources/deployments', 'staticwebapp-deployment'), '2025-04-01').outputs.defaultHostname.value))]"
+    },
+    "codeDeploymentStatus": {
+      "type": "string",
+      "metadata": {
+        "description": "Code deployment status"
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'code-deployment'), '2025-04-01').outputs.status.value]"
     }
   }
 }

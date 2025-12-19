@@ -30,8 +30,8 @@ param functionAppSku string = 'Y1'
 @description('Enable Application Insights.')
 param enableAppInsights bool = true
 
-@description('Current version of the application.')
-param appVersion string = '1.0.0'
+@description('Version to deploy (GitHub release tag, e.g., v1.0.0)')
+param appVersion string = 'v1.0.0'
 
 @description('Skip App Registration creation (for manual setup)')
 param skipAppRegistration bool = false
@@ -312,6 +312,50 @@ module rbacProcessorStorage 'modules/rbac-storage.bicep' = {
 }
 
 // ============================================================================
+// Step 7: Code Deployment
+// ============================================================================
+// Deploy application code from GitHub Release
+
+// Contributor role for deployment identity (needed to deploy code)
+var contributorRoleId = 'b24988ac-6180-42a0-ab88-20f7382dd24c'
+
+resource rbacDeploymentContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, deploymentIdentityName, 'contributor-for-code-deploy')
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', contributorRoleId)
+    principalId: deploymentIdentity.outputs.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Deploy application code
+module codeDeployment 'modules/code-deployment.bicep' = {
+  name: 'code-deployment'
+  dependsOn: [
+    functionAppApi
+    functionAppScheduler
+    functionAppProcessor
+    staticWebApp
+    rbacDeploymentContributor
+    rbacApiStorage
+    rbacSchedulerStorage
+    rbacProcessorStorage
+  ]
+  params: {
+    location: location
+    tags: tags
+    identityId: deploymentIdentity.outputs.identityId
+    version: appVersion
+    staticWebAppName: staticWebAppName
+    apiFunctionAppName: functionAppApiName
+    schedulerFunctionAppName: functionAppSchedulerName
+    processorFunctionAppName: functionAppProcessorName
+    resourceGroupName: resourceGroup().name
+    apiBaseUrl: 'https://${functionAppApiName}.azurewebsites.net'
+  }
+}
+
+// ============================================================================
 // Outputs
 // ============================================================================
 
@@ -349,4 +393,7 @@ output azureAdTenantId string = tenantId
 output appRegistrationSuccess bool = skipAppRegistration ? false : appRegistration.outputs.success
 
 @description('Next steps message')
-output nextSteps string = (skipAppRegistration || !appRegistration.outputs.success) ? 'App Registration requires manual setup. Check deployment logs for instructions.' : 'Deployment complete! Access the app at ${staticWebApp.outputs.defaultHostname}'
+output nextSteps string = (skipAppRegistration || !appRegistration.outputs.success) ? 'App Registration requires manual setup. Check deployment logs for instructions.' : 'Deployment complete! Access the app at https://${staticWebApp.outputs.defaultHostname}'
+
+@description('Code deployment status')
+output codeDeploymentStatus string = codeDeployment.outputs.status
