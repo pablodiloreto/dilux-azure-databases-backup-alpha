@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "13431520672812774925"
+      "templateHash": "14703893511246006334"
     }
   },
   "parameters": {
@@ -341,7 +341,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "15733812023909262059"
+              "templateHash": "4101464948759302784"
             }
           },
           "parameters": {
@@ -386,7 +386,6 @@
                 "enableRbacAuthorization": true,
                 "enableSoftDelete": true,
                 "softDeleteRetentionInDays": 7,
-                "enablePurgeProtection": false,
                 "networkAcls": {
                   "defaultAction": "Allow",
                   "bypass": "AzureServices"

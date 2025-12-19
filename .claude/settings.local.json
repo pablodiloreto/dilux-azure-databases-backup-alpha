@@ -65,7 +65,9 @@
       "Bash(grep:*)",
       "Bash(killall:*)",
       "Bash(az bicep build:*)",
-      "Bash(timeout 10 func start:*)"
+      "Bash(timeout 10 func start:*)",
+      "Bash(git push:*)",
+      "Bash(az keyvault list-deleted:*)"
     ],
     "deny": [],
     "ask": []
