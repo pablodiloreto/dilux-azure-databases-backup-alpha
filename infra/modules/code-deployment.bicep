@@ -82,14 +82,14 @@ resource deploymentScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
       echo "Installing dependencies..."
       apk add --no-cache nodejs npm python3 py3-pip zip unzip curl
 
-      # Download release from GitHub
+      # Download release from GitHub (use ZIP to avoid symlink issues)
       echo "Downloading release $VERSION from GitHub..."
-      DOWNLOAD_URL="https://github.com/$GITHUB_REPO/archive/refs/tags/$VERSION.tar.gz"
-      curl -L -o release.tar.gz "$DOWNLOAD_URL"
+      DOWNLOAD_URL="https://github.com/$GITHUB_REPO/archive/refs/tags/$VERSION.zip"
+      curl -L -o release.zip "$DOWNLOAD_URL"
 
-      # Extract (ignore symlinks, we'll handle them manually)
+      # Extract
       echo "Extracting..."
-      tar -xzf release.tar.gz --warning=no-unknown-keyword 2>/dev/null || tar -xzf release.tar.gz
+      unzip -q release.zip
       REPO_NAME=$(echo $GITHUB_REPO | cut -d'/' -f2)
       cd "${REPO_NAME}-${VERSION#v}"
 
