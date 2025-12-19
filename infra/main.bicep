@@ -185,6 +185,7 @@ module functionAppApi 'modules/functionapp.bicep' = {
     location: location
     tags: tags
     appServicePlanId: appServicePlan.outputs.planId
+    sku: functionAppSku
     storageAccountName: storage.outputs.storageAccountName
     storageConnectionString: storage.outputs.connectionString
     storageBlobEndpoint: storage.outputs.blobEndpoint
@@ -213,6 +214,7 @@ module functionAppScheduler 'modules/functionapp.bicep' = {
     location: location
     tags: tags
     appServicePlanId: appServicePlan.outputs.planId
+    sku: functionAppSku
     storageAccountName: storage.outputs.storageAccountName
     storageConnectionString: storage.outputs.connectionString
     storageBlobEndpoint: storage.outputs.blobEndpoint
@@ -238,6 +240,7 @@ module functionAppProcessor 'modules/functionapp.bicep' = {
     location: location
     tags: tags
     appServicePlanId: appServicePlan.outputs.planId
+    sku: functionAppSku
     storageAccountName: storage.outputs.storageAccountName
     storageConnectionString: storage.outputs.connectionString
     storageBlobEndpoint: storage.outputs.blobEndpoint

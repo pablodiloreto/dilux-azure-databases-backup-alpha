@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "15464003464897992678"
+      "templateHash": "6315780357261457069"
     }
   },
   "parameters": {
@@ -1152,6 +1152,9 @@
           "appServicePlanId": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appserviceplan-deployment'), '2025-04-01').outputs.planId.value]"
           },
+          "sku": {
+            "value": "[parameters('functionAppSku')]"
+          },
           "storageAccountName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
           },
@@ -1190,7 +1193,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "17177861528579309150"
+              "templateHash": "13760038921440905211"
             }
           },
           "parameters": {
@@ -1218,6 +1221,12 @@
                 "description": "App Service Plan resource ID"
               }
             },
+            "sku": {
+              "type": "string",
+              "metadata": {
+                "description": "App Service Plan SKU (Y1, EP1, EP2, EP3)"
+              }
+            },
             "storageAccountName": {
               "type": "string",
               "metadata": {
@@ -1227,7 +1236,7 @@
             "storageConnectionString": {
               "type": "securestring",
               "metadata": {
-                "description": "Storage Account connection string (for Functions runtime)"
+                "description": "Storage Account connection string (for Y1/Consumption plan)"
               }
             },
             "storageBlobEndpoint": {
@@ -1277,10 +1286,20 @@
             }
           },
           "variables": {
-            "baseAppSettings": {
+            "isConsumptionPlan": "[equals(parameters('sku'), 'Y1')]",
+            "consumptionStorageSettings": {
               "AzureWebJobsStorage": "[parameters('storageConnectionString')]",
               "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING": "[parameters('storageConnectionString')]",
-              "WEBSITE_CONTENTSHARE": "[toLower(parameters('functionAppName'))]",
+              "WEBSITE_CONTENTSHARE": "[toLower(parameters('functionAppName'))]"
+            },
+            "premiumStorageSettings": {
+              "AzureWebJobsStorage__accountName": "[parameters('storageAccountName')]",
+              "AzureWebJobsStorage__blobServiceUri": "[parameters('storageBlobEndpoint')]",
+              "AzureWebJobsStorage__queueServiceUri": "[parameters('storageQueueEndpoint')]",
+              "AzureWebJobsStorage__tableServiceUri": "[parameters('storageTableEndpoint')]"
+            },
+            "runtimeStorageSettings": "[if(variables('isConsumptionPlan'), variables('consumptionStorageSettings'), variables('premiumStorageSettings'))]",
+            "baseAppSettings": {
               "FUNCTIONS_EXTENSION_VERSION": "~4",
               "FUNCTIONS_WORKER_RUNTIME": "python",
               "STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
@@ -1291,7 +1310,7 @@
               "ENVIRONMENT": "production"
             },
             "appInsightsSettings": "[if(not(empty(parameters('appInsightsConnectionString'))), createObject('APPLICATIONINSIGHTS_CONNECTION_STRING', parameters('appInsightsConnectionString'), 'APPINSIGHTS_INSTRUMENTATIONKEY', parameters('appInsightsInstrumentationKey')), createObject())]",
-            "appSettings": "[union(variables('baseAppSettings'), variables('appInsightsSettings'), parameters('additionalAppSettings'))]"
+            "appSettings": "[union(variables('runtimeStorageSettings'), variables('baseAppSettings'), variables('appInsightsSettings'), parameters('additionalAppSettings'))]"
           },
           "resources": [
             {
@@ -1361,6 +1380,13 @@
                 "description": "Function App resource ID"
               },
               "value": "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]"
+            },
+            "isConsumptionPlan": {
+              "type": "bool",
+              "metadata": {
+                "description": "Is using Consumption plan"
+              },
+              "value": "[variables('isConsumptionPlan')]"
             }
           }
         }
@@ -1394,6 +1420,9 @@
           },
           "appServicePlanId": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appserviceplan-deployment'), '2025-04-01').outputs.planId.value]"
+          },
+          "sku": {
+            "value": "[parameters('functionAppSku')]"
           },
           "storageAccountName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
@@ -1430,7 +1459,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "17177861528579309150"
+              "templateHash": "13760038921440905211"
             }
           },
           "parameters": {
@@ -1458,6 +1487,12 @@
                 "description": "App Service Plan resource ID"
               }
             },
+            "sku": {
+              "type": "string",
+              "metadata": {
+                "description": "App Service Plan SKU (Y1, EP1, EP2, EP3)"
+              }
+            },
             "storageAccountName": {
               "type": "string",
               "metadata": {
@@ -1467,7 +1502,7 @@
             "storageConnectionString": {
               "type": "securestring",
               "metadata": {
-                "description": "Storage Account connection string (for Functions runtime)"
+                "description": "Storage Account connection string (for Y1/Consumption plan)"
               }
             },
             "storageBlobEndpoint": {
@@ -1517,10 +1552,20 @@
             }
           },
           "variables": {
-            "baseAppSettings": {
+            "isConsumptionPlan": "[equals(parameters('sku'), 'Y1')]",
+            "consumptionStorageSettings": {
               "AzureWebJobsStorage": "[parameters('storageConnectionString')]",
               "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING": "[parameters('storageConnectionString')]",
-              "WEBSITE_CONTENTSHARE": "[toLower(parameters('functionAppName'))]",
+              "WEBSITE_CONTENTSHARE": "[toLower(parameters('functionAppName'))]"
+            },
+            "premiumStorageSettings": {
+              "AzureWebJobsStorage__accountName": "[parameters('storageAccountName')]",
+              "AzureWebJobsStorage__blobServiceUri": "[parameters('storageBlobEndpoint')]",
+              "AzureWebJobsStorage__queueServiceUri": "[parameters('storageQueueEndpoint')]",
+              "AzureWebJobsStorage__tableServiceUri": "[parameters('storageTableEndpoint')]"
+            },
+            "runtimeStorageSettings": "[if(variables('isConsumptionPlan'), variables('consumptionStorageSettings'), variables('premiumStorageSettings'))]",
+            "baseAppSettings": {
               "FUNCTIONS_EXTENSION_VERSION": "~4",
               "FUNCTIONS_WORKER_RUNTIME": "python",
               "STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
@@ -1531,7 +1576,7 @@
               "ENVIRONMENT": "production"
             },
             "appInsightsSettings": "[if(not(empty(parameters('appInsightsConnectionString'))), createObject('APPLICATIONINSIGHTS_CONNECTION_STRING', parameters('appInsightsConnectionString'), 'APPINSIGHTS_INSTRUMENTATIONKEY', parameters('appInsightsInstrumentationKey')), createObject())]",
-            "appSettings": "[union(variables('baseAppSettings'), variables('appInsightsSettings'), parameters('additionalAppSettings'))]"
+            "appSettings": "[union(variables('runtimeStorageSettings'), variables('baseAppSettings'), variables('appInsightsSettings'), parameters('additionalAppSettings'))]"
           },
           "resources": [
             {
@@ -1601,6 +1646,13 @@
                 "description": "Function App resource ID"
               },
               "value": "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]"
+            },
+            "isConsumptionPlan": {
+              "type": "bool",
+              "metadata": {
+                "description": "Is using Consumption plan"
+              },
+              "value": "[variables('isConsumptionPlan')]"
             }
           }
         }
@@ -1634,6 +1686,9 @@
           },
           "appServicePlanId": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appserviceplan-deployment'), '2025-04-01').outputs.planId.value]"
+          },
+          "sku": {
+            "value": "[parameters('functionAppSku')]"
           },
           "storageAccountName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
@@ -1670,7 +1725,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "17177861528579309150"
+              "templateHash": "13760038921440905211"
             }
           },
           "parameters": {
@@ -1698,6 +1753,12 @@
                 "description": "App Service Plan resource ID"
               }
             },
+            "sku": {
+              "type": "string",
+              "metadata": {
+                "description": "App Service Plan SKU (Y1, EP1, EP2, EP3)"
+              }
+            },
             "storageAccountName": {
               "type": "string",
               "metadata": {
@@ -1707,7 +1768,7 @@
             "storageConnectionString": {
               "type": "securestring",
               "metadata": {
-                "description": "Storage Account connection string (for Functions runtime)"
+                "description": "Storage Account connection string (for Y1/Consumption plan)"
               }
             },
             "storageBlobEndpoint": {
@@ -1757,10 +1818,20 @@
             }
           },
           "variables": {
-            "baseAppSettings": {
+            "isConsumptionPlan": "[equals(parameters('sku'), 'Y1')]",
+            "consumptionStorageSettings": {
               "AzureWebJobsStorage": "[parameters('storageConnectionString')]",
               "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING": "[parameters('storageConnectionString')]",
-              "WEBSITE_CONTENTSHARE": "[toLower(parameters('functionAppName'))]",
+              "WEBSITE_CONTENTSHARE": "[toLower(parameters('functionAppName'))]"
+            },
+            "premiumStorageSettings": {
+              "AzureWebJobsStorage__accountName": "[parameters('storageAccountName')]",
+              "AzureWebJobsStorage__blobServiceUri": "[parameters('storageBlobEndpoint')]",
+              "AzureWebJobsStorage__queueServiceUri": "[parameters('storageQueueEndpoint')]",
+              "AzureWebJobsStorage__tableServiceUri": "[parameters('storageTableEndpoint')]"
+            },
+            "runtimeStorageSettings": "[if(variables('isConsumptionPlan'), variables('consumptionStorageSettings'), variables('premiumStorageSettings'))]",
+            "baseAppSettings": {
               "FUNCTIONS_EXTENSION_VERSION": "~4",
               "FUNCTIONS_WORKER_RUNTIME": "python",
               "STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
@@ -1771,7 +1842,7 @@
               "ENVIRONMENT": "production"
             },
             "appInsightsSettings": "[if(not(empty(parameters('appInsightsConnectionString'))), createObject('APPLICATIONINSIGHTS_CONNECTION_STRING', parameters('appInsightsConnectionString'), 'APPINSIGHTS_INSTRUMENTATIONKEY', parameters('appInsightsInstrumentationKey')), createObject())]",
-            "appSettings": "[union(variables('baseAppSettings'), variables('appInsightsSettings'), parameters('additionalAppSettings'))]"
+            "appSettings": "[union(variables('runtimeStorageSettings'), variables('baseAppSettings'), variables('appInsightsSettings'), parameters('additionalAppSettings'))]"
           },
           "resources": [
             {
@@ -1841,6 +1912,13 @@
                 "description": "Function App resource ID"
               },
               "value": "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]"
+            },
+            "isConsumptionPlan": {
+              "type": "bool",
+              "metadata": {
+                "description": "Is using Consumption plan"
+              },
+              "value": "[variables('isConsumptionPlan')]"
             }
           }
         }

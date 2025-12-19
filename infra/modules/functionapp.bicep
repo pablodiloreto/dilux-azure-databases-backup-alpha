@@ -4,8 +4,9 @@
 // Creates an Azure Function App with:
 // - Python 3.10 runtime
 // - System-assigned Managed Identity
-// - Managed Identity auth to Storage (no account keys)
-// - Managed Identity auth to Key Vault
+// - Conditional auth based on SKU:
+//   - Y1 (Consumption): Connection String for runtime
+//   - EP1/EP2/EP3 (Premium): Managed Identity for runtime
 // ============================================================================
 
 @description('Name of the Function App')
@@ -20,10 +21,13 @@ param tags object
 @description('App Service Plan resource ID')
 param appServicePlanId string
 
+@description('App Service Plan SKU (Y1, EP1, EP2, EP3)')
+param sku string
+
 @description('Storage Account name')
 param storageAccountName string
 
-@description('Storage Account connection string (for Functions runtime)')
+@description('Storage Account connection string (for Y1/Consumption plan)')
 @secure()
 param storageConnectionString string
 
@@ -52,20 +56,34 @@ param additionalAppSettings object = {}
 // Variables
 // ============================================================================
 
-// Base app settings
-// Note: AzureWebJobsStorage uses connection string (required for Consumption plan)
-// Our application code uses Managed Identity via STORAGE_* settings
-var baseAppSettings = {
-  // Azure Functions runtime (requires connection string for Consumption/Y1 plan)
+// Determine if using Consumption plan (requires connection string)
+var isConsumptionPlan = sku == 'Y1'
+
+// Storage settings for Consumption plan (Y1) - uses connection string
+var consumptionStorageSettings = {
   AzureWebJobsStorage: storageConnectionString
   WEBSITE_CONTENTAZUREFILECONNECTIONSTRING: storageConnectionString
   WEBSITE_CONTENTSHARE: toLower(functionAppName)
+}
 
+// Storage settings for Premium plan (EP1/EP2/EP3) - uses Managed Identity
+var premiumStorageSettings = {
+  AzureWebJobsStorage__accountName: storageAccountName
+  AzureWebJobsStorage__blobServiceUri: storageBlobEndpoint
+  AzureWebJobsStorage__queueServiceUri: storageQueueEndpoint
+  AzureWebJobsStorage__tableServiceUri: storageTableEndpoint
+}
+
+// Select storage settings based on plan
+var runtimeStorageSettings = isConsumptionPlan ? consumptionStorageSettings : premiumStorageSettings
+
+// Base app settings (common to all plans)
+var baseAppSettings = {
   // Functions runtime settings
   FUNCTIONS_EXTENSION_VERSION: '~4'
   FUNCTIONS_WORKER_RUNTIME: 'python'
 
-  // App settings for our code (uses Managed Identity via DefaultAzureCredential)
+  // App settings for our code (always uses Managed Identity via DefaultAzureCredential)
   STORAGE_ACCOUNT_NAME: storageAccountName
   STORAGE_BLOB_ENDPOINT: storageBlobEndpoint
   STORAGE_QUEUE_ENDPOINT: storageQueueEndpoint
@@ -85,7 +103,7 @@ var appInsightsSettings = !empty(appInsightsConnectionString) ? {
 } : {}
 
 // Merge all settings
-var appSettings = union(baseAppSettings, appInsightsSettings, additionalAppSettings)
+var appSettings = union(runtimeStorageSettings, baseAppSettings, appInsightsSettings, additionalAppSettings)
 
 // ============================================================================
 // Function App
@@ -137,3 +155,6 @@ output principalId string = functionApp.identity.principalId
 
 @description('Function App resource ID')
 output resourceId string = functionApp.id
+
+@description('Is using Consumption plan')
+output isConsumptionPlan bool = isConsumptionPlan
