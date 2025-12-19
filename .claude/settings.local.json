@@ -67,7 +67,8 @@
       "Bash(az bicep build:*)",
       "Bash(timeout 10 func start:*)",
       "Bash(git push:*)",
-      "Bash(az keyvault list-deleted:*)"
+      "Bash(az keyvault list-deleted:*)",
+      "Bash(git tag:*)"
     ],
     "deny": [],
     "ask": []

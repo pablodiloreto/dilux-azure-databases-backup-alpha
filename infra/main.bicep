@@ -31,7 +31,7 @@ param functionAppSku string = 'Y1'
 param enableAppInsights bool = true
 
 @description('Version to deploy (GitHub release tag, e.g., v1.0.0)')
-param appVersion string = 'v1.0.0'
+param appVersion string = 'v1.0.3'
 
 @description('Skip App Registration creation (for manual setup)')
 param skipAppRegistration bool = false

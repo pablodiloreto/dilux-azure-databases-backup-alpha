@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "4930245535502258158"
+      "templateHash": "10040376471531877808"
     }
   },
   "parameters": {
@@ -52,7 +52,7 @@
     },
     "appVersion": {
       "type": "string",
-      "defaultValue": "v1.0.0",
+      "defaultValue": "v1.0.3",
       "metadata": {
         "description": "Version to deploy (GitHub release tag, e.g., v1.0.0)"
       }
