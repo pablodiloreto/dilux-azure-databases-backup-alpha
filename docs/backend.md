@@ -31,19 +31,20 @@ src/shared/
 │   └── azure_clients.py     # Azure SDK client factory
 ├── models/
 │   ├── __init__.py
-│   ├── database.py          # DatabaseConfig, DatabaseType
-│   ├── backup.py            # BackupJob, BackupResult, BackupStatus
-│   ├── backup_policy.py     # BackupPolicy, TierConfig
-│   ├── engine.py            # Engine, EngineType, AuthMethod
-│   ├── user.py              # User, UserRole, AccessRequest
-│   ├── audit.py             # AuditLog, AuditAction, AuditResourceType
+│   ├── database.py          # DatabaseConfig, DatabaseType, BackupSchedule
+│   ├── backup.py            # BackupJob, BackupResult, BackupStatus, BackupTier
+│   ├── backup_policy.py     # BackupPolicy, TierConfig, DayOfWeek, get_default_policies()
+│   ├── engine.py            # Engine, EngineType, AuthMethod, CreateEngineInput, UpdateEngineInput, DiscoveredDatabase
+│   ├── user.py              # User, UserRole, AccessRequest, AccessRequestStatus, CreateUserInput, UpdateUserInput
+│   ├── audit.py             # AuditLog, AuditAction, AuditResourceType, AuditStatus, AuditLogCreate
 │   └── settings.py          # AppSettings
 ├── services/
 │   ├── __init__.py
-│   ├── storage_service.py   # Blob, Queue, Table operations
+│   ├── storage_service.py   # Blob, Queue, Table operations + Users, Policies, Settings
 │   ├── database_config_service.py  # CRUD for database configs
 │   ├── engine_service.py    # CRUD for engines + discovery
-│   └── audit_service.py     # Audit logging
+│   ├── audit_service.py     # Audit logging
+│   └── connection_tester.py # Database connection testing
 ├── utils/
 │   ├── __init__.py
 │   └── validators.py        # Input validation functions
@@ -128,6 +129,45 @@ config = DatabaseConfig.from_table_entity(entity)
 - `SQLSERVER`
 - `AZURE_SQL`
 
+**BackupSchedule Enum (predefined schedules):**
+- `EVERY_15_MIN` = `"*/15 * * * *"`
+- `HOURLY` = `"0 * * * *"`
+- `EVERY_6_HOURS` = `"0 */6 * * *"`
+- `DAILY` = `"0 0 * * *"`
+- `WEEKLY` = `"0 0 * * 0"`
+
+**DatabaseConfig Fields:**
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | str | required | Unique identifier |
+| `name` | str | required | Display name |
+| `database_type` | DatabaseType | required | Type of database |
+| `engine_id` | str | None | ID of engine this database belongs to |
+| `use_engine_credentials` | bool | `True` | Use credentials from engine |
+| `host` | str | required | Database host/server |
+| `port` | int | required | Database port (1-65535) |
+| `database_name` | str | required | Name of database to backup |
+| `auth_method` | AuthMethod | None | Auth method (if not using engine) |
+| `username` | str | None | Username (if not using engine) |
+| `password` | str | None | Password (dev only, use Key Vault in prod) |
+| `password_secret_name` | str | None | Key Vault secret name |
+| `policy_id` | str | `"production-standard"` | Backup policy ID |
+| `use_engine_policy` | bool | `False` | Inherit policy from engine |
+| `enabled` | bool | `True` | Whether backups are enabled |
+| `backup_destination` | str | None | Custom blob container |
+| `compression` | bool | `True` | Whether to compress backups |
+| `tags` | dict | `{}` | Custom key-value tags |
+| `schedule` | str | None | [DEPRECATED] Use policy_id |
+| `retention_days` | int | None | [DEPRECATED] Use policy_id |
+| `created_at` | datetime | auto | Creation timestamp |
+| `updated_at` | datetime | auto | Last update timestamp |
+| `created_by` | str | None | ID of user who created |
+
+**DatabaseConfig Methods:**
+- `get_connection_string()` - Generate connection string based on database type
+- `to_table_entity(include_password=False)` - Convert to Azure Table entity
+- `from_table_entity(entity)` - Create from Azure Table entity
+
 #### `models/backup.py`
 
 Backup job and result models:
@@ -176,6 +216,70 @@ result.mark_failed("Connection refused", "ConnectionError")
 - `FAILED`
 - `CANCELLED`
 
+**BackupTier Enum (for tiered retention):**
+- `HOURLY`
+- `DAILY`
+- `WEEKLY`
+- `MONTHLY`
+- `YEARLY`
+
+#### `models/backup_policy.py`
+
+Backup policy configuration for tiered retention:
+
+```python
+from shared.models import BackupPolicy, TierConfig, DayOfWeek, get_default_policies
+
+# TierConfig defines retention for each backup tier
+tier = TierConfig(
+    enabled=True,
+    keep_count=24,  # Number of backups to retain
+)
+
+# BackupPolicy with tier configurations
+policy = BackupPolicy(
+    id="production-standard",
+    name="Production Standard",
+    description="Standard production backup policy",
+    is_system=False,
+    hourly=TierConfig(enabled=True, keep_count=12, interval_hours=1),
+    daily=TierConfig(enabled=True, keep_count=7, time="02:00"),
+    weekly=TierConfig(enabled=True, keep_count=4, day_of_week=0, time="03:00"),
+    monthly=TierConfig(enabled=True, keep_count=2, day_of_month=1, time="04:00"),
+    yearly=TierConfig(enabled=True, keep_count=1, month=1, day_of_month=1, time="05:00"),
+)
+
+# Get system default policies
+policies = get_default_policies()
+# Returns: production-critical, production-standard, development
+
+# Get summary string (e.g., "12h/7d/4w/2m/1y")
+summary = policy.get_summary()
+```
+
+**DayOfWeek Enum (0 = Sunday, matching JS convention):**
+- `SUNDAY` (0)
+- `MONDAY` (1)
+- `TUESDAY` (2)
+- `WEDNESDAY` (3)
+- `THURSDAY` (4)
+- `FRIDAY` (5)
+- `SATURDAY` (6)
+
+**TierConfig Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `enabled` | bool | Whether this tier is active |
+| `keep_count` | int | Number of backups to retain (≥0) |
+| `interval_hours` | int | Hours between backups, 1-12 (hourly tier only) |
+| `time` | str | Time of day "HH:MM" (daily/weekly/monthly/yearly) |
+| `day_of_week` | int | Day of week 0=Sun, 6=Sat (weekly tier) |
+| `day_of_month` | int | Day of month 1-28 (monthly/yearly tier) |
+| `month` | int | Month 1-12 (yearly tier only) |
+
+**TierConfig Methods:**
+- `get_schedule_description(tier)` - Returns human-readable schedule (e.g., "Every 2 hours", "Daily at 02:00")
+
 #### `models/engine.py`
 
 Engine (database server) configuration:
@@ -212,6 +316,105 @@ engine = Engine.from_table_entity(entity)
 - `AZURE_AD`
 - `CONNECTION_STRING`
 
+**Input Models:**
+- `CreateEngineInput` - Validation model for creating engines (includes `discover_databases` flag)
+- `UpdateEngineInput` - Validation model for updating engines (includes `apply_to_all_databases`, `apply_policy_to_all_databases`)
+- `DiscoveredDatabase` - Model for discovered databases during discovery
+
+**Engine Methods:**
+- `get_default_port(engine_type)` - Class method returning default port (MySQL: 3306, PostgreSQL: 5432, SQL Server: 1433)
+- `has_credentials()` - Returns True if engine has valid credentials configured
+
+**SYSTEM_DATABASES constant:**
+Dictionary of system databases to exclude during discovery:
+- MySQL: `mysql`, `information_schema`, `performance_schema`, `sys`
+- PostgreSQL: `postgres`, `template0`, `template1`
+- SQL Server: `master`, `tempdb`, `model`, `msdb`
+
+#### `models/user.py`
+
+User and access request models:
+
+```python
+from shared.models import User, UserRole, AccessRequest, AccessRequestStatus
+
+user = User(
+    id="azure-ad-oid",
+    email="admin@example.com",
+    name="Admin User",
+    role=UserRole.ADMIN,
+    enabled=True,
+    dark_mode=False,
+    page_size=25,
+)
+
+# Authorization checks
+if user.can_manage_users():
+    # Admin only
+    pass
+if user.can_manage_databases():
+    # Admin or Operator
+    pass
+if user.can_trigger_backup():
+    # Admin or Operator
+    pass
+if user.can_manage_settings():
+    # Admin only
+    pass
+if user.can_view():
+    # All enabled users
+    pass
+```
+
+**UserRole Enum:**
+- `ADMIN` - Full access: manage users, databases, backups, settings
+- `OPERATOR` - Can trigger backups, view all, but no user management
+- `VIEWER` - Read-only access to dashboards and history
+
+**User Fields:**
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | str | required | Azure AD Object ID (oid claim) |
+| `email` | str | required | User email from Azure AD |
+| `name` | str | required | Display name from Azure AD |
+| `role` | UserRole | `VIEWER` | Application role |
+| `enabled` | bool | `True` | Whether user can access the app |
+| `dark_mode` | bool | `False` | User's dark mode preference |
+| `page_size` | int | `25` | Items per page preference (10-100) |
+| `created_at` | datetime | auto | Creation timestamp |
+| `updated_at` | datetime | auto | Last update timestamp |
+| `last_login` | datetime | None | Last login timestamp |
+| `created_by` | str | None | ID of user who created this user |
+
+**User Authorization Methods:**
+| Method | Returns True For |
+|--------|------------------|
+| `can_manage_users()` | Admin only |
+| `can_manage_databases()` | Admin, Operator |
+| `can_trigger_backup()` | Admin, Operator |
+| `can_manage_settings()` | Admin only |
+| `can_view()` | All enabled users |
+
+**AccessRequestStatus Enum:**
+- `PENDING`, `APPROVED`, `REJECTED`
+
+**AccessRequest Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | str | Unique request ID |
+| `email` | str | User email from Azure AD |
+| `name` | str | Display name from Azure AD |
+| `azure_ad_id` | str | Azure AD Object ID |
+| `status` | AccessRequestStatus | Request status |
+| `requested_at` | datetime | When request was submitted |
+| `resolved_at` | datetime | When request was resolved |
+| `resolved_by` | str | ID of admin who resolved |
+| `rejection_reason` | str | Reason if rejected |
+
+**Input Models:**
+- `CreateUserInput` - Fields: `email`, `name`, `role`
+- `UpdateUserInput` - Fields: `name`, `role`, `enabled` (all optional)
+
 #### `models/audit.py`
 
 Audit logging model:
@@ -238,16 +441,23 @@ log = AuditLog(
 ```
 
 **AuditAction Enum:**
-- `DATABASE_CREATED`, `DATABASE_UPDATED`, `DATABASE_DELETED`
-- `BACKUP_TRIGGERED`, `BACKUP_DOWNLOADED`, `BACKUP_DELETED`, `BACKUP_DELETED_BULK`
-- `CREATE`, `UPDATE`, `DELETE` (for ENGINE resource type)
-- `POLICY_CREATED`, `POLICY_UPDATED`, `POLICY_DELETED`
-- `USER_CREATED`, `USER_UPDATED`, `USER_DELETED`
-- `ACCESS_REQUEST_APPROVED`, `ACCESS_REQUEST_REJECTED`
-- `SETTINGS_UPDATED`
+- Generic CRUD: `CREATE`, `UPDATE`, `DELETE`
+- Backup: `BACKUP_COMPLETED`, `BACKUP_FAILED`, `BACKUP_TRIGGERED`, `BACKUP_DOWNLOADED`, `BACKUP_DELETED`, `BACKUP_DELETED_BULK`, `BACKUP_DELETED_RETENTION`
+- Database: `DATABASE_CREATED`, `DATABASE_UPDATED`, `DATABASE_DELETED`, `DATABASE_TEST_CONNECTION`
+- Policy: `POLICY_CREATED`, `POLICY_UPDATED`, `POLICY_DELETED`
+- User: `USER_CREATED`, `USER_UPDATED`, `USER_DELETED`, `USER_LOGIN`, `USER_LOGOUT`
+- Access: `ACCESS_REQUEST_APPROVED`, `ACCESS_REQUEST_REJECTED`
+- Settings: `SETTINGS_UPDATED`
 
 **AuditResourceType Enum:**
 - `DATABASE`, `ENGINE`, `BACKUP`, `POLICY`, `USER`, `ACCESS_REQUEST`, `SETTINGS`
+
+**AuditStatus Enum:**
+- `SUCCESS`
+- `FAILED`
+
+**AuditLogCreate Input Model:**
+- Input validation model for creating audit logs
 
 **Audit Details by Resource Type:**
 
@@ -259,73 +469,283 @@ log = AuditLog(
 | USER | `role`, `name` |
 | POLICY | `description`, `summary`, `is_system` |
 
+#### `models/settings.py`
+
+Application-wide settings:
+
+```python
+from shared.models import AppSettings
+
+settings = AppSettings(
+    dark_mode=False,
+    default_retention_days=30,
+    default_compression=True,
+    access_requests_enabled=True,
+)
+
+# Convert to/from Azure Table Storage
+entity = settings.to_table_entity()
+settings = AppSettings.from_table_entity(entity)
+```
+
+**AppSettings Fields:**
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `dark_mode` | bool | `False` | Enable dark mode in UI |
+| `default_retention_days` | int | `30` | Default retention period (1-365) |
+| `default_compression` | bool | `True` | Default compression for new databases |
+| `access_requests_enabled` | bool | `True` | Allow unauthorized users to request access |
+| `updated_at` | datetime | auto | Last update timestamp |
+
+**Table Storage:**
+- PartitionKey: `"settings"`
+- RowKey: `"app"`
+
 #### `services/storage_service.py`
 
-Unified service for all Azure Storage operations:
+Unified service for all Azure Storage operations.
+
+**Module-level Helper:**
+```python
+def format_bytes(size_bytes: int) -> str:
+    """Format bytes into human-readable string (e.g., '1.5 GB')."""
+```
+
+**Class: StorageService**
 
 ```python
 from shared.services import StorageService
 
-storage = StorageService()
-
-# Blob operations
-url = storage.upload_backup("mysql/db-001/backup.sql.gz", file_data)
-data = storage.download_backup("mysql/db-001/backup.sql.gz")
-sas_url = storage.get_backup_url("mysql/db-001/backup.sql.gz", expiry_hours=24)
-files = storage.list_backups(prefix="mysql/", max_results=100)
-storage.delete_backup("mysql/db-001/old-backup.sql.gz")
-
-# Queue operations
-message_id = storage.send_backup_job(job.to_queue_message())
-messages = storage.receive_backup_jobs(max_messages=5)
-storage.delete_queue_message(message_id, pop_receipt)
-
-# Table operations
-storage.save_backup_result(result)
-history = storage.get_backup_history(database_id="db-001", limit=50)
+storage = StorageService(azure_clients=None)  # Optional, creates clients if not provided
 ```
+
+**Blob Storage Operations:**
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `upload_backup` | `blob_name: str, data: BinaryIO, content_type="application/octet-stream", container_name=None` | `str` (URL) | Upload backup file |
+| `download_backup` | `blob_name: str, container_name=None` | `bytes` | Download backup content |
+| `get_backup_url` | `blob_name: str, container_name=None, expiry_hours=24` | `str` (SAS URL) | Generate download URL with auto-rewrite for Codespaces/Docker |
+| `list_backups` | `prefix=None, container_name=None, max_results=100` | `list[dict]` | List backup files with metadata |
+| `delete_backup` | `blob_name: str, container_name=None` | `bool` | Delete backup file |
+
+**Queue Storage Operations:**
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `send_backup_job` | `job_message: str, queue_name=None` | `str` (message ID) | Send backup job to queue |
+| `receive_backup_jobs` | `max_messages=1, visibility_timeout=300, queue_name=None` | `list[dict]` | Receive jobs from queue |
+| `delete_queue_message` | `message_id: str, pop_receipt: str, queue_name=None` | `None` | Delete processed message |
+
+**Table Storage - Backup History:**
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `save_backup_result` | `result: BackupResult` | `None` | Save backup result to history |
+| `delete_backup_result` | `backup_id: str` | `Optional[BackupResult]` | Delete by ID (searches across partitions) |
+| `get_backup_history` | `database_id=None, start_date=None, end_date=None, limit=100` | `list[BackupResult]` | Get history (loads all, use paged for efficiency) |
+| `get_backup_history_paged` | `page_size=25, page=1, database_id=None, database_ids=None, status=None, triggered_by=None, database_type=None, start_date=None, end_date=None` | `tuple[list[BackupResult], int, bool]` | Paginated history (results, total, has_more) |
+| `get_backup_result` | `result_id: str, date: datetime` | `Optional[BackupResult]` | Get specific result by ID and date |
+| `get_backup_alerts` | `consecutive_failures=2` | `list[dict]` | Get databases with N consecutive failures |
+| `get_backup_stats_for_database` | `database_id: str` | `dict` | Stats with count, total_size_bytes, total_size_formatted |
+| `delete_all_backups_for_database` | `database_id: str` | `dict` | Delete all blobs and records for a database |
+
+**Settings Operations:**
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `get_settings` | None | `AppSettings` | Get app settings (defaults if none exist) |
+| `save_settings` | `settings: AppSettings` | `AppSettings` | Save app settings |
+
+**User Operations:**
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `get_user` | `user_id: str` | `Optional[User]` | Get user by Azure AD Object ID |
+| `get_user_by_email` | `email: str` | `Optional[User]` | Get user by email |
+| `get_all_users` | None | `list[User]` | Get all users |
+| `get_user_count` | None | `int` | Total user count |
+| `has_any_users` | None | `bool` | Check if any users exist (first-run) |
+| `save_user` | `user: User` | `User` | Save or update user |
+| `create_first_admin` | `user_id: str, email: str, name: str` | `User` | Create first admin (fails if users exist) |
+| `delete_user` | `user_id: str` | `bool` | Delete user by ID |
+| `update_last_login` | `user_id: str` | `Optional[User]` | Update last login timestamp |
+| `get_users_paged` | `page_size=50, page=1, search=None, status=None` | `tuple[list[User], int, bool]` | Paginated users with search (results, total, has_more) |
+
+**Access Request Operations:**
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `save_access_request` | `request: AccessRequest` | `AccessRequest` | Save access request |
+| `get_access_request` | `request_id: str` | `Optional[AccessRequest]` | Get request by ID |
+| `get_access_request_by_email` | `email: str` | `Optional[AccessRequest]` | Get pending request by email |
+| `get_pending_access_requests` | None | `list[AccessRequest]` | Get all pending requests |
+| `get_pending_access_requests_count` | None | `int` | Count of pending requests |
+| `delete_access_request` | `request_id: str` | `bool` | Delete request by ID |
+
+**Backup Policy Operations:**
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `seed_default_policies` | None | `list[BackupPolicy]` | Seed defaults if they don't exist |
+| `get_backup_policy` | `policy_id: str` | `Optional[BackupPolicy]` | Get policy by ID |
+| `get_all_backup_policies` | None | `list[BackupPolicy]` | Get all policies (seeds defaults first) |
+| `save_backup_policy` | `policy: BackupPolicy` | `BackupPolicy` | Save or update policy |
+| `delete_backup_policy` | `policy_id: str` | `bool` | Delete policy (fails for system policies) |
+| `get_databases_using_policy` | `policy_id: str` | `int` | Count databases using this policy |
+
+**Private Helper Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `_get_users_table()` | Get or create users table client |
+| `_get_access_requests_table()` | Get or create accessrequests table client |
+| `_get_policies_table()` | Get or create backuppolicies table client |
 
 #### `services/database_config_service.py`
 
-CRUD operations for database configurations:
+CRUD operations for database configurations.
+
+**Class: DatabaseConfigService**
 
 ```python
 from shared.services import DatabaseConfigService
 
-service = DatabaseConfigService()
-
-# CRUD
-config = service.create(config)
-config = service.get("db-001")
-configs = service.get_all(enabled_only=True)
-configs = service.get_by_type(DatabaseType.MYSQL)
-config = service.update(config)
-service.delete("db-001")
-
-# Helpers
-service.enable("db-001")
-service.disable("db-001")
-service.update_schedule("db-001", "0 */6 * * *")
+service = DatabaseConfigService(azure_clients=None)
 ```
+
+**Public Methods:**
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `create` | `config: DatabaseConfig` | `DatabaseConfig` | Create new config (generates ID if missing) |
+| `get` | `database_id: str` | `Optional[DatabaseConfig]` | Get by ID |
+| `get_all` | `enabled_only=False, limit=None, offset=0, search=None, database_type=None, host=None, policy_id=None, engine_id=None` | `tuple[list[DatabaseConfig], int]` | Paginated list with filters |
+| `get_by_type` | `database_type: DatabaseType` | `list[DatabaseConfig]` | Filter by database type |
+| `update` | `config: DatabaseConfig` | `DatabaseConfig` | Update existing config |
+| `delete` | `database_id: str` | `bool` | Delete by ID |
+| `enable` | `database_id: str` | `Optional[DatabaseConfig]` | Enable backups |
+| `disable` | `database_id: str` | `Optional[DatabaseConfig]` | Disable backups |
+| `update_schedule` | `database_id: str, schedule: str` | `Optional[DatabaseConfig]` | Update cron schedule |
+
+**Private Helper Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `_get_table_client()` | Get table client, ensuring table exists |
+
+**Usage Example:**
+
+```python
+# Get all with filters (returns tuple: configs, total_count)
+configs, total = service.get_all(
+    enabled_only=True,
+    limit=25,
+    offset=0,
+    search="mysql",
+    database_type="mysql",
+    engine_id="engine-001",
+    policy_id="production-standard",
+)
+```
+
+#### `services/engine_service.py`
+
+CRUD operations for engine (database server) configurations with database discovery.
+
+**Class: EngineService**
+
+```python
+from shared.services import EngineService
+
+service = EngineService(azure_clients=None)
+```
+
+**Public Methods:**
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `create` | `engine: Engine` | `Engine` | Create engine (validates unique host:port:type) |
+| `get` | `engine_id: str` | `Optional[Engine]` | Get by ID |
+| `get_all` | `limit=None, offset=0, search=None, engine_type=None` | `tuple[list[Engine], int]` | Paginated list with filters |
+| `get_by_host` | `host: str, port: int, engine_type: EngineType` | `Optional[Engine]` | Find by host/port/type |
+| `update` | `engine: Engine` | `Engine` | Update existing engine |
+| `delete` | `engine_id: str` | `bool` | Delete by ID |
+| `get_database_count` | `engine_id: str` | `int` | Count databases for engine |
+| `discover_databases` | `engine: Engine` | `list[DiscoveredDatabase]` | Discover available databases |
+
+**Private Helper Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `_get_table_client()` | Get table client, ensuring table exists |
+| `_discover_mysql(engine, existing_db_names, system_dbs)` | Discover MySQL databases using `mysql -N -e "SHOW DATABASES"` |
+| `_discover_postgresql(engine, existing_db_names, system_dbs)` | Discover PostgreSQL databases using `psql -t -A -c "SELECT datname..."` |
+| `_discover_sqlserver(engine, existing_db_names, system_dbs)` | Discover SQL Server databases using `sqlcmd -Q "SELECT name..."` |
+
+**Discovery Flow:**
+1. Validates engine has credentials (`has_credentials()`)
+2. Gets existing databases for this engine
+3. Gets system databases from `SYSTEM_DATABASES` constant
+4. Calls appropriate `_discover_*` method based on engine type
+5. Updates engine's `last_discovery` timestamp
+6. Returns list of `DiscoveredDatabase` objects with `name`, `exists`, `is_system` flags
 
 #### `services/audit_service.py`
 
-Audit logging service:
+Audit logging service with query and statistics.
+
+**Class: AuditService**
 
 ```python
-from shared.services import AuditService
-from shared.models import AuditAction, AuditResourceType
+from shared.services import AuditService, get_audit_service
+from shared.models import AuditAction, AuditResourceType, AuditStatus
 
-audit = AuditService()
+# Create instance directly
+audit = AuditService(azure_clients=None)
 
-# Log an action
+# Or use singleton factory
+audit = get_audit_service()
+```
+
+**Class Constants:**
+- `TABLE_NAME = "auditlogs"`
+
+**Public Methods:**
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `log` | `user_id: str, user_email: str, action: AuditAction, resource_type: AuditResourceType, resource_id: str, resource_name: str, details=None, status=SUCCESS, error_message=None, ip_address=None` | `AuditLog` | Log an action (note parameter order!) |
+| `log_from_create` | `create_input: AuditLogCreate` | `AuditLog` | Log from input model |
+| `get_logs` | `start_date=None, end_date=None, user_id=None, action=None, resource_type=None, status=None, search=None, database_type=None, engine_id=None, resource_name=None, limit=50, offset=0` | `tuple[list[AuditLog], int]` | Query with filters and pagination |
+| `get_log_by_id` | `log_id: str` | `Optional[AuditLog]` | Get specific log by ID |
+| `get_logs_for_resource` | `resource_type: AuditResourceType, resource_id: str, limit=50` | `list[AuditLog]` | Get logs for a resource |
+| `get_logs_for_user` | `user_id: str, limit=50` | `list[AuditLog]` | Get logs for a user |
+| `get_stats` | `start_date=None, end_date=None` | `dict` | Statistics (total, by_action, by_resource_type, by_status) |
+
+**Private Helper Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `_ensure_table_exists()` | Create auditlogs table if it doesn't exist |
+
+**Factory Function:**
+
+```python
+def get_audit_service() -> AuditService:
+    """Get the singleton AuditService instance."""
+```
+
+**Usage Example (note parameter order):**
+
+```python
 audit.log(
+    user_id="user-001",       # FIRST parameter
+    user_email="admin@example.com",  # SECOND parameter
     action=AuditAction.DATABASE_CREATED,
     resource_type=AuditResourceType.DATABASE,
     resource_id="db-001",
     resource_name="Production MySQL",
-    user_id="user-001",
-    user_email="admin@example.com",
     details={
         "database_type": "mysql",
         "engine_id": "engine-001",
@@ -334,26 +754,83 @@ audit.log(
         "database_name": "myapp",
         "policy_id": "production-standard",
     },
+    status=AuditStatus.SUCCESS,
+    error_message=None,
     ip_address="192.168.1.1",
 )
 
-# Query logs with filters
-logs, total = audit.get_logs(
-    action=AuditAction.DATABASE_CREATED,
-    resource_type=AuditResourceType.DATABASE,
-    database_type="mysql",
-    engine_id="engine-001",
-    resource_name="Production",  # partial match
-    start_date=datetime(2025, 1, 1),
-    end_date=datetime(2025, 12, 31),
-    limit=50,
-    offset=0,
-)
-
-# Get filter options
-actions = audit.get_available_actions()
-resource_types = audit.get_available_resource_types()
+# Get stats
+stats = audit.get_stats()
+# Returns: {
+#   "total": 150,
+#   "by_action": {"database_created": 45, "backup_completed": 100, ...},
+#   "by_resource_type": {"database": 50, "backup": 100, ...},
+#   "by_status": {"success": 148, "failed": 2}
+# }
 ```
+
+#### `services/connection_tester.py`
+
+Service for testing database connections using native client tools.
+
+**Dataclass: ConnectionTestResult**
+
+```python
+@dataclass
+class ConnectionTestResult:
+    success: bool
+    message: str
+    error_type: Optional[str] = None
+    duration_ms: Optional[float] = None
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `success` | bool | Whether connection succeeded |
+| `message` | str | "Connection successful" or error description |
+| `error_type` | Optional[str] | Error type: "ConnectionFailed", "Timeout", "ToolNotFound", "UnsupportedType" |
+| `duration_ms` | Optional[float] | Response time in milliseconds |
+
+**Class: ConnectionTester**
+
+```python
+from shared.services import ConnectionTester, get_connection_tester
+from shared.models import DatabaseType
+
+# Create instance directly
+tester = ConnectionTester()
+
+# Or use singleton factory
+tester = get_connection_tester()
+```
+
+**Public Methods:**
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `test_connection` | `database_type: DatabaseType, host: str, port: int, database: str, username: str, password: str, timeout_seconds=30` | `ConnectionTestResult` | Test connection |
+
+**Private Helper Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `_test_mysql(host, port, database, username, password, timeout)` | Test MySQL using `mysql -e "SELECT 1"` |
+| `_test_postgresql(host, port, database, username, password, timeout)` | Test PostgreSQL using `pg_isready` |
+| `_test_sqlserver(host, port, database, username, password, timeout)` | Test SQL Server using `sqlcmd -Q "SELECT 1"` |
+| `_clean_mysql_error(error: str)` | Remove password warnings from MySQL errors |
+| `_clean_sqlserver_error(error: str)` | Simplify SQL Server error messages |
+
+**Factory Function:**
+
+```python
+def get_connection_tester() -> ConnectionTester:
+    """Get singleton ConnectionTester instance."""
+```
+
+**Supported Database Types:**
+- `DatabaseType.MYSQL` - uses `mysql` client
+- `DatabaseType.POSTGRESQL` - uses `pg_isready`
+- `DatabaseType.SQLSERVER` / `DatabaseType.AZURE_SQL` - uses `sqlcmd`
 
 #### `utils/validators.py`
 
@@ -716,7 +1193,7 @@ Registros anteriores usan RowKey = UUID solamente. El script `scripts/migrate_ba
 
 | Column | Type | Description |
 |--------|------|-------------|
-| PartitionKey | string | Date (`YYYY-MM-DD`) |
+| PartitionKey | string | Month (`YYYYMM`) |
 | RowKey | string | Inverted timestamp + ID |
 | action | string | Action performed (e.g., `database_created`) |
 | resource_type | string | `database`, `engine`, `backup`, etc. |

@@ -54,7 +54,18 @@
       "Bash(kill:*)",
       "Bash(npm install:*)",
       "Bash(mysqladmin:*)",
-      "Bash(python -m py_compile:*)"
+      "Bash(python -m py_compile:*)",
+      "Bash(jq:*)",
+      "Bash(docker start:*)",
+      "Bash(docker volume:*)",
+      "Bash(pstree:*)",
+      "Bash(ps:*)",
+      "Bash(/dev/null docker compose up -d sqlserver echo 'Esperando 60 segundos para que SQL Server inicie...' sleep 60 docker ps --format 'table {{.Names}}\\t{{.Status}}')",
+      "Bash(gunzip:*)",
+      "Bash(grep:*)",
+      "Bash(killall:*)",
+      "Bash(az bicep build:*)",
+      "Bash(timeout 10 func start:*)"
     ],
     "deny": [],
     "ask": []

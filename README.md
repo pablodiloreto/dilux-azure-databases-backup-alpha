@@ -2,6 +2,75 @@
 
 Solución serverless para respaldos automatizados de bases de datos MySQL, PostgreSQL y SQL Server usando Azure Functions.
 
+## Deploy to Azure
+
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fpablodiloreto%2Fdilux-azure-databases-backup-alpha%2Fmain%2Finfra%2Fazuredeploy.json)
+
+### Cómo funciona
+
+1. **Click en el botón** → Se abre Azure Portal
+2. **Completás los parámetros** → El wizard te guía
+3. **Click en "Review + Create"** → Azure despliega todo
+4. **Listo** → Accedés a la URL del frontend
+
+### Qué se crea automáticamente
+
+- ✅ Storage Account (backups, colas, tablas)
+- ✅ Key Vault (secrets)
+- ✅ 3 Function Apps (API, Scheduler, Processor)
+- ✅ Static Web App (Frontend React)
+- ✅ Application Insights (monitoreo)
+- ✅ App Registration en Azure AD (autenticación)
+- ✅ Managed Identities + RBAC (permisos)
+
+### Parámetros
+
+| Parámetro | Descripción | Ejemplo |
+|-----------|-------------|---------|
+| **App Name** | Nombre único para los recursos (3-20 chars) | `diluxbackup` |
+| **Admin Email** | Tu email (serás el primer admin) | `admin@empresa.com` |
+| **Location** | Región de Azure | `East US 2` |
+| **Function App SKU** | Plan de Functions | `Y1` (gratis) o `EP1` (premium) |
+
+### Requisitos del usuario que despliega
+
+| Permiso | Para qué |
+|---------|----------|
+| **Contributor** en la Subscription | Crear recursos Azure |
+| **Application Administrator** en Azure AD | Crear App Registration automáticamente |
+
+> **Nota:** Si no tenés Application Administrator, el deploy continúa pero te muestra instrucciones para crear el App Registration manualmente. Ver [Setup manual de App Registration](#setup-manual-de-app-registration).
+
+---
+
+### Setup manual de App Registration
+
+Solo necesario si el deploy automático no pudo crear el App Registration:
+
+1. Ve a **Azure Portal** → **Azure Active Directory** → **App registrations**
+2. Click en **New registration**
+3. Nombre: `Dilux Database Backup - {appName}`
+4. Supported account types: **Single tenant**
+5. Redirect URI (Web): `https://{appName}-web.azurestaticapps.net`
+6. En **Authentication**:
+   - Agrega: `https://{appName}-web.azurestaticapps.net/auth/callback`
+   - Marca: **ID tokens** y **Access tokens**
+7. Copia el **Application (client) ID**
+8. Ve a las Function Apps y agrega la variable `AZURE_AD_CLIENT_ID`
+
+---
+
+### Deploy alternativo (CLI)
+
+```bash
+az login
+az group create --name rg-dilux-backup --location eastus2
+az deployment group create \
+  --resource-group rg-dilux-backup \
+  --template-file infra/main.bicep \
+  --parameters appName=diluxbackup adminEmail=tu@email.com
+```
+
 ## Arquitectura
 
 ```

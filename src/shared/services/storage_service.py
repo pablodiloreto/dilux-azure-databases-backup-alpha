@@ -10,7 +10,12 @@ from datetime import datetime, timedelta
 from typing import BinaryIO, Optional
 
 from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
-from azure.storage.blob import BlobSasPermissions, ContentSettings, generate_blob_sas
+from azure.storage.blob import (
+    BlobSasPermissions,
+    ContentSettings,
+    generate_blob_sas,
+    UserDelegationKey,
+)
 
 from ..config import AzureClients, get_settings
 from ..models import BackupResult, AppSettings, User, UserRole, BackupPolicy, get_default_policies
@@ -126,6 +131,9 @@ class StorageService:
         """
         Generate a SAS URL for downloading a backup.
 
+        Uses User Delegation SAS when using Managed Identity (production).
+        Uses Account Key SAS when using connection string (local dev).
+
         Args:
             blob_name: Name of the blob
             container_name: Optional custom container name
@@ -138,15 +146,37 @@ class StorageService:
         container_client = self._clients.get_blob_container_client(container)
         blob_client = container_client.get_blob_client(blob_name)
 
-        # Generate SAS token
-        sas_token = generate_blob_sas(
-            account_name=self._clients.blob_service_client.account_name,
-            container_name=container,
-            blob_name=blob_name,
-            account_key=self._clients.blob_service_client.credential.account_key,
-            permission=BlobSasPermissions(read=True),
-            expiry=datetime.utcnow() + timedelta(hours=expiry_hours),
-        )
+        expiry_time = datetime.utcnow() + timedelta(hours=expiry_hours)
+
+        # Generate SAS token - use different methods based on auth type
+        if self._clients.use_managed_identity:
+            # Use User Delegation SAS for Managed Identity
+            # Get user delegation key (valid for up to 7 days)
+            start_time = datetime.utcnow() - timedelta(minutes=5)  # Allow for clock skew
+            user_delegation_key = self._clients.blob_service_client.get_user_delegation_key(
+                key_start_time=start_time,
+                key_expiry_time=expiry_time,
+            )
+
+            sas_token = generate_blob_sas(
+                account_name=self._clients.blob_service_client.account_name,
+                container_name=container,
+                blob_name=blob_name,
+                user_delegation_key=user_delegation_key,
+                permission=BlobSasPermissions(read=True),
+                expiry=expiry_time,
+                start=start_time,
+            )
+        else:
+            # Use Account Key SAS for connection string auth (local dev)
+            sas_token = generate_blob_sas(
+                account_name=self._clients.blob_service_client.account_name,
+                container_name=container,
+                blob_name=blob_name,
+                account_key=self._clients.blob_service_client.credential.account_key,
+                permission=BlobSasPermissions(read=True),
+                expiry=expiry_time,
+            )
 
         # Get base URL - handle dev environments where internal Docker hostname differs from browser URL
         base_url = blob_client.url
@@ -1164,7 +1194,8 @@ class StorageService:
             logger.error(f"Error listing pending access requests: {e}")
 
         # Sort by requested_at descending (newest first)
-        requests.sort(key=lambda r: r.requested_at, reverse=True)
+        # Use timestamp to avoid naive/aware datetime comparison issues
+        requests.sort(key=lambda r: r.requested_at.timestamp() if r.requested_at else 0, reverse=True)
         return requests
 
     def get_pending_access_requests_count(self) -> int:

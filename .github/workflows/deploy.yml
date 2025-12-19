@@ -1,0 +1,243 @@
+# ============================================================================
+# Dilux Database Backup - Deploy to Azure
+# ============================================================================
+# This workflow deploys the complete Dilux Database Backup solution to Azure.
+#
+# Required secrets:
+#   - AZURE_CREDENTIALS: Azure service principal credentials (JSON)
+#   - AZURE_SUBSCRIPTION_ID: Azure subscription ID
+#
+# Required variables (can also be set as secrets):
+#   - AZURE_RESOURCE_GROUP: Name of the resource group (will be created if not exists)
+#   - AZURE_LOCATION: Azure region (e.g., eastus2, westeurope)
+#   - APP_NAME: Base name for resources (3-20 chars, unique)
+#   - ADMIN_EMAIL: Email of the first admin user
+# ============================================================================
+
+name: Deploy to Azure
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: 'Application name (3-20 chars, unique)'
+        required: true
+        type: string
+      admin_email:
+        description: 'Admin email address'
+        required: true
+        type: string
+      resource_group:
+        description: 'Resource group name'
+        required: true
+        type: string
+      location:
+        description: 'Azure region'
+        required: true
+        default: 'eastus2'
+        type: choice
+        options:
+          - eastus2
+          - westus2
+          - westeurope
+          - northeurope
+          - eastasia
+          - southeastasia
+          - australiaeast
+          - brazilsouth
+      function_sku:
+        description: 'Function App SKU'
+        required: true
+        default: 'Y1'
+        type: choice
+        options:
+          - Y1
+          - EP1
+          - EP2
+          - EP3
+
+env:
+  APP_VERSION: '1.0.0'
+
+jobs:
+  deploy-infrastructure:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+    outputs:
+      api_url: ${{ steps.deploy.outputs.apiUrl }}
+      frontend_url: ${{ steps.deploy.outputs.frontendUrl }}
+      static_web_app_token: ${{ steps.get-token.outputs.token }}
+      app_registration_success: ${{ steps.deploy.outputs.appRegistrationSuccess }}
+      next_steps: ${{ steps.deploy.outputs.nextSteps }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Create Resource Group (if not exists)
+        uses: azure/cli@v1
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az group create \
+              --name ${{ inputs.resource_group }} \
+              --location ${{ inputs.location }} \
+              --tags Application="Dilux Database Backup" || true
+
+      - name: Deploy Bicep template
+        id: deploy
+        uses: azure/arm-deploy@v1
+        with:
+          subscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          resourceGroupName: ${{ inputs.resource_group }}
+          template: ./infra/main.bicep
+          parameters: >
+            appName=${{ inputs.app_name }}
+            adminEmail=${{ inputs.admin_email }}
+            location=${{ inputs.location }}
+            functionAppSku=${{ inputs.function_sku }}
+            appVersion=${{ env.APP_VERSION }}
+          failOnStdErr: false
+
+      - name: Get Static Web App deployment token
+        id: get-token
+        uses: azure/cli@v1
+        with:
+          azcliversion: latest
+          inlineScript: |
+            TOKEN=$(az staticwebapp secrets list \
+              --name ${{ inputs.app_name }}-web \
+              --resource-group ${{ inputs.resource_group }} \
+              --query "properties.apiKey" -o tsv)
+            echo "token=$TOKEN" >> $GITHUB_OUTPUT
+
+      - name: Display deployment results
+        run: |
+          echo "=========================================="
+          echo "Infrastructure Deployment Complete!"
+          echo "=========================================="
+          echo "API URL: ${{ steps.deploy.outputs.apiUrl }}"
+          echo "Frontend URL: ${{ steps.deploy.outputs.frontendUrl }}"
+          echo "Installation ID: ${{ steps.deploy.outputs.installationId }}"
+          echo "App Registration Success: ${{ steps.deploy.outputs.appRegistrationSuccess }}"
+          echo ""
+          echo "Next Steps: ${{ steps.deploy.outputs.nextSteps }}"
+          echo "=========================================="
+
+  deploy-functions:
+    name: Deploy Function Apps
+    needs: deploy-infrastructure
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install dependencies (shared)
+        run: |
+          cd src/shared
+          pip install -r requirements.txt
+
+      - name: Deploy API Function App
+        uses: azure/functions-action@v1
+        with:
+          app-name: ${{ inputs.app_name }}-api
+          package: src/functions/api
+          respect-funcignore: true
+
+      - name: Deploy Scheduler Function App
+        uses: azure/functions-action@v1
+        with:
+          app-name: ${{ inputs.app_name }}-scheduler
+          package: src/functions/scheduler
+          respect-funcignore: true
+
+      - name: Deploy Processor Function App
+        uses: azure/functions-action@v1
+        with:
+          app-name: ${{ inputs.app_name }}-processor
+          package: src/functions/processor
+          respect-funcignore: true
+
+  deploy-frontend:
+    name: Deploy Frontend
+    needs: deploy-infrastructure
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd src/frontend
+          npm ci
+
+      - name: Build frontend
+        run: |
+          cd src/frontend
+          npm run build
+        env:
+          VITE_API_BASE_URL: ${{ needs.deploy-infrastructure.outputs.api_url }}
+
+      - name: Deploy to Static Web App
+        uses: azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ needs.deploy-infrastructure.outputs.static_web_app_token }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: upload
+          app_location: src/frontend
+          output_location: dist
+          skip_app_build: true
+
+  summary:
+    name: Deployment Summary
+    needs: [deploy-infrastructure, deploy-functions, deploy-frontend]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Show deployment summary
+        run: |
+          echo "=========================================="
+          echo "DEPLOYMENT COMPLETE"
+          echo "=========================================="
+          echo ""
+          echo "Frontend URL: ${{ needs.deploy-infrastructure.outputs.frontend_url }}"
+          echo "API URL: ${{ needs.deploy-infrastructure.outputs.api_url }}"
+          echo ""
+          if [ "${{ needs.deploy-infrastructure.outputs.app_registration_success }}" == "true" ]; then
+            echo "✅ App Registration created automatically"
+            echo ""
+            echo "You can now access the application at:"
+            echo "${{ needs.deploy-infrastructure.outputs.frontend_url }}"
+            echo ""
+            echo "Login with: ${{ inputs.admin_email }}"
+          else
+            echo "⚠️ App Registration requires manual setup"
+            echo ""
+            echo "${{ needs.deploy-infrastructure.outputs.next_steps }}"
+          fi
+          echo "=========================================="

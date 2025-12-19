@@ -25,6 +25,24 @@ class Settings(BaseSettings):
         default="UseDevelopmentStorage=true",
         alias="STORAGE_CONNECTION_STRING"
     )
+    # Storage Account Name (for Managed Identity auth in production)
+    storage_account_name: Optional[str] = Field(
+        default=None,
+        alias="STORAGE_ACCOUNT_NAME"
+    )
+    # Storage endpoints (for Managed Identity auth in production)
+    storage_blob_endpoint: Optional[str] = Field(
+        default=None,
+        alias="STORAGE_BLOB_ENDPOINT"
+    )
+    storage_queue_endpoint: Optional[str] = Field(
+        default=None,
+        alias="STORAGE_QUEUE_ENDPOINT"
+    )
+    storage_table_endpoint: Optional[str] = Field(
+        default=None,
+        alias="STORAGE_TABLE_ENDPOINT"
+    )
     # Public URL for blob downloads (for dev/Codespaces where internal Docker hostname differs from browser-accessible URL)
     # In production with Azure Storage, leave empty to use the default blob URL
     storage_public_url: Optional[str] = Field(
@@ -86,6 +104,21 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """Check if running in production environment."""
         return self.environment.lower() in ("production", "prod")
+
+    @property
+    def use_managed_identity_for_storage(self) -> bool:
+        """
+        Check if we should use Managed Identity for Storage.
+
+        Returns True if all endpoint environment variables are set.
+        In development with Azurite, we fall back to connection string.
+        """
+        return bool(
+            self.storage_account_name
+            and self.storage_blob_endpoint
+            and self.storage_queue_endpoint
+            and self.storage_table_endpoint
+        )
 
     def get_mysql_connection_string(self) -> str:
         """Get MySQL connection string."""

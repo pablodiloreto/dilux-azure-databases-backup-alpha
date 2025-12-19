@@ -69,12 +69,43 @@ def get_client_ip(req: func.HttpRequest) -> str:
 @app.route(route="health", methods=["GET"])
 def health_check(req: func.HttpRequest) -> func.HttpResponse:
     """Health check endpoint."""
+    import os
     return func.HttpResponse(
         json.dumps({
             "status": "healthy",
             "service": "dilux-backup-api",
-            "version": "0.1.0",
+            "version": os.environ.get("APP_VERSION", "1.0.0"),
             "timestamp": datetime.utcnow().isoformat(),
+        }),
+        mimetype="application/json",
+        status_code=200,
+    )
+
+
+@app.route(route="version", methods=["GET"])
+def get_version(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Get application version and installation info.
+
+    Used by frontend to:
+    - Display current version
+    - Check for updates against GitHub Releases
+    - Send telemetry (optional)
+
+    Returns:
+        {
+            "version": "1.0.0",
+            "installation_id": "abc123...",
+            "environment": "production"
+        }
+    """
+    import os
+
+    return func.HttpResponse(
+        json.dumps({
+            "version": os.environ.get("APP_VERSION", "1.0.0"),
+            "installation_id": os.environ.get("INSTALLATION_ID", "local-dev"),
+            "environment": os.environ.get("ENVIRONMENT", "development"),
         }),
         mimetype="application/json",
         status_code=200,

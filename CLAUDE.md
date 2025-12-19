@@ -34,7 +34,8 @@ src/
 
 ## Credenciales de Desarrollo
 
-Todas las DBs usan password: `DevPassword123!`
+- MySQL/PostgreSQL: `DevPassword123!`
+- SQL Server: `YourStrong@Passw0rd` (different due to stricter password policy)
 
 ## Comandos Útiles
 
@@ -52,5 +53,5 @@ mysql -h mysql -u root -pDevPassword123! testdb
 PGPASSWORD=DevPassword123! psql -h postgres -U postgres testdb
 
 # Conectar a SQL Server
-sqlcmd -S sqlserver,1433 -U sa -P 'DevPassword123!' -d testdb -C
+sqlcmd -S sqlserver,1433 -U sa -P 'YourStrong@Passw0rd' -d testdb -C
 ```

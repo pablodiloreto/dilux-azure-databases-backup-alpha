@@ -108,8 +108,10 @@ DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02x
 
 **Credentials:**
 - User: `sa`
-- Password: `DevPassword123!`
+- Password: `YourStrong@Passw0rd`
 - Database: `testdb`
+
+**Note:** SQL Server uses a different password than MySQL/PostgreSQL due to its stricter password policy requirements.
 
 **Purpose:** Test database for SQL Server backup functionality. Pre-populated with sample data.
 
@@ -242,7 +244,7 @@ PGPASSWORD=DevPassword123! psql -h postgres -p 5432 -U postgres testdb
 PGPASSWORD=DevPassword123! psql -h localhost -p 55432 -U postgres testdb
 
 # SQL Server
-sqlcmd -S sqlserver,1433 -U sa -P 'DevPassword123!' -d testdb -C
+sqlcmd -S sqlserver,1433 -U sa -P 'YourStrong@Passw0rd' -d testdb -C
 ```
 
 ### 4. Start Development Servers

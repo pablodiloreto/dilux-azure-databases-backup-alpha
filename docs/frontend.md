@@ -32,19 +32,29 @@ src/frontend/
     ├── vite-env.d.ts       # Vite type definitions
     │
     ├── api/                # API client layer
-    │   ├── index.ts
-    │   ├── client.ts       # Axios instance
+    │   ├── index.ts        # Barrel exports (apiClient, databasesApi, backupsApi, etc.)
+    │   ├── client.ts       # Axios instance with interceptors
     │   ├── databases.ts    # Database API calls
     │   ├── backups.ts      # Backup API calls
     │   ├── engines.ts      # Server/Engine API calls
     │   ├── audit.ts        # Audit log API calls
     │   ├── system.ts       # System status API calls
-    │   └── settings.ts     # Settings API calls
+    │   ├── settings.ts     # Settings API calls
+    │   └── users.ts        # Users, Auth, and Access Request API calls
+    │
+    ├── auth/               # Azure AD Authentication
+    │   ├── index.ts        # Auth exports
+    │   ├── msalConfig.ts   # MSAL configuration (clientId, authority)
+    │   └── MsalAuthProvider.tsx  # MSAL React provider with login/logout
     │
     ├── contexts/           # React Contexts
-    │   └── SettingsContext.tsx  # Theme and app settings
+    │   ├── SettingsContext.tsx  # Theme and app settings
+    │   └── AuthContext.tsx      # Authentication state and user info
     │
     ├── components/         # Reusable components
+    │   ├── auth/
+    │   │   ├── index.ts         # Auth component exports
+    │   │   └── AuthGuard.tsx    # Route protection component
     │   ├── common/
     │   │   ├── FilterBar.tsx       # Filter container with Search/Clear
     │   │   ├── FilterSelect.tsx    # Dropdown with "All X" default
@@ -215,6 +225,12 @@ The `api/` folder contains:
 5. **`audit.ts`** - Audit log queries with filters
 6. **`system.ts`** - System status and health checks
 7. **`settings.ts`** - Application settings CRUD
+8. **`users.ts`** - Contains:
+   - `usersApi` - User management (list, create, update, delete)
+   - `authApi` - Authentication events (login/logout logging)
+   - `accessRequestsApi` - Access request management (list, approve, reject)
+
+**Note:** Backup policies are managed through direct `apiClient` calls in `PoliciesPage.tsx`, not through a dedicated API module.
 
 ```typescript
 // Using the API
@@ -728,25 +744,91 @@ export const theme = createTheme({
 
 ---
 
-## Authentication (Future)
+## Authentication
 
-Azure AD authentication will use MSAL React:
+Azure AD authentication is implemented using MSAL React:
+
+### Configuration
+
+The MSAL configuration is loaded from environment variables:
 
 ```typescript
-// auth/msalConfig.ts
-export const msalConfig = {
+// auth/MsalAuthProvider.tsx
+const msalConfig = {
   auth: {
     clientId: import.meta.env.VITE_AZURE_CLIENT_ID,
     authority: `https://login.microsoftonline.com/${import.meta.env.VITE_AZURE_TENANT_ID}`,
     redirectUri: window.location.origin,
   },
+  cache: {
+    cacheLocation: 'sessionStorage',
+    storeAuthStateInCookie: false,
+  },
 }
-
-// App.tsx
-<MsalProvider instance={msalInstance}>
-  <App />
-</MsalProvider>
 ```
+
+### Components
+
+**MsalAuthProvider** (`auth/MsalAuthProvider.tsx`):
+- Wraps the app with MSAL provider
+- Provides `login()` and `logout()` functions
+- Handles authentication state
+- Logs authentication events to backend audit log
+
+**AuthContext** (`contexts/AuthContext.tsx`):
+- Provides current user information
+- Manages user role and permissions
+- Exposes `isAdmin`, `isOperator`, `isViewer` helpers
+
+**AuthGuard** (`components/auth/AuthGuard.tsx`):
+- Protects routes requiring authentication
+- Redirects unauthenticated users to login
+- Optionally requires specific roles
+
+### Usage
+
+```tsx
+// App.tsx
+import { MsalAuthProvider } from './auth'
+
+<MsalAuthProvider>
+  <AuthContext.Provider>
+    <Router>
+      <Routes>
+        <Route path="/admin/*" element={
+          <AuthGuard requiredRole="admin">
+            <AdminPage />
+          </AuthGuard>
+        } />
+      </Routes>
+    </Router>
+  </AuthContext.Provider>
+</MsalAuthProvider>
+
+// In components
+import { useAuth } from '../contexts/AuthContext'
+
+const MyComponent = () => {
+  const { user, isAdmin, logout } = useAuth()
+
+  return (
+    <div>
+      Welcome, {user?.name}
+      {isAdmin && <AdminPanel />}
+      <Button onClick={logout}>Logout</Button>
+    </div>
+  )
+}
+```
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `VITE_AZURE_CLIENT_ID` | Azure AD application client ID |
+| `VITE_AZURE_TENANT_ID` | Azure AD tenant ID |
+
+See `docs/AUTH_SETUP.md` for complete Azure AD configuration instructions.
 
 ---
 

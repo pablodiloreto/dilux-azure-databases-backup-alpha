@@ -34,10 +34,33 @@ Check if the API is running.
 {
   "status": "healthy",
   "service": "dilux-backup-api",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "timestamp": "2024-01-15T12:00:00.000Z"
 }
 ```
+
+---
+
+### Version
+
+#### `GET /api/version`
+
+Get application version and installation info. Used by frontend to check for updates.
+
+**Response:**
+```json
+{
+  "version": "1.0.0",
+  "installation_id": "abc123def456",
+  "environment": "production"
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `version` | Semantic version of the application |
+| `installation_id` | Unique identifier for this deployment (generated during Azure deploy) |
+| `environment` | `development` or `production` |
 
 ---
 
@@ -385,6 +408,117 @@ Delete multiple backup files from blob storage.
 
 ---
 
+#### `DELETE /api/backups/{backup_id}`
+
+Delete a specific backup record by ID.
+
+**Response:**
+```json
+{
+  "message": "Backup 'backup-001' deleted"
+}
+```
+
+**Errors:**
+- `404 Not Found` - Backup record not found
+
+---
+
+#### `GET /api/backup-alerts`
+
+Get backup alerts (failed backups and databases with no recent backups).
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `include_warning` | boolean | Include warning-level alerts (default: `true`) |
+| `hours` | integer | Consider backups in last N hours (default: 24) |
+
+**Response:**
+```json
+{
+  "alerts": [
+    {
+      "type": "backup_failed",
+      "severity": "error",
+      "database_id": "db-001",
+      "database_name": "Production MySQL",
+      "message": "Backup failed: Connection refused",
+      "timestamp": "2024-01-15T12:00:00.000Z"
+    },
+    {
+      "type": "no_recent_backup",
+      "severity": "warning",
+      "database_id": "db-002",
+      "database_name": "Analytics DB",
+      "message": "No backup in last 24 hours",
+      "last_backup": "2024-01-14T00:00:00.000Z"
+    }
+  ],
+  "count": 2
+}
+```
+
+---
+
+#### `GET /api/databases/{database_id}/backup-stats`
+
+Get backup statistics for a specific database.
+
+**Response:**
+```json
+{
+  "database_id": "db-001",
+  "total_backups": 150,
+  "completed": 145,
+  "failed": 5,
+  "success_rate": 96.7,
+  "last_backup": {
+    "id": "backup-001",
+    "status": "completed",
+    "timestamp": "2024-01-15T02:00:00.000Z",
+    "file_size_bytes": 15728640
+  },
+  "total_size_bytes": 2359296000,
+  "by_tier": {
+    "hourly": 24,
+    "daily": 7,
+    "weekly": 4,
+    "monthly": 12
+  }
+}
+```
+
+---
+
+#### `GET /api/storage-stats`
+
+Get overall storage statistics.
+
+**Response:**
+```json
+{
+  "total_size_bytes": 15728640000,
+  "total_size_formatted": "14.6 GB",
+  "blob_count": 450,
+  "by_database": [
+    {
+      "database_id": "db-001",
+      "database_name": "Production MySQL",
+      "size_bytes": 5242880000,
+      "backup_count": 150
+    }
+  ],
+  "by_type": {
+    "mysql": { "size_bytes": 8000000000, "count": 200 },
+    "postgresql": { "size_bytes": 5000000000, "count": 150 },
+    "sqlserver": { "size_bytes": 2728640000, "count": 100 }
+  }
+}
+```
+
+---
+
 ## Data Models
 
 ### Engine
@@ -613,9 +747,17 @@ Update application settings.
 {
   "dark_mode": true,
   "default_retention_days": 30,
-  "default_compression": true
+  "default_compression": true,
+  "access_requests_enabled": true
 }
 ```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dark_mode` | bool | Enable dark mode in UI |
+| `default_retention_days` | int | Default retention period (1-365) |
+| `default_compression` | bool | Default compression for new databases |
+| `access_requests_enabled` | bool | Allow unauthorized users to request access |
 
 **Response:**
 ```json
@@ -625,6 +767,7 @@ Update application settings.
     "dark_mode": true,
     "default_retention_days": 30,
     "default_compression": true,
+    "access_requests_enabled": true,
     "updated_at": "2024-01-15T12:00:00.000Z"
   }
 }
@@ -652,7 +795,7 @@ Log authentication events (login/logout). Called by frontend when actual login/l
 **Response (Success):**
 ```json
 {
-  "message": "Event logged"
+  "success": true
 }
 ```
 
@@ -676,7 +819,8 @@ List all engine (server) configurations.
 **Query Parameters:**
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `type` | string | Filter by engine type (`mysql`, `postgresql`, `sqlserver`) |
+| `engine_type` | string | Filter by engine type (`mysql`, `postgresql`, `sqlserver`) |
+| `search` | string | Search by name or host |
 | `limit` | integer | Results per page (default: 100) |
 | `offset` | integer | Skip N results for pagination (default: 0) |
 
@@ -822,6 +966,31 @@ Delete an engine configuration.
 **Errors:**
 - `400 Bad Request` - Engine has databases and `delete_databases` is not set
 - `404 Not Found` - Engine not found
+
+---
+
+#### `POST /api/engines/{engine_id}/databases`
+
+Import discovered databases from an engine.
+
+**Request Body:**
+```json
+{
+  "databases": ["myapp", "analytics"],
+  "policy_id": "production-standard"
+}
+```
+
+**Response:** `201 Created`
+```json
+{
+  "message": "Imported 2 database(s)",
+  "imported": [
+    { "id": "db-001", "name": "myapp", ... },
+    { "id": "db-002", "name": "analytics", ... }
+  ]
+}
+```
 
 ---
 
@@ -994,6 +1163,250 @@ Delete a backup policy. System policies cannot be deleted.
 
 ---
 
+### Users
+
+#### `GET /api/users`
+
+List all users. **Requires Admin role.**
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `role` | string | Filter by role (`admin`, `operator`, `viewer`) |
+| `status` | string | Filter by status (`active`, `pending`, `disabled`) |
+| `search` | string | Search by name or email |
+| `limit` | integer | Results per page (default: 50) |
+| `offset` | integer | Skip N results (default: 0) |
+
+**Response:**
+```json
+{
+  "users": [
+    {
+      "id": "user-001",
+      "email": "admin@example.com",
+      "name": "Admin User",
+      "role": "admin",
+      "status": "active",
+      "created_at": "2024-01-01T00:00:00.000Z",
+      "last_login": "2024-01-15T12:00:00.000Z"
+    }
+  ],
+  "total": 10
+}
+```
+
+---
+
+#### `GET /api/users/me`
+
+Get current authenticated user's profile.
+
+**Response:**
+```json
+{
+  "user": {
+    "id": "user-001",
+    "email": "admin@example.com",
+    "name": "Admin User",
+    "role": "admin",
+    "status": "active",
+    "dark_mode": true,
+    "page_size": 25,
+    "created_at": "2024-01-01T00:00:00.000Z",
+    "last_login": "2024-01-15T12:00:00.000Z"
+  },
+  "is_first_run": false
+}
+```
+
+---
+
+#### `PUT /api/users/me/preferences`
+
+Update current user's preferences.
+
+**Request Body:**
+```json
+{
+  "dark_mode": true,
+  "page_size": 50
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dark_mode` | bool | Enable dark mode in UI |
+| `page_size` | int | Items per page (10-100) |
+
+**Response:**
+```json
+{
+  "message": "Preferences updated",
+  "user": {
+    "dark_mode": true,
+    "page_size": 50
+  }
+}
+```
+
+---
+
+#### `GET /api/users/{user_id}`
+
+Get a specific user. **Requires Admin role.**
+
+**Response:**
+```json
+{
+  "user": {
+    "id": "user-001",
+    "email": "admin@example.com",
+    "name": "Admin User",
+    "role": "admin",
+    ...
+  }
+}
+```
+
+---
+
+#### `POST /api/users`
+
+Create a new user. **Requires Admin role.**
+
+**Request Body:**
+```json
+{
+  "email": "newuser@example.com",
+  "name": "New User",
+  "role": "operator"
+}
+```
+
+**Response:** `201 Created`
+```json
+{
+  "message": "User created",
+  "user": { ... }
+}
+```
+
+---
+
+#### `PUT /api/users/{user_id}`
+
+Update a user. **Requires Admin role.**
+
+**Request Body:**
+```json
+{
+  "name": "Updated Name",
+  "role": "admin"
+}
+```
+
+**Response:**
+```json
+{
+  "message": "User updated",
+  "user": { ... }
+}
+```
+
+---
+
+#### `DELETE /api/users/{user_id}`
+
+Delete a user. **Requires Admin role.**
+
+**Response:**
+```json
+{
+  "message": "User 'user-001' deleted"
+}
+```
+
+---
+
+### Access Requests
+
+#### `GET /api/access-requests`
+
+List access requests. **Requires Admin role.**
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `status` | string | Filter by status (`pending`, `approved`, `rejected`) |
+| `limit` | integer | Results per page (default: 50) |
+| `offset` | integer | Skip N results (default: 0) |
+
+**Response:**
+```json
+{
+  "requests": [
+    {
+      "id": "request-001",
+      "email": "newuser@example.com",
+      "name": "New User",
+      "requested_role": "operator",
+      "status": "pending",
+      "message": "I need access to manage backups",
+      "created_at": "2024-01-15T12:00:00.000Z"
+    }
+  ],
+  "total": 5
+}
+```
+
+---
+
+#### `POST /api/access-requests/{request_id}/approve`
+
+Approve an access request. **Requires Admin role.**
+
+**Request Body:**
+```json
+{
+  "role": "operator"
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Access request approved",
+  "user": {
+    "id": "user-002",
+    "email": "newuser@example.com",
+    "role": "operator"
+  }
+}
+```
+
+---
+
+#### `POST /api/access-requests/{request_id}/reject`
+
+Reject an access request. **Requires Admin role.**
+
+**Request Body:**
+```json
+{
+  "reason": "Insufficient justification"
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Access request rejected"
+}
+```
+
+---
+
 ### Audit Logs
 
 #### `GET /api/audit`
@@ -1090,6 +1503,46 @@ Get list of available resource types for filters.
     { "value": "user", "label": "User" },
     { "value": "settings", "label": "Settings" },
     { "value": "access_request", "label": "Access Request" }
+  ]
+}
+```
+
+---
+
+#### `GET /api/audit/stats`
+
+Get audit log statistics. **Requires Admin role.**
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `start_date` | string | Start date for stats (YYYY-MM-DD) |
+| `end_date` | string | End date for stats (YYYY-MM-DD) |
+
+**Response:**
+```json
+{
+  "total": 1500,
+  "by_action": {
+    "database_created": 45,
+    "database_updated": 120,
+    "backup_triggered": 890,
+    "backup_downloaded": 234,
+    "user_login": 156
+  },
+  "by_resource_type": {
+    "database": 200,
+    "backup": 1100,
+    "user": 150,
+    "engine": 50
+  },
+  "by_status": {
+    "success": 1480,
+    "failed": 20
+  },
+  "by_user": [
+    { "user_id": "user-001", "email": "admin@example.com", "count": 500 },
+    { "user_id": "user-002", "email": "operator@example.com", "count": 350 }
   ]
 }
 ```

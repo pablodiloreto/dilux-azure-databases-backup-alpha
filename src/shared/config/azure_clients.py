@@ -2,8 +2,10 @@
 Azure client factory for creating and managing Azure SDK clients.
 
 Provides lazy initialization of Azure clients to avoid unnecessary connections.
+Supports both Managed Identity (production) and connection string (local dev) authentication.
 """
 
+import logging
 from functools import cached_property
 from typing import Optional
 
@@ -13,6 +15,8 @@ from azure.storage.blob import BlobServiceClient
 from azure.storage.queue import QueueServiceClient
 
 from .settings import Settings, get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class AzureClients:
@@ -24,6 +28,10 @@ class AzureClients:
     - Queue Storage
     - Table Storage
     - Key Vault (optional)
+
+    Authentication:
+    - Production: Uses Managed Identity via DefaultAzureCredential
+    - Development: Uses connection string (Azurite)
     """
 
     def __init__(self, settings: Optional[Settings] = None):
@@ -40,6 +48,11 @@ class AzureClients:
     def settings(self) -> Settings:
         """Get settings instance."""
         return self._settings
+
+    @property
+    def use_managed_identity(self) -> bool:
+        """Check if using Managed Identity for authentication."""
+        return self._settings.use_managed_identity_for_storage
 
     @cached_property
     def credential(self) -> DefaultAzureCredential:
@@ -59,34 +72,60 @@ class AzureClients:
         """
         Get Blob Storage service client.
 
+        For production with Managed Identity, uses endpoint URL + credential.
         For local development with Azurite, uses connection string.
-        For production, can use managed identity.
         """
-        return BlobServiceClient.from_connection_string(
-            self._settings.storage_connection_string
-        )
+        if self.use_managed_identity:
+            logger.info("Using Managed Identity for Blob Storage")
+            return BlobServiceClient(
+                account_url=self._settings.storage_blob_endpoint,
+                credential=self.credential
+            )
+        else:
+            logger.info("Using connection string for Blob Storage")
+            return BlobServiceClient.from_connection_string(
+                self._settings.storage_connection_string
+            )
 
     @cached_property
     def queue_service_client(self) -> QueueServiceClient:
         """
         Get Queue Storage service client.
 
+        For production with Managed Identity, uses endpoint URL + credential.
         For local development with Azurite, uses connection string.
         """
-        return QueueServiceClient.from_connection_string(
-            self._settings.storage_connection_string
-        )
+        if self.use_managed_identity:
+            logger.info("Using Managed Identity for Queue Storage")
+            return QueueServiceClient(
+                account_url=self._settings.storage_queue_endpoint,
+                credential=self.credential
+            )
+        else:
+            logger.info("Using connection string for Queue Storage")
+            return QueueServiceClient.from_connection_string(
+                self._settings.storage_connection_string
+            )
 
     @cached_property
     def table_service_client(self) -> TableServiceClient:
         """
         Get Table Storage service client.
 
+        For production with Managed Identity, uses endpoint URL + credential.
         For local development with Azurite, uses connection string.
         """
-        return TableServiceClient.from_connection_string(
-            self._settings.storage_connection_string
-        )
+        if self.use_managed_identity:
+            logger.info("Using Managed Identity for Table Storage")
+            return TableServiceClient(
+                endpoint=self._settings.storage_table_endpoint,
+                credential=self.credential
+            )
+        else:
+            logger.info("Using connection string for Table Storage")
+            return TableServiceClient.from_connection_string(
+                self._settings.storage_connection_string
+            )
 
     def get_blob_container_client(self, container_name: Optional[str] = None):
         """

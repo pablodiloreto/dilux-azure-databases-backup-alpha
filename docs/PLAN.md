@@ -35,13 +35,13 @@
 
 ## Tareas Pendientes
 
-### Testing Pendiente
+### Testing Completado
 
 | # | Tarea | Descripción | Estado |
 |---|-------|-------------|--------|
-| T.8 | Manual Backup | Trigger backup desde UI | ⏳ Pendiente |
-| T.9 | Download Backup | Descargar un backup existente | ⏳ Pendiente |
-| T.10 | Mobile View | Responsive en todas las páginas | ⏳ Pendiente |
+| T.8 | Manual Backup | Trigger backup desde UI | ✅ Completado |
+| T.9 | Download Backup | Descargar un backup existente | ✅ Completado |
+| T.10 | Mobile View | Responsive en todas las páginas | ✅ Completado |
 
 ### Gestión de Credenciales (Pendiente)
 
@@ -49,24 +49,36 @@
 |---|-------|-------------|--------|
 | C.3 | Key Vault | Guardar credenciales en Key Vault en producción | ⏳ Pendiente |
 
-### Sprint 4: Deploy
+### Sprint 4: Deploy ✅ COMPLETADO
 
 | # | Tarea | Descripción | Estado |
 |---|-------|-------------|--------|
-| 6.1 | ARM/Bicep | Templates para todos los recursos | ⏳ Pendiente |
-| 6.2 | Managed Identity | MI + RBAC automáticos | ⏳ Pendiente |
-| 6.3 | Deploy Button | Botón en README.md | ⏳ Pendiente |
-| 6.4 | Installation ID | ID único por instalación | ⏳ Pendiente |
-| 6.5 | Version Endpoint | `/api/version` | ⏳ Pendiente |
+| 6.1 | ARM/Bicep | Templates para todos los recursos | ✅ Completado |
+| 6.2 | Managed Identity | MI + RBAC automáticos | ✅ Completado |
+| 6.3 | Deploy Button | Botón en README.md | ✅ Completado |
+| 6.4 | Installation ID | ID único por instalación | ✅ Completado |
+| 6.5 | Version Endpoint | `/api/version` | ✅ Completado |
 
-### v2: Auto-Update (diferido)
+**Archivos creados:**
+- `infra/main.bicep` - Orquestador principal
+- `infra/modules/storage.bicep` - Storage Account (blobs, queues, tables)
+- `infra/modules/keyvault.bicep` - Key Vault para secrets
+- `infra/modules/appinsights.bicep` - Application Insights
+- `infra/modules/appserviceplan.bicep` - App Service Plan
+- `infra/modules/functionapp.bicep` - Template reutilizable para Function Apps
+- `infra/modules/staticwebapp.bicep` - Static Web App (frontend)
+- `infra/modules/rbac-keyvault.bicep` - RBAC para acceso a Key Vault
+- `infra/azuredeploy.json` - ARM compilado (para Deploy button)
+
+### v2: Auto-Update (diferido para después de v1)
 
 | # | Tarea | Descripción | Estado |
 |---|-------|-------------|--------|
-| 7.1 | Registry Central | Function App que registra instalaciones | ⏳ Pendiente |
+| 7.1 | GitHub Releases | Usar GitHub API para check de versión | ⏳ Pendiente |
 | 7.2 | Check Version | Frontend consulta nueva versión | ⏳ Pendiente |
 | 7.3 | Notificación | Campanita "Nueva versión disponible" | ⏳ Pendiente |
-| 7.4 | Update ARM | Template que actualiza sin borrar datos | ⏳ Pendiente |
+| 7.4 | Update ARM | Re-deploy idempotente sin borrar datos | ⏳ Pendiente |
+| 7.5 | Telemetría (opcional) | Endpoint para tracking de instalaciones | ⏳ Pendiente |
 
 ---
 
@@ -79,7 +91,7 @@
 - [x] Azure AD auth en producción
 - [x] Sistema de auditoría completo
 - [x] Login/logout logging correcto (solo eventos reales)
-- [ ] Deploy to Azure button
+- [x] Deploy to Azure button
 - [ ] Documentación de usuario
 
 ---
