@@ -1,9 +1,14 @@
 // ============================================================================
-// Code Deployment Module
+// Code Deployment Module (Optimized)
 // ============================================================================
-// Downloads and deploys application code from GitHub Release:
-// - Frontend to Static Web App
-// - Python functions to Function Apps
+// Downloads PRE-BUILT release assets from GitHub and deploys them:
+// - frontend.zip → Static Web App
+// - api.zip → API Function App
+// - scheduler.zip → Scheduler Function App
+// - processor.zip → Processor Function App
+//
+// IMPORTANT: This requires the release to have pre-built assets.
+// Run the "Build Release Assets" GitHub Action before deploying.
 // ============================================================================
 
 @description('Azure region')
@@ -40,7 +45,7 @@ param resourceGroupName string
 param apiBaseUrl string
 
 // ============================================================================
-// Deployment Script
+// Deployment Script - Downloads and deploys pre-built assets
 // ============================================================================
 
 resource deploymentScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
@@ -56,7 +61,7 @@ resource deploymentScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
   }
   properties: {
     azCliVersion: '2.50.0'
-    timeout: 'PT30M' // 30 minutes timeout
+    timeout: 'PT15M' // 15 minutes should be more than enough now
     retentionInterval: 'PT1H'
     cleanupPreference: 'OnSuccess'
     environmentVariables: [
@@ -78,89 +83,102 @@ resource deploymentScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
       echo "Version: $VERSION"
       echo "=========================================="
 
-      # Install dependencies
-      echo "Installing dependencies..."
-      apk add --no-cache nodejs npm python3 py3-pip zip unzip curl
+      # Base URL for release assets
+      RELEASE_URL="https://github.com/$GITHUB_REPO/releases/download/$VERSION"
 
-      # Download release from GitHub (use ZIP to avoid symlink issues)
-      echo "Downloading release $VERSION from GitHub..."
-      DOWNLOAD_URL="https://github.com/$GITHUB_REPO/archive/refs/tags/$VERSION.zip"
-      curl -L -o release.zip "$DOWNLOAD_URL"
+      echo ""
+      echo "Downloading pre-built release assets..."
+      echo "From: $RELEASE_URL"
+      echo ""
 
-      # Extract
-      echo "Extracting..."
-      unzip -q release.zip
-      REPO_NAME=$(echo $GITHUB_REPO | cut -d'/' -f2)
-      cd "${REPO_NAME}-${VERSION#v}"
+      # Download all pre-built ZIPs
+      echo "📦 Downloading frontend.zip..."
+      curl -L -f -o frontend.zip "$RELEASE_URL/frontend.zip" || {
+        echo "❌ ERROR: Could not download frontend.zip"
+        echo ""
+        echo "Make sure the release $VERSION has pre-built assets."
+        echo "Run the 'Build Release Assets' GitHub Action first."
+        echo ""
+        echo "{\"status\": \"failed\", \"error\": \"Release assets not found\"}" > $AZ_SCRIPTS_OUTPUT_PATH
+        exit 1
+      }
 
-      # Fix symlinks - copy shared folder to each function directory
-      echo "Setting up shared code..."
-      rm -rf src/functions/api/shared 2>/dev/null || true
-      rm -rf src/functions/scheduler/shared 2>/dev/null || true
-      rm -rf src/functions/processor/shared 2>/dev/null || true
-      cp -r src/shared src/functions/api/shared
-      cp -r src/shared src/functions/scheduler/shared
-      cp -r src/shared src/functions/processor/shared
+      echo "📦 Downloading api.zip..."
+      curl -L -f -o api.zip "$RELEASE_URL/api.zip"
 
-      echo "=========================================="
-      echo "Building Frontend..."
-      echo "=========================================="
-      cd src/frontend
-      npm ci
-      npm run build
-      cd ../..
+      echo "📦 Downloading scheduler.zip..."
+      curl -L -f -o scheduler.zip "$RELEASE_URL/scheduler.zip"
 
+      echo "📦 Downloading processor.zip..."
+      curl -L -f -o processor.zip "$RELEASE_URL/processor.zip"
+
+      echo ""
+      echo "✅ All assets downloaded"
+      ls -lh *.zip
+      echo ""
+
+      # ========================================
+      # Deploy Frontend to Static Web App
+      # ========================================
       echo "=========================================="
       echo "Deploying Frontend to Static Web App..."
       echo "=========================================="
+
       # Get deployment token
-      SWA_TOKEN=$(az staticwebapp secrets list --name $STATIC_WEB_APP_NAME --resource-group $RESOURCE_GROUP --query "properties.apiKey" -o tsv)
+      SWA_TOKEN=$(az staticwebapp secrets list \
+        --name $STATIC_WEB_APP_NAME \
+        --resource-group $RESOURCE_GROUP \
+        --query "properties.apiKey" -o tsv)
 
-      # Install SWA CLI and deploy
-      npm install -g @azure/static-web-apps-cli
-      cd src/frontend
-      swa deploy ./dist --deployment-token $SWA_TOKEN --env production
-      cd ../..
+      # Install SWA CLI
+      apk add --no-cache nodejs npm > /dev/null 2>&1
+      npm install -g @azure/static-web-apps-cli > /dev/null 2>&1
 
+      # Extract and deploy frontend
+      mkdir -p frontend-dist
+      unzip -q frontend.zip -d frontend-dist
+      cd frontend-dist
+      swa deploy . --deployment-token $SWA_TOKEN --env production
+      cd ..
+
+      echo "✅ Frontend deployed"
+
+      # ========================================
+      # Deploy Function Apps
+      # ========================================
+      echo ""
       echo "=========================================="
       echo "Deploying API Function App..."
       echo "=========================================="
-      cd src/functions/api
-      # Create deployment package
-      pip install --target=".python_packages/lib/site-packages" -r requirements.txt
-      zip -r ../../../api.zip . -x "*.pyc" -x "__pycache__/*" -x ".venv/*" -x "local.settings.json"
-      cd ../../..
       az functionapp deployment source config-zip \
         --resource-group $RESOURCE_GROUP \
         --name $API_FUNCTION_APP_NAME \
         --src api.zip
+      echo "✅ API deployed"
 
+      echo ""
       echo "=========================================="
       echo "Deploying Scheduler Function App..."
       echo "=========================================="
-      cd src/functions/scheduler
-      pip install --target=".python_packages/lib/site-packages" -r requirements.txt
-      zip -r ../../../scheduler.zip . -x "*.pyc" -x "__pycache__/*" -x ".venv/*" -x "local.settings.json"
-      cd ../../..
       az functionapp deployment source config-zip \
         --resource-group $RESOURCE_GROUP \
         --name $SCHEDULER_FUNCTION_APP_NAME \
         --src scheduler.zip
+      echo "✅ Scheduler deployed"
 
+      echo ""
       echo "=========================================="
       echo "Deploying Processor Function App..."
       echo "=========================================="
-      cd src/functions/processor
-      pip install --target=".python_packages/lib/site-packages" -r requirements.txt
-      zip -r ../../../processor.zip . -x "*.pyc" -x "__pycache__/*" -x ".venv/*" -x "local.settings.json"
-      cd ../../..
       az functionapp deployment source config-zip \
         --resource-group $RESOURCE_GROUP \
         --name $PROCESSOR_FUNCTION_APP_NAME \
         --src processor.zip
+      echo "✅ Processor deployed"
 
+      echo ""
       echo "=========================================="
-      echo "Deployment Complete!"
+      echo "🎉 Deployment Complete!"
       echo "=========================================="
 
       # Output results

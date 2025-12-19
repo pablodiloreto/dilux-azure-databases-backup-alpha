@@ -1,0 +1,200 @@
+# ============================================================================
+# Dilux Database Backup - Build Release Assets
+# ============================================================================
+# This workflow runs when a version tag is pushed (v*) and:
+# 1. Creates a GitHub Release automatically
+# 2. Builds the frontend (React)
+# 3. Packages each Function App with dependencies
+# 4. Uploads all ZIPs as release assets
+#
+# Usage:
+#   git tag v1.0.1
+#   git push --tags
+#
+# The Bicep deployment script downloads these pre-built assets,
+# making deployments much faster (~5 min instead of 30+ min timeout).
+# ============================================================================
+
+name: Build Release Assets
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    name: Build and Create Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      # ========================================
+      # Build Frontend
+      # ========================================
+      - name: Build Frontend
+        run: |
+          cd src/frontend
+          npm ci
+          npm run build
+
+          # Create ZIP of dist folder
+          cd dist
+          zip -r ../../../frontend.zip .
+          cd ..
+
+          echo "✅ Frontend built and zipped"
+
+      # ========================================
+      # Prepare shared code for Function Apps
+      # ========================================
+      - name: Prepare shared code
+        run: |
+          # Copy shared folder to each function (replacing symlinks)
+          rm -rf src/functions/api/shared 2>/dev/null || true
+          rm -rf src/functions/scheduler/shared 2>/dev/null || true
+          rm -rf src/functions/processor/shared 2>/dev/null || true
+
+          cp -r src/shared src/functions/api/shared
+          cp -r src/shared src/functions/scheduler/shared
+          cp -r src/shared src/functions/processor/shared
+
+          echo "✅ Shared code copied to all function apps"
+
+      # ========================================
+      # Build API Function App
+      # ========================================
+      - name: Build API Function App
+        run: |
+          cd src/functions/api
+
+          # Install dependencies
+          pip install --target=".python_packages/lib/site-packages" -r requirements.txt --quiet
+
+          # Create ZIP (exclude unnecessary files)
+          zip -r ../../../api.zip . \
+            -x "*.pyc" \
+            -x "*__pycache__*" \
+            -x ".venv/*" \
+            -x "local.settings.json" \
+            -x ".funcignore" \
+            -x "*.md"
+
+          echo "✅ API Function App packaged"
+
+      # ========================================
+      # Build Scheduler Function App
+      # ========================================
+      - name: Build Scheduler Function App
+        run: |
+          cd src/functions/scheduler
+
+          pip install --target=".python_packages/lib/site-packages" -r requirements.txt --quiet
+
+          zip -r ../../../scheduler.zip . \
+            -x "*.pyc" \
+            -x "*__pycache__*" \
+            -x ".venv/*" \
+            -x "local.settings.json" \
+            -x ".funcignore" \
+            -x "*.md"
+
+          echo "✅ Scheduler Function App packaged"
+
+      # ========================================
+      # Build Processor Function App
+      # ========================================
+      - name: Build Processor Function App
+        run: |
+          cd src/functions/processor
+
+          pip install --target=".python_packages/lib/site-packages" -r requirements.txt --quiet
+
+          zip -r ../../../processor.zip . \
+            -x "*.pyc" \
+            -x "*__pycache__*" \
+            -x ".venv/*" \
+            -x "local.settings.json" \
+            -x ".funcignore" \
+            -x "*.md"
+
+          echo "✅ Processor Function App packaged"
+
+      # ========================================
+      # Show built assets
+      # ========================================
+      - name: Show built assets
+        run: |
+          echo "Built assets:"
+          ls -lh *.zip
+
+      # ========================================
+      # Create Release and Upload Assets
+      # ========================================
+      - name: Create Release with Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ steps.version.outputs.version }}
+          body: |
+            ## Dilux Database Backup ${{ steps.version.outputs.version }}
+
+            ### Pre-built Assets
+            This release includes pre-built deployment packages:
+            - `frontend.zip` - React frontend (ready to deploy to Static Web App)
+            - `api.zip` - API Function App
+            - `scheduler.zip` - Scheduler Function App
+            - `processor.zip` - Processor Function App
+
+            ### Deploy to Azure
+            Use the "Deploy to Azure" button in the README, or run:
+            ```bash
+            az deployment group create \
+              --resource-group <your-rg> \
+              --template-file infra/main.bicep \
+              --parameters appName=<name> adminEmail=<email> appVersion=${{ steps.version.outputs.version }}
+            ```
+          files: |
+            frontend.zip
+            api.zip
+            scheduler.zip
+            processor.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "=========================================="
+          echo "✅ Release ${{ steps.version.outputs.version }} created!"
+          echo "=========================================="
+          echo ""
+          echo "Assets uploaded:"
+          echo "  - frontend.zip"
+          echo "  - api.zip"
+          echo "  - scheduler.zip"
+          echo "  - processor.zip"
+          echo ""
+          echo "The 'Deploy to Azure' button will now use these pre-built assets."
+          echo "=========================================="
