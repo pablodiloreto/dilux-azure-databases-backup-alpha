@@ -1,6 +1,6 @@
 # Plan de Implementación - Dilux Database Backup
 
-**Última actualización:** 2025-12-17
+**Última actualización:** 2025-12-20
 
 ---
 
@@ -70,15 +70,46 @@
 - `infra/modules/rbac-keyvault.bicep` - RBAC para acceso a Key Vault
 - `infra/azuredeploy.json` - ARM compilado (para Deploy button)
 
+### Sprint 5: Deployment Improvements ✅ COMPLETADO
+
+| # | Tarea | Descripción | Estado |
+|---|-------|-------------|--------|
+| 7.1 | Pre-built Assets | GitHub Action que construye ZIPs en cada release | ✅ Completado |
+| 7.2 | Faster Deploy | Deploy descarga ZIPs pre-construidos (~10 min vs 30+ min) | ✅ Completado |
+| 7.3 | Latest Version | Parámetro `appVersion=latest` resuelve automáticamente | ✅ Completado |
+| 7.4 | Resilient RBAC | Role assignments no fallan en re-deploys | ✅ Completado |
+| 7.5 | Unique Names | Nombres globalmente únicos con sufijo hash | ✅ Completado |
+
+**Archivos creados/modificados:**
+- `.github/workflows/build-release.yml` - Construye assets en cada tag
+- `infra/modules/rbac-resilient.bicep` - RBAC con error handling
+- `infra/modules/code-deployment.bicep` - Descarga y despliega assets
+
+**Releases:**
+| Versión | Fecha | Cambios |
+|---------|-------|---------|
+| v1.0.0 | 2025-12-20 | Release inicial con pre-built assets |
+| v1.0.1 | 2025-12-20 | Fix: RBAC resiliente (no falla en re-deploy) |
+| v1.0.2 | 2025-12-20 | Fix: Nombres únicos para Function Apps y Static Web App |
+
+**Convención de nombres (v1.0.2+):**
+```
+appName = "dilux"  →  dilux-abc123-api, dilux-abc123-scheduler, etc.
+                          └──────┘
+                          sufijo único basado en RG + appName
+```
+
 ### v2: Auto-Update (diferido para después de v1)
 
 | # | Tarea | Descripción | Estado |
 |---|-------|-------------|--------|
-| 7.1 | GitHub Releases | Usar GitHub API para check de versión | ⏳ Pendiente |
-| 7.2 | Check Version | Frontend consulta nueva versión | ⏳ Pendiente |
-| 7.3 | Notificación | Campanita "Nueva versión disponible" | ⏳ Pendiente |
-| 7.4 | Update ARM | Re-deploy idempotente sin borrar datos | ⏳ Pendiente |
-| 7.5 | Telemetría (opcional) | Endpoint para tracking de instalaciones | ⏳ Pendiente |
+| 8.1 | GitHub Releases | Usar GitHub API para check de versión | ✅ Implementado (Sprint 5) |
+| 8.2 | Check Version | Frontend consulta nueva versión disponible | ⏳ Pendiente |
+| 8.3 | Notificación | Campanita "Nueva versión disponible" | ⏳ Pendiente |
+| 8.4 | Update ARM | Re-deploy idempotente sin borrar datos | ✅ Implementado (Sprint 5) |
+| 8.5 | Telemetría (opcional) | Endpoint para tracking de instalaciones | ⏳ Pendiente |
+
+**Nota:** El re-deploy idempotente ya funciona gracias al módulo RBAC resiliente y los nombres únicos.
 
 ---
 
@@ -92,11 +123,17 @@
 - [x] Sistema de auditoría completo
 - [x] Login/logout logging correcto (solo eventos reales)
 - [x] Deploy to Azure button
+- [x] Pre-built release assets (GitHub Action)
+- [x] Deployment resiliente (RBAC no falla en re-deploy)
+- [x] Nombres globalmente únicos
+- [x] Resolución automática de versión "latest"
 - [ ] Documentación de usuario
 
 ---
 
 ## Comandos Útiles
+
+### Desarrollo Local
 
 ```bash
 # Iniciar servicios (automático en post-start.sh)
@@ -112,4 +149,53 @@ curl -X POST http://localhost:7071/api/databases/{id}/backup
 
 # Ver logs
 ls .devcontainer/logs/
+```
+
+### Crear Nueva Release
+
+```bash
+# 1. Commit cambios
+git add . && git commit -m "feat: descripción del cambio"
+git push origin main
+
+# 2. Crear tag y push (dispara GitHub Action)
+git tag v1.0.3
+git push origin v1.0.3
+
+# 3. Verificar que el workflow completó
+gh run list --workflow=build-release.yml --limit 1
+
+# 4. Ver el release creado
+gh release view v1.0.3
+```
+
+### Deployment a Azure
+
+```bash
+# Deploy con CLI (usa versión "latest" por defecto)
+az deployment group create \
+  --resource-group mi-rg \
+  --template-file infra/main.bicep \
+  --parameters appName=miapp adminEmail=admin@email.com
+
+# Deploy con versión específica
+az deployment group create \
+  --resource-group mi-rg \
+  --template-file infra/main.bicep \
+  --parameters appName=miapp adminEmail=admin@email.com appVersion=v1.0.2
+
+# Recompilar ARM template después de cambios en Bicep
+cd infra && az bicep build --file main.bicep --outfile azuredeploy.json
+```
+
+### Verificar Deployment
+
+```bash
+# Ver estado del resource group
+az resource list --resource-group mi-rg --output table
+
+# Ver logs del deployment script
+az deployment-scripts show-log \
+  --resource-group mi-rg \
+  --name deploy-application-code
 ```

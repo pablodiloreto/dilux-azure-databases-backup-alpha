@@ -392,3 +392,285 @@ The DevContainer automatically installs these extensions:
 - Error Lens
 - REST Client
 - Claude Code
+
+---
+
+## Azure Production Deployment
+
+This section documents the Azure infrastructure deployment process.
+
+### Deployment Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    DEPLOYMENT FLOW                                   │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  1. Developer pushes tag (v1.0.x)                                   │
+│         │                                                            │
+│         ▼                                                            │
+│  2. GitHub Action: build-release.yml                                │
+│         │  - Builds frontend (npm run build)                        │
+│         │  - Packages Function Apps (with shared/)                  │
+│         │  - Creates GitHub Release with 4 ZIP assets               │
+│         ▼                                                            │
+│  3. GitHub Release (v1.0.x)                                         │
+│         │  - frontend.zip                                           │
+│         │  - api.zip                                                │
+│         │  - scheduler.zip                                          │
+│         │  - processor.zip                                          │
+│         ▼                                                            │
+│  4. User clicks "Deploy to Azure"                                   │
+│         │                                                            │
+│         ▼                                                            │
+│  5. Azure Deployment (main.bicep)                                   │
+│         │  - Creates infrastructure                                 │
+│         │  - Resolves "latest" → actual version                     │
+│         │  - Downloads pre-built ZIPs                               │
+│         │  - Deploys code to resources                              │
+│         ▼                                                            │
+│  6. Application Running                                              │
+│         - Static Web App (frontend)                                 │
+│         - 3 Function Apps (api, scheduler, processor)               │
+│         - Storage, Key Vault, App Insights                          │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Resource Naming Convention
+
+All Azure resources are named with a unique suffix to ensure global uniqueness and support multiple deployments:
+
+```
+appName = "dilux"
+uniqueSuffix = uniqueString(resourceGroup().id, appName)  → "abc123xyz..."
+shortSuffix = take(uniqueSuffix, 6)                       → "abc123"
+```
+
+| Resource Type | Naming Pattern | Example | Globally Unique? |
+|--------------|----------------|---------|------------------|
+| Storage Account | `{appName}st{uniqueSuffix}` | `diluxstabc123xyz` | ✅ Yes |
+| Key Vault | `{appName}-kv-{8chars}` | `dilux-kv-abc123xy` | ✅ Yes |
+| Function App (API) | `{appName}-{6chars}-api` | `dilux-abc123-api` | ✅ Yes |
+| Function App (Scheduler) | `{appName}-{6chars}-scheduler` | `dilux-abc123-scheduler` | ✅ Yes |
+| Function App (Processor) | `{appName}-{6chars}-processor` | `dilux-abc123-processor` | ✅ Yes |
+| Static Web App | `{appName}-{6chars}-web` | `dilux-abc123-web` | ✅ Yes |
+| App Service Plan | `{appName}-plan` | `dilux-plan` | ❌ No (RG scoped) |
+| App Insights | `{appName}-insights` | `dilux-insights` | ❌ No (RG scoped) |
+| Managed Identity | `{appName}-deploy-identity` | `dilux-deploy-identity` | ❌ No (RG scoped) |
+
+**Important:** The unique suffix is deterministic based on Resource Group ID + App Name. This means:
+- Same RG + same appName = same suffix (idempotent re-deploys)
+- Different RG or appName = different suffix (allows multiple installations)
+
+### Bicep Modules
+
+```
+infra/
+├── main.bicep                    # Main orchestrator
+├── azuredeploy.json              # Compiled ARM template (for Deploy button)
+├── parameters.json               # Parameter template
+└── modules/
+    ├── storage.bicep             # Storage Account (blobs, queues, 7 tables)
+    ├── keyvault.bicep            # Key Vault with RBAC enabled
+    ├── appinsights.bicep         # Application Insights + Log Analytics
+    ├── appserviceplan.bicep      # App Service Plan (Y1/EP1-EP3)
+    ├── functionapp.bicep         # Reusable Function App template
+    ├── staticwebapp.bicep        # Static Web App for React frontend
+    ├── identity.bicep            # User Assigned Managed Identity
+    ├── appregistration.bicep     # Azure AD App Registration (via script)
+    ├── rbac-resilient.bicep      # Resilient RBAC assignments (won't fail on re-deploy)
+    ├── rbac-keyvault.bicep       # Key Vault Secrets User role
+    ├── rbac-keyvault-officer.bicep # Key Vault Secrets Officer role
+    ├── rbac-storage.bicep        # Storage data roles (Blob, Queue, Table)
+    └── code-deployment.bicep     # Downloads and deploys pre-built assets
+```
+
+### Resilient RBAC Module
+
+The `rbac-resilient.bicep` module creates all role assignments using a deployment script with error handling. This prevents the common `RoleAssignmentUpdateNotPermitted` error on re-deployments.
+
+**How it works:**
+```bash
+# For each role assignment:
+az role assignment create ... 2>&1 || true
+
+# If role exists → SKIP (no error)
+# If role doesn't exist → CREATE
+# Never fails, never blocks deployment
+```
+
+**Role assignments created:**
+| Principal | Resource | Role |
+|-----------|----------|------|
+| Deployment Identity | Resource Group | Contributor |
+| API Function App | Key Vault | Key Vault Secrets User |
+| API Function App | Storage | Blob, Queue, Table Data Contributor |
+| Scheduler Function App | Key Vault | Key Vault Secrets User |
+| Scheduler Function App | Storage | Blob, Queue, Table Data Contributor |
+| Processor Function App | Key Vault | Key Vault Secrets User |
+| Processor Function App | Storage | Blob, Queue, Table Data Contributor |
+
+### Version Resolution
+
+The deployment supports automatic version resolution:
+
+```bicep
+@description('Version to deploy ("latest" or specific tag like "v1.0.0")')
+param appVersion string = 'latest'
+```
+
+When `appVersion` is `"latest"`:
+1. The deployment script queries GitHub API: `GET /repos/{owner}/{repo}/releases/latest`
+2. Extracts the `tag_name` (e.g., `v1.0.2`)
+3. Downloads assets from that release
+4. Deploys the resolved version
+
+This means you never need to update the template when new versions are released.
+
+### GitHub Actions Workflows
+
+#### 1. Build Release Assets (`.github/workflows/build-release.yml`)
+
+**Trigger:** Push of tags matching `v*` (e.g., `v1.0.0`, `v1.0.2`)
+
+**What it does:**
+1. Builds frontend: `npm ci && npm run build`
+2. Packages each Function App with `shared/` code
+3. Creates 4 ZIP files:
+   - `frontend.zip` (~1.3 MB)
+   - `api.zip` (~11 MB)
+   - `scheduler.zip` (~12 MB)
+   - `processor.zip` (~11 MB)
+4. Creates GitHub Release with all assets
+
+**Required permissions:**
+```yaml
+permissions:
+  contents: write  # Needed to create releases
+```
+
+#### 2. Deploy to Azure (`.github/workflows/deploy.yml`)
+
+**Trigger:** Manual (workflow_dispatch)
+
+**What it does:**
+1. Logs into Azure using OIDC
+2. Runs `az deployment group create` with parameters
+3. Deploys infrastructure + code
+
+### Deployment Parameters
+
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `appName` | ✅ Yes | - | Base name for resources (3-20 chars) |
+| `adminEmail` | ✅ Yes | - | Email of first admin user |
+| `location` | ❌ No | RG location | Azure region |
+| `functionAppSku` | ❌ No | `Y1` | SKU: Y1 (Consumption), EP1-EP3 (Premium) |
+| `enableAppInsights` | ❌ No | `true` | Enable Application Insights |
+| `appVersion` | ❌ No | `latest` | Version to deploy (or specific tag) |
+| `skipAppRegistration` | ❌ No | `false` | Skip Azure AD app creation |
+
+### Deploy to Azure Button
+
+The README contains a "Deploy to Azure" button that launches the Azure Portal deployment experience:
+
+```markdown
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2F{owner}%2F{repo}%2Fmain%2Finfra%2Fazuredeploy.json)
+```
+
+### Manual Deployment via CLI
+
+```bash
+# Create resource group
+az group create --name dilux-backup-rg --location eastus2
+
+# Deploy
+az deployment group create \
+  --resource-group dilux-backup-rg \
+  --template-file infra/main.bicep \
+  --parameters appName=diluxbackup adminEmail=admin@example.com
+
+# Or with specific version
+az deployment group create \
+  --resource-group dilux-backup-rg \
+  --template-file infra/main.bicep \
+  --parameters appName=diluxbackup adminEmail=admin@example.com appVersion=v1.0.2
+```
+
+### Creating a New Release
+
+To create a new release with updated code:
+
+```bash
+# 1. Make your code changes
+# 2. Commit and push to main
+git add . && git commit -m "feat: your changes" && git push
+
+# 3. Create and push a new tag
+git tag v1.0.3
+git push origin v1.0.3
+
+# 4. Wait for GitHub Action to complete (~2 min)
+# 5. New release is created automatically with pre-built assets
+
+# 6. Deploy uses "latest" by default, so new deployments get v1.0.3
+```
+
+### Post-Deployment Verification
+
+After deployment, verify:
+
+1. **Frontend accessible:**
+   ```
+   https://{appName}-{suffix}-web.azurestaticapps.net
+   ```
+
+2. **API health check:**
+   ```
+   https://{appName}-{suffix}-api.azurewebsites.net/api/health
+   ```
+
+3. **Version endpoint:**
+   ```
+   https://{appName}-{suffix}-api.azurewebsites.net/api/version
+   ```
+
+### Cost Estimation
+
+With default settings (Y1 Consumption SKU):
+
+| Resource | Estimated Monthly Cost |
+|----------|----------------------|
+| Function Apps (Y1) | ~$0-5 (pay per execution) |
+| Static Web App (Free) | $0 |
+| Storage Account | ~$1-5 |
+| Key Vault | ~$0.03/10k operations |
+| App Insights | ~$2-5 |
+| **Total** | **~$3-15/month** |
+
+For production workloads, consider EP1-EP3 Premium plans for better performance.
+
+### Troubleshooting Deployment
+
+#### Error: "Website with given name already exists"
+The Function App name is globally unique. Solutions:
+- Use a different `appName`
+- Delete the existing apps if from a failed deployment
+- Deploy to the same resource group to update existing apps
+
+#### Error: "RoleAssignmentUpdateNotPermitted"
+This was fixed in v1.0.1 with the resilient RBAC module. If you still see this:
+- You're using an older version of the template
+- Pull the latest `main` branch and rebuild `azuredeploy.json`
+
+#### Frontend shows "Congratulations on your new site"
+The code deployment didn't run. Check:
+1. Deployment logs for `code-deployment` step
+2. GitHub Release has the ZIP assets
+3. Re-run deployment
+
+#### Deployment times out
+- Deployment should take ~10-15 minutes
+- If it takes longer, check the deployment script logs in Azure Portal
+- Ensure GitHub releases are accessible (public repo)
