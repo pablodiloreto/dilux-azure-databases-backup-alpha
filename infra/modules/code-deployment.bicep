@@ -80,6 +80,24 @@ resource deploymentScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
 
       echo "=========================================="
       echo "Deploying Dilux Database Backup"
+      echo "=========================================="
+
+      # Resolve "latest" to actual version tag using GitHub API
+      if [ "$VERSION" == "latest" ]; then
+        echo "Resolving latest release from GitHub..."
+        RESOLVED_VERSION=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
+
+        if [ -z "$RESOLVED_VERSION" ] || [ "$RESOLVED_VERSION" == "null" ]; then
+          echo "❌ ERROR: Could not resolve latest release"
+          echo "Make sure the repository has at least one published release."
+          echo "{\"status\": \"failed\", \"error\": \"No releases found\"}" > $AZ_SCRIPTS_OUTPUT_PATH
+          exit 1
+        fi
+
+        echo "✅ Resolved 'latest' to: $RESOLVED_VERSION"
+        VERSION=$RESOLVED_VERSION
+      fi
+
       echo "Version: $VERSION"
       echo "=========================================="
 
