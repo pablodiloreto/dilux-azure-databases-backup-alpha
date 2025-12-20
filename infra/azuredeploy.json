@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "9317948960086580047"
+      "templateHash": "10139588668653850925"
     }
   },
   "parameters": {
@@ -67,14 +67,15 @@
   },
   "variables": {
     "uniqueSuffix": "[uniqueString(resourceGroup().id, parameters('appName'))]",
+    "shortSuffix": "[take(variables('uniqueSuffix'), 6)]",
     "storageAccountName": "[toLower(format('{0}st{1}', take(parameters('appName'), 10), variables('uniqueSuffix')))]",
     "keyVaultName": "[format('{0}-kv-{1}', parameters('appName'), take(variables('uniqueSuffix'), 8))]",
+    "functionAppApiName": "[format('{0}-{1}-api', parameters('appName'), variables('shortSuffix'))]",
+    "functionAppSchedulerName": "[format('{0}-{1}-scheduler', parameters('appName'), variables('shortSuffix'))]",
+    "functionAppProcessorName": "[format('{0}-{1}-processor', parameters('appName'), variables('shortSuffix'))]",
+    "staticWebAppName": "[format('{0}-{1}-web', parameters('appName'), variables('shortSuffix'))]",
     "appInsightsName": "[format('{0}-insights', parameters('appName'))]",
     "appServicePlanName": "[format('{0}-plan', parameters('appName'))]",
-    "functionAppApiName": "[format('{0}-api', parameters('appName'))]",
-    "functionAppSchedulerName": "[format('{0}-scheduler', parameters('appName'))]",
-    "functionAppProcessorName": "[format('{0}-processor', parameters('appName'))]",
-    "staticWebAppName": "[format('{0}-web', parameters('appName'))]",
     "deploymentIdentityName": "[format('{0}-deploy-identity', parameters('appName'))]",
     "installationId": "[variables('uniqueSuffix')]",
     "tenantId": "[subscription().tenantId]",

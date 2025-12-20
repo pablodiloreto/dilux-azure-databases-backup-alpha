@@ -41,14 +41,23 @@ param skipAppRegistration bool = false
 // ============================================================================
 
 var uniqueSuffix = uniqueString(resourceGroup().id, appName)
+var shortSuffix = take(uniqueSuffix, 6)
+
+// Storage and Key Vault (globally unique)
 var storageAccountName = toLower('${take(appName, 10)}st${uniqueSuffix}')
 var keyVaultName = '${appName}-kv-${take(uniqueSuffix, 8)}'
+
+// Function Apps (globally unique - need suffix)
+var functionAppApiName = '${appName}-${shortSuffix}-api'
+var functionAppSchedulerName = '${appName}-${shortSuffix}-scheduler'
+var functionAppProcessorName = '${appName}-${shortSuffix}-processor'
+
+// Static Web App (globally unique - need suffix)
+var staticWebAppName = '${appName}-${shortSuffix}-web'
+
+// These are resource-group scoped (don't need unique suffix)
 var appInsightsName = '${appName}-insights'
 var appServicePlanName = '${appName}-plan'
-var functionAppApiName = '${appName}-api'
-var functionAppSchedulerName = '${appName}-scheduler'
-var functionAppProcessorName = '${appName}-processor'
-var staticWebAppName = '${appName}-web'
 var deploymentIdentityName = '${appName}-deploy-identity'
 
 // Generate installation ID (unique per deployment)
