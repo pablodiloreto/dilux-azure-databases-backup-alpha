@@ -674,3 +674,25 @@ The code deployment didn't run. Check:
 - Deployment should take ~10-15 minutes
 - If it takes longer, check the deployment script logs in Azure Portal
 - Ensure GitHub releases are accessible (public repo)
+
+#### Error: "Internal server error" in deployment script
+Fixed in v1.0.3. The Azure CLI container didn't have `jq` installed.
+- Update to latest version of the template
+- Or manually add `apk add --no-cache jq` to the script
+
+#### How to view deployment script logs
+```bash
+# Via Azure CLI
+az deployment-scripts show-log \
+  --resource-group <your-rg> \
+  --name deploy-application-code
+
+az deployment-scripts show-log \
+  --resource-group <your-rg> \
+  --name create-role-assignments
+```
+
+Or in Azure Portal:
+1. Go to Resource Group
+2. Find "deploy-application-code" or "create-role-assignments" resource
+3. Click on it → Logs

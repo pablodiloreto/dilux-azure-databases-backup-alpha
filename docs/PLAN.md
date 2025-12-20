@@ -91,6 +91,7 @@
 | v1.0.0 | 2025-12-20 | Release inicial con pre-built assets |
 | v1.0.1 | 2025-12-20 | Fix: RBAC resiliente (no falla en re-deploy) |
 | v1.0.2 | 2025-12-20 | Fix: Nombres únicos para Function Apps y Static Web App |
+| v1.0.3 | 2025-12-20 | Fix: Instalar jq en script de RBAC (faltaba en container Azure CLI) |
 
 **Convención de nombres (v1.0.2+):**
 ```
@@ -98,6 +99,20 @@ appName = "dilux"  →  dilux-abc123-api, dilux-abc123-scheduler, etc.
                           └──────┘
                           sufijo único basado en RG + appName
 ```
+
+### Pendiente: Validar Deploy v1.0.3
+
+| # | Tarea | Descripción | Estado |
+|---|-------|-------------|--------|
+| 9.1 | Deploy v1.0.3 | Probar deploy completo a Azure | ⏳ En prueba |
+| 9.2 | Verificar Frontend | Acceder a Static Web App | ⏳ Pendiente |
+| 9.3 | Verificar API | Probar /api/health | ⏳ Pendiente |
+| 9.4 | Verificar Auth | Login con Azure AD | ⏳ Pendiente |
+| 9.5 | Test Backup | Crear DB y ejecutar backup | ⏳ Pendiente |
+
+**Último intento:** v1.0.2 falló por falta de `jq` en container Azure CLI. Corregido en v1.0.3.
+
+---
 
 ### v2: Auto-Update (diferido para después de v1)
 
