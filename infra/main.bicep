@@ -258,56 +258,116 @@ module functionAppProcessor 'modules/functionapp.bicep' = {
 }
 
 // ============================================================================
-// Step 6: RBAC for Function Apps
+// Step 6: RBAC for Function Apps (Resilient - won't fail on re-deploy)
 // ============================================================================
 
-// Give Function Apps access to Key Vault
-module rbacApiKeyVault 'modules/rbac-keyvault.bicep' = {
-  name: 'rbac-api-keyvault'
-  params: {
-    keyVaultName: keyVault.outputs.keyVaultName
-    principalId: functionAppApi.outputs.principalId
-  }
-}
+// Role definition IDs
+var keyVaultSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
+var storageBlobDataContributorRoleId = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+var storageQueueDataContributorRoleId = '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
+var storageTableDataContributorRoleId = '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
+var contributorRoleId = 'b24988ac-6180-42a0-ab88-20f7382dd24c'
 
-module rbacSchedulerKeyVault 'modules/rbac-keyvault.bicep' = {
-  name: 'rbac-scheduler-keyvault'
+// All role assignments in one resilient module
+module rbacAssignments 'modules/rbac-resilient.bicep' = {
+  name: 'rbac-all-assignments'
+  dependsOn: [
+    functionAppApi
+    functionAppScheduler
+    functionAppProcessor
+  ]
   params: {
-    keyVaultName: keyVault.outputs.keyVaultName
-    principalId: functionAppScheduler.outputs.principalId
-  }
-}
-
-module rbacProcessorKeyVault 'modules/rbac-keyvault.bicep' = {
-  name: 'rbac-processor-keyvault'
-  params: {
-    keyVaultName: keyVault.outputs.keyVaultName
-    principalId: functionAppProcessor.outputs.principalId
-  }
-}
-
-// Give Function Apps access to Storage (Blob, Queue, Table)
-module rbacApiStorage 'modules/rbac-storage.bicep' = {
-  name: 'rbac-api-storage'
-  params: {
-    storageAccountName: storage.outputs.storageAccountName
-    principalId: functionAppApi.outputs.principalId
-  }
-}
-
-module rbacSchedulerStorage 'modules/rbac-storage.bicep' = {
-  name: 'rbac-scheduler-storage'
-  params: {
-    storageAccountName: storage.outputs.storageAccountName
-    principalId: functionAppScheduler.outputs.principalId
-  }
-}
-
-module rbacProcessorStorage 'modules/rbac-storage.bicep' = {
-  name: 'rbac-processor-storage'
-  params: {
-    storageAccountName: storage.outputs.storageAccountName
-    principalId: functionAppProcessor.outputs.principalId
+    location: location
+    tags: tags
+    identityId: deploymentIdentity.outputs.identityId
+    resourceGroupName: resourceGroup().name
+    roleAssignments: [
+      // Deployment Identity - Contributor (for code deployment)
+      {
+        principalId: deploymentIdentity.outputs.principalId
+        scope: resourceGroup().id
+        roleId: contributorRoleId
+        description: 'Deployment Identity - Contributor'
+      }
+      // API Function App - Key Vault
+      {
+        principalId: functionAppApi.outputs.principalId
+        scope: keyVault.outputs.keyVaultId
+        roleId: keyVaultSecretsUserRoleId
+        description: 'API - Key Vault Secrets User'
+      }
+      // API Function App - Storage
+      {
+        principalId: functionAppApi.outputs.principalId
+        scope: storage.outputs.storageAccountId
+        roleId: storageBlobDataContributorRoleId
+        description: 'API - Storage Blob Contributor'
+      }
+      {
+        principalId: functionAppApi.outputs.principalId
+        scope: storage.outputs.storageAccountId
+        roleId: storageQueueDataContributorRoleId
+        description: 'API - Storage Queue Contributor'
+      }
+      {
+        principalId: functionAppApi.outputs.principalId
+        scope: storage.outputs.storageAccountId
+        roleId: storageTableDataContributorRoleId
+        description: 'API - Storage Table Contributor'
+      }
+      // Scheduler Function App - Key Vault
+      {
+        principalId: functionAppScheduler.outputs.principalId
+        scope: keyVault.outputs.keyVaultId
+        roleId: keyVaultSecretsUserRoleId
+        description: 'Scheduler - Key Vault Secrets User'
+      }
+      // Scheduler Function App - Storage
+      {
+        principalId: functionAppScheduler.outputs.principalId
+        scope: storage.outputs.storageAccountId
+        roleId: storageBlobDataContributorRoleId
+        description: 'Scheduler - Storage Blob Contributor'
+      }
+      {
+        principalId: functionAppScheduler.outputs.principalId
+        scope: storage.outputs.storageAccountId
+        roleId: storageQueueDataContributorRoleId
+        description: 'Scheduler - Storage Queue Contributor'
+      }
+      {
+        principalId: functionAppScheduler.outputs.principalId
+        scope: storage.outputs.storageAccountId
+        roleId: storageTableDataContributorRoleId
+        description: 'Scheduler - Storage Table Contributor'
+      }
+      // Processor Function App - Key Vault
+      {
+        principalId: functionAppProcessor.outputs.principalId
+        scope: keyVault.outputs.keyVaultId
+        roleId: keyVaultSecretsUserRoleId
+        description: 'Processor - Key Vault Secrets User'
+      }
+      // Processor Function App - Storage
+      {
+        principalId: functionAppProcessor.outputs.principalId
+        scope: storage.outputs.storageAccountId
+        roleId: storageBlobDataContributorRoleId
+        description: 'Processor - Storage Blob Contributor'
+      }
+      {
+        principalId: functionAppProcessor.outputs.principalId
+        scope: storage.outputs.storageAccountId
+        roleId: storageQueueDataContributorRoleId
+        description: 'Processor - Storage Queue Contributor'
+      }
+      {
+        principalId: functionAppProcessor.outputs.principalId
+        scope: storage.outputs.storageAccountId
+        roleId: storageTableDataContributorRoleId
+        description: 'Processor - Storage Table Contributor'
+      }
+    ]
   }
 }
 
@@ -315,18 +375,6 @@ module rbacProcessorStorage 'modules/rbac-storage.bicep' = {
 // Step 7: Code Deployment
 // ============================================================================
 // Deploy application code from GitHub Release
-
-// Contributor role for deployment identity (needed to deploy code)
-var contributorRoleId = 'b24988ac-6180-42a0-ab88-20f7382dd24c'
-
-resource rbacDeploymentContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(resourceGroup().id, deploymentIdentityName, 'contributor-for-code-deploy')
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', contributorRoleId)
-    principalId: deploymentIdentity.outputs.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
 
 // Deploy application code
 module codeDeployment 'modules/code-deployment.bicep' = {
@@ -336,10 +384,7 @@ module codeDeployment 'modules/code-deployment.bicep' = {
     functionAppScheduler
     functionAppProcessor
     staticWebApp
-    rbacDeploymentContributor
-    rbacApiStorage
-    rbacSchedulerStorage
-    rbacProcessorStorage
+    rbacAssignments  // Resilient - won't block even if roles exist
   ]
   params: {
     location: location

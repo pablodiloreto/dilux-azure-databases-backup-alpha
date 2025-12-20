@@ -122,6 +122,9 @@ resource backupPoliciesTable 'Microsoft.Storage/storageAccounts/tableServices/ta
 @description('Storage account name')
 output storageAccountName string = storageAccount.name
 
+@description('Storage account resource ID')
+output storageAccountId string = storageAccount.id
+
 @description('Storage account primary key')
 output storageAccountKey string = storageAccount.listKeys().keys[0].value
 

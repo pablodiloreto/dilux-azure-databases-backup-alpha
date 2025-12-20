@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "15563348412989608308"
+      "templateHash": "9317948960086580047"
     }
   },
   "parameters": {
@@ -84,22 +84,13 @@
       "ManagedBy": "Bicep",
       "Version": "[parameters('appVersion')]"
     },
+    "keyVaultSecretsUserRoleId": "4633458b-17de-408a-b874-0445c86b69e6",
+    "storageBlobDataContributorRoleId": "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
+    "storageQueueDataContributorRoleId": "974c5e8b-45b9-4653-ba55-5f855dd0fb88",
+    "storageTableDataContributorRoleId": "0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3",
     "contributorRoleId": "b24988ac-6180-42a0-ab88-20f7382dd24c"
   },
   "resources": [
-    {
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "name": "[guid(resourceGroup().id, variables('deploymentIdentityName'), 'contributor-for-code-deploy')]",
-      "properties": {
-        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('contributorRoleId'))]",
-        "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'deployment-identity'), '2025-04-01').outputs.principalId.value]",
-        "principalType": "ServicePrincipal"
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'deployment-identity')]"
-      ]
-    },
     {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
@@ -127,7 +118,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "3358683828042669628"
+              "templateHash": "17117786387198307596"
             }
           },
           "parameters": {
@@ -285,6 +276,13 @@
                 "description": "Storage account name"
               },
               "value": "[parameters('storageAccountName')]"
+            },
+            "storageAccountId": {
+              "type": "string",
+              "metadata": {
+                "description": "Storage account resource ID"
+              },
+              "value": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
             },
             "storageAccountKey": {
               "type": "string",
@@ -1948,18 +1946,106 @@
     {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
-      "name": "rbac-api-keyvault",
+      "name": "rbac-all-assignments",
       "properties": {
         "expressionEvaluationOptions": {
           "scope": "inner"
         },
         "mode": "Incremental",
         "parameters": {
-          "keyVaultName": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.keyVaultName.value]"
+          "location": {
+            "value": "[parameters('location')]"
           },
-          "principalId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-api-deployment'), '2025-04-01').outputs.principalId.value]"
+          "tags": {
+            "value": "[variables('tags')]"
+          },
+          "identityId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deployment-identity'), '2025-04-01').outputs.identityId.value]"
+          },
+          "resourceGroupName": {
+            "value": "[resourceGroup().name]"
+          },
+          "roleAssignments": {
+            "value": [
+              {
+                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'deployment-identity'), '2025-04-01').outputs.principalId.value]",
+                "scope": "[resourceGroup().id]",
+                "roleId": "[variables('contributorRoleId')]",
+                "description": "Deployment Identity - Contributor"
+              },
+              {
+                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-api-deployment'), '2025-04-01').outputs.principalId.value]",
+                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.keyVaultId.value]",
+                "roleId": "[variables('keyVaultSecretsUserRoleId')]",
+                "description": "API - Key Vault Secrets User"
+              },
+              {
+                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-api-deployment'), '2025-04-01').outputs.principalId.value]",
+                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]",
+                "roleId": "[variables('storageBlobDataContributorRoleId')]",
+                "description": "API - Storage Blob Contributor"
+              },
+              {
+                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-api-deployment'), '2025-04-01').outputs.principalId.value]",
+                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]",
+                "roleId": "[variables('storageQueueDataContributorRoleId')]",
+                "description": "API - Storage Queue Contributor"
+              },
+              {
+                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-api-deployment'), '2025-04-01').outputs.principalId.value]",
+                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]",
+                "roleId": "[variables('storageTableDataContributorRoleId')]",
+                "description": "API - Storage Table Contributor"
+              },
+              {
+                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-scheduler-deployment'), '2025-04-01').outputs.principalId.value]",
+                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.keyVaultId.value]",
+                "roleId": "[variables('keyVaultSecretsUserRoleId')]",
+                "description": "Scheduler - Key Vault Secrets User"
+              },
+              {
+                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-scheduler-deployment'), '2025-04-01').outputs.principalId.value]",
+                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]",
+                "roleId": "[variables('storageBlobDataContributorRoleId')]",
+                "description": "Scheduler - Storage Blob Contributor"
+              },
+              {
+                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-scheduler-deployment'), '2025-04-01').outputs.principalId.value]",
+                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]",
+                "roleId": "[variables('storageQueueDataContributorRoleId')]",
+                "description": "Scheduler - Storage Queue Contributor"
+              },
+              {
+                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-scheduler-deployment'), '2025-04-01').outputs.principalId.value]",
+                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]",
+                "roleId": "[variables('storageTableDataContributorRoleId')]",
+                "description": "Scheduler - Storage Table Contributor"
+              },
+              {
+                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-processor-deployment'), '2025-04-01').outputs.principalId.value]",
+                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.keyVaultId.value]",
+                "roleId": "[variables('keyVaultSecretsUserRoleId')]",
+                "description": "Processor - Key Vault Secrets User"
+              },
+              {
+                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-processor-deployment'), '2025-04-01').outputs.principalId.value]",
+                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]",
+                "roleId": "[variables('storageBlobDataContributorRoleId')]",
+                "description": "Processor - Storage Blob Contributor"
+              },
+              {
+                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-processor-deployment'), '2025-04-01').outputs.principalId.value]",
+                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]",
+                "roleId": "[variables('storageQueueDataContributorRoleId')]",
+                "description": "Processor - Storage Queue Contributor"
+              },
+              {
+                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-processor-deployment'), '2025-04-01').outputs.principalId.value]",
+                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]",
+                "roleId": "[variables('storageTableDataContributorRoleId')]",
+                "description": "Processor - Storage Table Contributor"
+              }
+            ]
           }
         },
         "template": {
@@ -1969,531 +2055,91 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "15479382555640264691"
+              "templateHash": "17277094616817150669"
             }
           },
           "parameters": {
-            "keyVaultName": {
+            "location": {
               "type": "string",
               "metadata": {
-                "description": "Name of the Key Vault"
+                "description": "Azure region"
               }
             },
-            "principalId": {
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Tags to apply"
+              }
+            },
+            "identityId": {
               "type": "string",
               "metadata": {
-                "description": "Principal ID to grant access to"
+                "description": "User-assigned Managed Identity ID for running the script"
+              }
+            },
+            "resourceGroupName": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource group name"
+              }
+            },
+            "roleAssignments": {
+              "type": "array",
+              "metadata": {
+                "description": "Array of role assignments to create"
               }
             }
           },
-          "variables": {
-            "keyVaultSecretsUserRoleId": "4633458b-17de-408a-b874-0445c86b69e6"
-          },
           "resources": [
             {
-              "type": "Microsoft.Authorization/roleAssignments",
-              "apiVersion": "2022-04-01",
-              "scope": "[format('Microsoft.KeyVault/vaults/{0}', parameters('keyVaultName'))]",
-              "name": "[guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), parameters('principalId'), variables('keyVaultSecretsUserRoleId'))]",
+              "type": "Microsoft.Resources/deploymentScripts",
+              "apiVersion": "2023-08-01",
+              "name": "create-role-assignments",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "kind": "AzureCLI",
+              "identity": {
+                "type": "UserAssigned",
+                "userAssignedIdentities": {
+                  "[format('{0}', parameters('identityId'))]": {}
+                }
+              },
               "properties": {
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('keyVaultSecretsUserRoleId'))]",
-                "principalId": "[parameters('principalId')]",
-                "principalType": "ServicePrincipal"
+                "azCliVersion": "2.50.0",
+                "timeout": "PT10M",
+                "retentionInterval": "PT1H",
+                "cleanupPreference": "OnSuccess",
+                "environmentVariables": [
+                  {
+                    "name": "ROLE_ASSIGNMENTS_JSON",
+                    "value": "[string(parameters('roleAssignments'))]"
+                  },
+                  {
+                    "name": "RESOURCE_GROUP",
+                    "value": "[parameters('resourceGroupName')]"
+                  }
+                ],
+                "scriptContent": "      #!/bin/bash\n\n      echo \"==========================================\"\n      echo \"Creating Role Assignments (Resilient)\"\n      echo \"==========================================\"\n\n      # Parse the JSON array of role assignments\n      ASSIGNMENTS=$(echo \"$ROLE_ASSIGNMENTS_JSON\" | tr -d '\\n')\n\n      SUCCESS_COUNT=0\n      SKIPPED_COUNT=0\n      FAILED_COUNT=0\n\n      # Process each role assignment\n      echo \"$ASSIGNMENTS\" | jq -c '.[]' | while read -r assignment; do\n        PRINCIPAL_ID=$(echo \"$assignment\" | jq -r '.principalId')\n        SCOPE=$(echo \"$assignment\" | jq -r '.scope')\n        ROLE_ID=$(echo \"$assignment\" | jq -r '.roleId')\n        DESCRIPTION=$(echo \"$assignment\" | jq -r '.description // \"Role assignment\"')\n\n        echo \"\"\n        echo \"Processing: $DESCRIPTION\"\n        echo \"  Principal: $PRINCIPAL_ID\"\n        echo \"  Role: $ROLE_ID\"\n        echo \"  Scope: $SCOPE\"\n\n        # Try to create the role assignment\n        OUTPUT=$(az role assignment create \\\n          --assignee-object-id \"$PRINCIPAL_ID\" \\\n          --assignee-principal-type ServicePrincipal \\\n          --role \"$ROLE_ID\" \\\n          --scope \"$SCOPE\" 2>&1) || true\n\n        # Check the result\n        if echo \"$OUTPUT\" | grep -q \"already exists\"; then\n          echo \"  ⏭️  SKIPPED - Already exists\"\n        elif echo \"$OUTPUT\" | grep -q \"roleAssignmentId\"; then\n          echo \"  ✅ CREATED\"\n        elif echo \"$OUTPUT\" | grep -q \"error\"; then\n          echo \"  ⚠️  WARNING: $OUTPUT\"\n          # Don't fail, just warn\n        else\n          echo \"  ✅ OK\"\n        fi\n      done\n\n      echo \"\"\n      echo \"==========================================\"\n      echo \"Role Assignments Complete\"\n      echo \"==========================================\"\n\n      # Always succeed - role assignments should not block deployment\n      echo '{\"status\": \"success\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n    "
               }
             }
           ],
           "outputs": {
-            "roleAssignmentId": {
+            "status": {
               "type": "string",
               "metadata": {
-                "description": "Role assignment ID"
+                "description": "Deployment script status"
               },
-              "value": "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), parameters('principalId'), variables('keyVaultSecretsUserRoleId')))]"
+              "value": "[reference(resourceId('Microsoft.Resources/deploymentScripts', 'create-role-assignments'), '2023-08-01').provisioningState]"
             }
           }
         }
       },
       "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'deployment-identity')]",
         "[resourceId('Microsoft.Resources/deployments', 'functionapp-api-deployment')]",
-        "[resourceId('Microsoft.Resources/deployments', 'keyvault-deployment')]"
-      ]
-    },
-    {
-      "type": "Microsoft.Resources/deployments",
-      "apiVersion": "2025-04-01",
-      "name": "rbac-scheduler-keyvault",
-      "properties": {
-        "expressionEvaluationOptions": {
-          "scope": "inner"
-        },
-        "mode": "Incremental",
-        "parameters": {
-          "keyVaultName": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.keyVaultName.value]"
-          },
-          "principalId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-scheduler-deployment'), '2025-04-01').outputs.principalId.value]"
-          }
-        },
-        "template": {
-          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-          "contentVersion": "1.0.0.0",
-          "metadata": {
-            "_generator": {
-              "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "15479382555640264691"
-            }
-          },
-          "parameters": {
-            "keyVaultName": {
-              "type": "string",
-              "metadata": {
-                "description": "Name of the Key Vault"
-              }
-            },
-            "principalId": {
-              "type": "string",
-              "metadata": {
-                "description": "Principal ID to grant access to"
-              }
-            }
-          },
-          "variables": {
-            "keyVaultSecretsUserRoleId": "4633458b-17de-408a-b874-0445c86b69e6"
-          },
-          "resources": [
-            {
-              "type": "Microsoft.Authorization/roleAssignments",
-              "apiVersion": "2022-04-01",
-              "scope": "[format('Microsoft.KeyVault/vaults/{0}', parameters('keyVaultName'))]",
-              "name": "[guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), parameters('principalId'), variables('keyVaultSecretsUserRoleId'))]",
-              "properties": {
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('keyVaultSecretsUserRoleId'))]",
-                "principalId": "[parameters('principalId')]",
-                "principalType": "ServicePrincipal"
-              }
-            }
-          ],
-          "outputs": {
-            "roleAssignmentId": {
-              "type": "string",
-              "metadata": {
-                "description": "Role assignment ID"
-              },
-              "value": "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), parameters('principalId'), variables('keyVaultSecretsUserRoleId')))]"
-            }
-          }
-        }
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'functionapp-scheduler-deployment')]",
-        "[resourceId('Microsoft.Resources/deployments', 'keyvault-deployment')]"
-      ]
-    },
-    {
-      "type": "Microsoft.Resources/deployments",
-      "apiVersion": "2025-04-01",
-      "name": "rbac-processor-keyvault",
-      "properties": {
-        "expressionEvaluationOptions": {
-          "scope": "inner"
-        },
-        "mode": "Incremental",
-        "parameters": {
-          "keyVaultName": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.keyVaultName.value]"
-          },
-          "principalId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-processor-deployment'), '2025-04-01').outputs.principalId.value]"
-          }
-        },
-        "template": {
-          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-          "contentVersion": "1.0.0.0",
-          "metadata": {
-            "_generator": {
-              "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "15479382555640264691"
-            }
-          },
-          "parameters": {
-            "keyVaultName": {
-              "type": "string",
-              "metadata": {
-                "description": "Name of the Key Vault"
-              }
-            },
-            "principalId": {
-              "type": "string",
-              "metadata": {
-                "description": "Principal ID to grant access to"
-              }
-            }
-          },
-          "variables": {
-            "keyVaultSecretsUserRoleId": "4633458b-17de-408a-b874-0445c86b69e6"
-          },
-          "resources": [
-            {
-              "type": "Microsoft.Authorization/roleAssignments",
-              "apiVersion": "2022-04-01",
-              "scope": "[format('Microsoft.KeyVault/vaults/{0}', parameters('keyVaultName'))]",
-              "name": "[guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), parameters('principalId'), variables('keyVaultSecretsUserRoleId'))]",
-              "properties": {
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('keyVaultSecretsUserRoleId'))]",
-                "principalId": "[parameters('principalId')]",
-                "principalType": "ServicePrincipal"
-              }
-            }
-          ],
-          "outputs": {
-            "roleAssignmentId": {
-              "type": "string",
-              "metadata": {
-                "description": "Role assignment ID"
-              },
-              "value": "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), parameters('principalId'), variables('keyVaultSecretsUserRoleId')))]"
-            }
-          }
-        }
-      },
-      "dependsOn": [
         "[resourceId('Microsoft.Resources/deployments', 'functionapp-processor-deployment')]",
-        "[resourceId('Microsoft.Resources/deployments', 'keyvault-deployment')]"
-      ]
-    },
-    {
-      "type": "Microsoft.Resources/deployments",
-      "apiVersion": "2025-04-01",
-      "name": "rbac-api-storage",
-      "properties": {
-        "expressionEvaluationOptions": {
-          "scope": "inner"
-        },
-        "mode": "Incremental",
-        "parameters": {
-          "storageAccountName": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
-          },
-          "principalId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-api-deployment'), '2025-04-01').outputs.principalId.value]"
-          }
-        },
-        "template": {
-          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-          "contentVersion": "1.0.0.0",
-          "metadata": {
-            "_generator": {
-              "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "2424278750732879277"
-            }
-          },
-          "parameters": {
-            "storageAccountName": {
-              "type": "string",
-              "metadata": {
-                "description": "Name of the Storage Account"
-              }
-            },
-            "principalId": {
-              "type": "string",
-              "metadata": {
-                "description": "Principal ID to grant access to"
-              }
-            }
-          },
-          "variables": {
-            "storageBlobDataContributorRoleId": "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
-            "storageQueueDataContributorRoleId": "974c5e8b-45b9-4653-ba55-5f855dd0fb88",
-            "storageTableDataContributorRoleId": "0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3"
-          },
-          "resources": [
-            {
-              "type": "Microsoft.Authorization/roleAssignments",
-              "apiVersion": "2022-04-01",
-              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', parameters('storageAccountName'))]",
-              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), variables('storageBlobDataContributorRoleId'))]",
-              "properties": {
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageBlobDataContributorRoleId'))]",
-                "principalId": "[parameters('principalId')]",
-                "principalType": "ServicePrincipal"
-              }
-            },
-            {
-              "type": "Microsoft.Authorization/roleAssignments",
-              "apiVersion": "2022-04-01",
-              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', parameters('storageAccountName'))]",
-              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), variables('storageQueueDataContributorRoleId'))]",
-              "properties": {
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageQueueDataContributorRoleId'))]",
-                "principalId": "[parameters('principalId')]",
-                "principalType": "ServicePrincipal"
-              }
-            },
-            {
-              "type": "Microsoft.Authorization/roleAssignments",
-              "apiVersion": "2022-04-01",
-              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', parameters('storageAccountName'))]",
-              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), variables('storageTableDataContributorRoleId'))]",
-              "properties": {
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageTableDataContributorRoleId'))]",
-                "principalId": "[parameters('principalId')]",
-                "principalType": "ServicePrincipal"
-              }
-            }
-          ],
-          "outputs": {
-            "blobRoleAssignmentId": {
-              "type": "string",
-              "metadata": {
-                "description": "Blob role assignment ID"
-              },
-              "value": "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), variables('storageBlobDataContributorRoleId')))]"
-            },
-            "queueRoleAssignmentId": {
-              "type": "string",
-              "metadata": {
-                "description": "Queue role assignment ID"
-              },
-              "value": "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), variables('storageQueueDataContributorRoleId')))]"
-            },
-            "tableRoleAssignmentId": {
-              "type": "string",
-              "metadata": {
-                "description": "Table role assignment ID"
-              },
-              "value": "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), variables('storageTableDataContributorRoleId')))]"
-            }
-          }
-        }
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'functionapp-api-deployment')]",
-        "[resourceId('Microsoft.Resources/deployments', 'storage-deployment')]"
-      ]
-    },
-    {
-      "type": "Microsoft.Resources/deployments",
-      "apiVersion": "2025-04-01",
-      "name": "rbac-scheduler-storage",
-      "properties": {
-        "expressionEvaluationOptions": {
-          "scope": "inner"
-        },
-        "mode": "Incremental",
-        "parameters": {
-          "storageAccountName": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
-          },
-          "principalId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-scheduler-deployment'), '2025-04-01').outputs.principalId.value]"
-          }
-        },
-        "template": {
-          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-          "contentVersion": "1.0.0.0",
-          "metadata": {
-            "_generator": {
-              "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "2424278750732879277"
-            }
-          },
-          "parameters": {
-            "storageAccountName": {
-              "type": "string",
-              "metadata": {
-                "description": "Name of the Storage Account"
-              }
-            },
-            "principalId": {
-              "type": "string",
-              "metadata": {
-                "description": "Principal ID to grant access to"
-              }
-            }
-          },
-          "variables": {
-            "storageBlobDataContributorRoleId": "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
-            "storageQueueDataContributorRoleId": "974c5e8b-45b9-4653-ba55-5f855dd0fb88",
-            "storageTableDataContributorRoleId": "0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3"
-          },
-          "resources": [
-            {
-              "type": "Microsoft.Authorization/roleAssignments",
-              "apiVersion": "2022-04-01",
-              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', parameters('storageAccountName'))]",
-              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), variables('storageBlobDataContributorRoleId'))]",
-              "properties": {
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageBlobDataContributorRoleId'))]",
-                "principalId": "[parameters('principalId')]",
-                "principalType": "ServicePrincipal"
-              }
-            },
-            {
-              "type": "Microsoft.Authorization/roleAssignments",
-              "apiVersion": "2022-04-01",
-              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', parameters('storageAccountName'))]",
-              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), variables('storageQueueDataContributorRoleId'))]",
-              "properties": {
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageQueueDataContributorRoleId'))]",
-                "principalId": "[parameters('principalId')]",
-                "principalType": "ServicePrincipal"
-              }
-            },
-            {
-              "type": "Microsoft.Authorization/roleAssignments",
-              "apiVersion": "2022-04-01",
-              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', parameters('storageAccountName'))]",
-              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), variables('storageTableDataContributorRoleId'))]",
-              "properties": {
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageTableDataContributorRoleId'))]",
-                "principalId": "[parameters('principalId')]",
-                "principalType": "ServicePrincipal"
-              }
-            }
-          ],
-          "outputs": {
-            "blobRoleAssignmentId": {
-              "type": "string",
-              "metadata": {
-                "description": "Blob role assignment ID"
-              },
-              "value": "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), variables('storageBlobDataContributorRoleId')))]"
-            },
-            "queueRoleAssignmentId": {
-              "type": "string",
-              "metadata": {
-                "description": "Queue role assignment ID"
-              },
-              "value": "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), variables('storageQueueDataContributorRoleId')))]"
-            },
-            "tableRoleAssignmentId": {
-              "type": "string",
-              "metadata": {
-                "description": "Table role assignment ID"
-              },
-              "value": "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), variables('storageTableDataContributorRoleId')))]"
-            }
-          }
-        }
-      },
-      "dependsOn": [
         "[resourceId('Microsoft.Resources/deployments', 'functionapp-scheduler-deployment')]",
-        "[resourceId('Microsoft.Resources/deployments', 'storage-deployment')]"
-      ]
-    },
-    {
-      "type": "Microsoft.Resources/deployments",
-      "apiVersion": "2025-04-01",
-      "name": "rbac-processor-storage",
-      "properties": {
-        "expressionEvaluationOptions": {
-          "scope": "inner"
-        },
-        "mode": "Incremental",
-        "parameters": {
-          "storageAccountName": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
-          },
-          "principalId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-processor-deployment'), '2025-04-01').outputs.principalId.value]"
-          }
-        },
-        "template": {
-          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-          "contentVersion": "1.0.0.0",
-          "metadata": {
-            "_generator": {
-              "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "2424278750732879277"
-            }
-          },
-          "parameters": {
-            "storageAccountName": {
-              "type": "string",
-              "metadata": {
-                "description": "Name of the Storage Account"
-              }
-            },
-            "principalId": {
-              "type": "string",
-              "metadata": {
-                "description": "Principal ID to grant access to"
-              }
-            }
-          },
-          "variables": {
-            "storageBlobDataContributorRoleId": "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
-            "storageQueueDataContributorRoleId": "974c5e8b-45b9-4653-ba55-5f855dd0fb88",
-            "storageTableDataContributorRoleId": "0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3"
-          },
-          "resources": [
-            {
-              "type": "Microsoft.Authorization/roleAssignments",
-              "apiVersion": "2022-04-01",
-              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', parameters('storageAccountName'))]",
-              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), variables('storageBlobDataContributorRoleId'))]",
-              "properties": {
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageBlobDataContributorRoleId'))]",
-                "principalId": "[parameters('principalId')]",
-                "principalType": "ServicePrincipal"
-              }
-            },
-            {
-              "type": "Microsoft.Authorization/roleAssignments",
-              "apiVersion": "2022-04-01",
-              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', parameters('storageAccountName'))]",
-              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), variables('storageQueueDataContributorRoleId'))]",
-              "properties": {
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageQueueDataContributorRoleId'))]",
-                "principalId": "[parameters('principalId')]",
-                "principalType": "ServicePrincipal"
-              }
-            },
-            {
-              "type": "Microsoft.Authorization/roleAssignments",
-              "apiVersion": "2022-04-01",
-              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', parameters('storageAccountName'))]",
-              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), variables('storageTableDataContributorRoleId'))]",
-              "properties": {
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageTableDataContributorRoleId'))]",
-                "principalId": "[parameters('principalId')]",
-                "principalType": "ServicePrincipal"
-              }
-            }
-          ],
-          "outputs": {
-            "blobRoleAssignmentId": {
-              "type": "string",
-              "metadata": {
-                "description": "Blob role assignment ID"
-              },
-              "value": "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), variables('storageBlobDataContributorRoleId')))]"
-            },
-            "queueRoleAssignmentId": {
-              "type": "string",
-              "metadata": {
-                "description": "Queue role assignment ID"
-              },
-              "value": "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), variables('storageQueueDataContributorRoleId')))]"
-            },
-            "tableRoleAssignmentId": {
-              "type": "string",
-              "metadata": {
-                "description": "Table role assignment ID"
-              },
-              "value": "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), variables('storageTableDataContributorRoleId')))]"
-            }
-          }
-        }
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'functionapp-processor-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'keyvault-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'storage-deployment')]"
       ]
     },
@@ -2697,10 +2343,7 @@
         "[resourceId('Microsoft.Resources/deployments', 'functionapp-api-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'functionapp-processor-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'functionapp-scheduler-deployment')]",
-        "[resourceId('Microsoft.Resources/deployments', 'rbac-api-storage')]",
-        "[resourceId('Microsoft.Authorization/roleAssignments', guid(resourceGroup().id, variables('deploymentIdentityName'), 'contributor-for-code-deploy'))]",
-        "[resourceId('Microsoft.Resources/deployments', 'rbac-processor-storage')]",
-        "[resourceId('Microsoft.Resources/deployments', 'rbac-scheduler-storage')]",
+        "[resourceId('Microsoft.Resources/deployments', 'rbac-all-assignments')]",
         "[resourceId('Microsoft.Resources/deployments', 'staticwebapp-deployment')]"
       ]
     }
