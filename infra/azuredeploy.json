@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "10139588668653850925"
+      "templateHash": "12233231751720832148"
     }
   },
   "parameters": {
@@ -2056,7 +2056,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "17277094616817150669"
+              "templateHash": "16765930261850215111"
             }
           },
           "parameters": {
@@ -2120,7 +2120,7 @@
                     "value": "[parameters('resourceGroupName')]"
                   }
                 ],
-                "scriptContent": "      #!/bin/bash\n\n      echo \"==========================================\"\n      echo \"Creating Role Assignments (Resilient)\"\n      echo \"==========================================\"\n\n      # Parse the JSON array of role assignments\n      ASSIGNMENTS=$(echo \"$ROLE_ASSIGNMENTS_JSON\" | tr -d '\\n')\n\n      SUCCESS_COUNT=0\n      SKIPPED_COUNT=0\n      FAILED_COUNT=0\n\n      # Process each role assignment\n      echo \"$ASSIGNMENTS\" | jq -c '.[]' | while read -r assignment; do\n        PRINCIPAL_ID=$(echo \"$assignment\" | jq -r '.principalId')\n        SCOPE=$(echo \"$assignment\" | jq -r '.scope')\n        ROLE_ID=$(echo \"$assignment\" | jq -r '.roleId')\n        DESCRIPTION=$(echo \"$assignment\" | jq -r '.description // \"Role assignment\"')\n\n        echo \"\"\n        echo \"Processing: $DESCRIPTION\"\n        echo \"  Principal: $PRINCIPAL_ID\"\n        echo \"  Role: $ROLE_ID\"\n        echo \"  Scope: $SCOPE\"\n\n        # Try to create the role assignment\n        OUTPUT=$(az role assignment create \\\n          --assignee-object-id \"$PRINCIPAL_ID\" \\\n          --assignee-principal-type ServicePrincipal \\\n          --role \"$ROLE_ID\" \\\n          --scope \"$SCOPE\" 2>&1) || true\n\n        # Check the result\n        if echo \"$OUTPUT\" | grep -q \"already exists\"; then\n          echo \"  ⏭️  SKIPPED - Already exists\"\n        elif echo \"$OUTPUT\" | grep -q \"roleAssignmentId\"; then\n          echo \"  ✅ CREATED\"\n        elif echo \"$OUTPUT\" | grep -q \"error\"; then\n          echo \"  ⚠️  WARNING: $OUTPUT\"\n          # Don't fail, just warn\n        else\n          echo \"  ✅ OK\"\n        fi\n      done\n\n      echo \"\"\n      echo \"==========================================\"\n      echo \"Role Assignments Complete\"\n      echo \"==========================================\"\n\n      # Always succeed - role assignments should not block deployment\n      echo '{\"status\": \"success\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n    "
+                "scriptContent": "      #!/bin/bash\n\n      echo \"==========================================\"\n      echo \"Creating Role Assignments (Resilient)\"\n      echo \"==========================================\"\n\n      # Install jq for JSON parsing (Alpine-based container)\n      echo \"Installing jq...\"\n      apk add --no-cache jq > /dev/null 2>&1 || apt-get install -y jq > /dev/null 2>&1 || echo \"jq may already be installed\"\n\n      # Parse the JSON array of role assignments\n      ASSIGNMENTS=$(echo \"$ROLE_ASSIGNMENTS_JSON\" | tr -d '\\n')\n\n      SUCCESS_COUNT=0\n      SKIPPED_COUNT=0\n      FAILED_COUNT=0\n\n      # Process each role assignment\n      echo \"$ASSIGNMENTS\" | jq -c '.[]' | while read -r assignment; do\n        PRINCIPAL_ID=$(echo \"$assignment\" | jq -r '.principalId')\n        SCOPE=$(echo \"$assignment\" | jq -r '.scope')\n        ROLE_ID=$(echo \"$assignment\" | jq -r '.roleId')\n        DESCRIPTION=$(echo \"$assignment\" | jq -r '.description // \"Role assignment\"')\n\n        echo \"\"\n        echo \"Processing: $DESCRIPTION\"\n        echo \"  Principal: $PRINCIPAL_ID\"\n        echo \"  Role: $ROLE_ID\"\n        echo \"  Scope: $SCOPE\"\n\n        # Try to create the role assignment\n        OUTPUT=$(az role assignment create \\\n          --assignee-object-id \"$PRINCIPAL_ID\" \\\n          --assignee-principal-type ServicePrincipal \\\n          --role \"$ROLE_ID\" \\\n          --scope \"$SCOPE\" 2>&1) || true\n\n        # Check the result\n        if echo \"$OUTPUT\" | grep -q \"already exists\"; then\n          echo \"  ⏭️  SKIPPED - Already exists\"\n        elif echo \"$OUTPUT\" | grep -q \"roleAssignmentId\"; then\n          echo \"  ✅ CREATED\"\n        elif echo \"$OUTPUT\" | grep -q \"error\"; then\n          echo \"  ⚠️  WARNING: $OUTPUT\"\n          # Don't fail, just warn\n        else\n          echo \"  ✅ OK\"\n        fi\n      done\n\n      echo \"\"\n      echo \"==========================================\"\n      echo \"Role Assignments Complete\"\n      echo \"==========================================\"\n\n      # Always succeed - role assignments should not block deployment\n      echo '{\"status\": \"success\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n    "
               }
             }
           ],

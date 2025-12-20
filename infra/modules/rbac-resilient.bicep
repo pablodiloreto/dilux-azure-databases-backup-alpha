@@ -53,6 +53,10 @@ resource rbacScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
       echo "Creating Role Assignments (Resilient)"
       echo "=========================================="
 
+      # Install jq for JSON parsing (Alpine-based container)
+      echo "Installing jq..."
+      apk add --no-cache jq > /dev/null 2>&1 || apt-get install -y jq > /dev/null 2>&1 || echo "jq may already be installed"
+
       # Parse the JSON array of role assignments
       ASSIGNMENTS=$(echo "$ROLE_ASSIGNMENTS_JSON" | tr -d '\n')
 
