@@ -1,6 +1,6 @@
 # Plan de Implementación - Dilux Database Backup
 
-**Última actualización:** 2025-12-20
+**Última actualización:** 2025-12-21
 
 ---
 
@@ -91,7 +91,8 @@
 | v1.0.0 | 2025-12-20 | Release inicial con pre-built assets |
 | v1.0.1 | 2025-12-20 | Fix: RBAC resiliente (no falla en re-deploy) |
 | v1.0.2 | 2025-12-20 | Fix: Nombres únicos para Function Apps y Static Web App |
-| v1.0.3 | 2025-12-20 | Fix: Instalar jq en script de RBAC (faltaba en container Azure CLI) |
+| v1.0.3 | 2025-12-20 | Fix: Instalar jq en script de RBAC |
+| v1.0.4 | 2025-12-21 | Fix: Compatibilidad CBL-Mariner (remover apk) |
 
 **Convención de nombres (v1.0.2+):**
 ```
@@ -100,17 +101,21 @@ appName = "dilux"  →  dilux-abc123-api, dilux-abc123-scheduler, etc.
                           sufijo único basado en RG + appName
 ```
 
-### Pendiente: Validar Deploy v1.0.3
+### Pendiente: Validar Deploy v1.0.4
 
 | # | Tarea | Descripción | Estado |
 |---|-------|-------------|--------|
-| 9.1 | Deploy v1.0.3 | Probar deploy completo a Azure | ⏳ En prueba |
-| 9.2 | Verificar Frontend | Acceder a Static Web App | ⏳ Pendiente |
-| 9.3 | Verificar API | Probar /api/health | ⏳ Pendiente |
-| 9.4 | Verificar Auth | Login con Azure AD | ⏳ Pendiente |
+| 9.1 | Deploy v1.0.4 | Probar deploy completo a Azure | ⏳ En prueba |
+| 9.2 | Verificar API | Probar /api/health | ⏳ Pendiente |
+| 9.3 | Verificar Auth | Login con Azure AD | ⏳ Pendiente |
+| 9.4 | Deploy Frontend | Desplegar frontend manualmente | ⏳ Pendiente |
 | 9.5 | Test Backup | Crear DB y ejecutar backup | ⏳ Pendiente |
 
-**Último intento:** v1.0.2 falló por falta de `jq` en container Azure CLI. Corregido en v1.0.3.
+**Historial de errores:**
+- v1.0.2: Faltaba `jq` en container Azure CLI → Corregido en v1.0.3
+- v1.0.3: `apk add` no existe en CBL-Mariner (Azure CLI usa CBL-Mariner, no Alpine) → Corregido en v1.0.4
+
+**Nota v1.0.4:** El deployment script ahora solo despliega las Function Apps. El frontend (Static Web App) debe desplegarse por separado usando SWA CLI o GitHub Actions.
 
 ---
 

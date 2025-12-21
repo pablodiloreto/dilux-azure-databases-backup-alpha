@@ -598,6 +598,32 @@ az deployment group create \
   --parameters appName=diluxbackup adminEmail=admin@example.com appVersion=v1.0.2
 ```
 
+### Frontend Deployment (Post-Infrastructure)
+
+Starting from v1.0.4, the frontend must be deployed separately after the infrastructure deployment completes.
+
+**Why?** The Azure CLI container used by deployment scripts runs CBL-Mariner Linux, which doesn't have Node.js/npm available. The SWA CLI requires Node.js.
+
+**How to deploy the frontend:**
+
+```bash
+# 1. Install SWA CLI (requires Node.js locally)
+npm install -g @azure/static-web-apps-cli
+
+# 2. Download the pre-built frontend from the release
+curl -L -o frontend.zip https://github.com/pablodiloreto/dilux-azure-databases-backup-alpha/releases/latest/download/frontend.zip
+unzip frontend.zip -d frontend-dist
+
+# 3. Get deployment token from Azure Portal
+#    Go to: Static Web App → Settings → Manage deployment token → Copy
+
+# 4. Deploy
+swa deploy ./frontend-dist --deployment-token "<YOUR_TOKEN>"
+```
+
+**Alternative: GitHub Actions workflow** (recommended for automation)
+You can configure the Static Web App to deploy from a GitHub Actions workflow. See the Azure Portal for setup instructions.
+
 ### Creating a New Release
 
 To create a new release with updated code:
@@ -608,13 +634,13 @@ To create a new release with updated code:
 git add . && git commit -m "feat: your changes" && git push
 
 # 3. Create and push a new tag
-git tag v1.0.3
-git push origin v1.0.3
+git tag v1.0.4
+git push origin v1.0.4
 
 # 4. Wait for GitHub Action to complete (~2 min)
 # 5. New release is created automatically with pre-built assets
 
-# 6. Deploy uses "latest" by default, so new deployments get v1.0.3
+# 6. Deploy uses "latest" by default, so new deployments get v1.0.4
 ```
 
 ### Post-Deployment Verification
@@ -665,10 +691,26 @@ This was fixed in v1.0.1 with the resilient RBAC module. If you still see this:
 - Pull the latest `main` branch and rebuild `azuredeploy.json`
 
 #### Frontend shows "Congratulations on your new site"
-The code deployment didn't run. Check:
-1. Deployment logs for `code-deployment` step
-2. GitHub Release has the ZIP assets
-3. Re-run deployment
+Starting from v1.0.4, the frontend deployment is separate from the Bicep deployment.
+You need to deploy the frontend manually:
+
+```bash
+# Option 1: Using SWA CLI
+npm install -g @azure/static-web-apps-cli
+
+# Get deployment token from Azure Portal:
+# Static Web App → Manage deployment token → Copy
+
+# Deploy
+swa deploy ./frontend-dist --deployment-token <YOUR_TOKEN>
+```
+
+```bash
+# Option 2: Download and deploy from release
+curl -L -o frontend.zip https://github.com/pablodiloreto/dilux-azure-databases-backup-alpha/releases/latest/download/frontend.zip
+unzip frontend.zip -d frontend-dist
+swa deploy ./frontend-dist --deployment-token <YOUR_TOKEN>
+```
 
 #### Deployment times out
 - Deployment should take ~10-15 minutes
@@ -676,9 +718,14 @@ The code deployment didn't run. Check:
 - Ensure GitHub releases are accessible (public repo)
 
 #### Error: "Internal server error" in deployment script
-Fixed in v1.0.3. The Azure CLI container didn't have `jq` installed.
-- Update to latest version of the template
-- Or manually add `apk add --no-cache jq` to the script
+This error can have multiple causes:
+
+**v1.0.3 issue:** The Azure CLI container didn't have `jq` installed.
+- Fixed in v1.0.3 by adding `apk add jq`
+
+**v1.0.3 issue:** The script used `apk` (Alpine package manager) but Azure CLI container uses CBL-Mariner (not Alpine).
+- Fixed in v1.0.4 by removing Node.js installation from script
+- Frontend deployment is now manual (see above)
 
 #### How to view deployment script logs
 ```bash
