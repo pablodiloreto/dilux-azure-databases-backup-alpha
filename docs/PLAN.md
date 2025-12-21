@@ -106,7 +106,7 @@ appName = "dilux"  →  dilux-abc123-api, dilux-abc123-scheduler, etc.
 
 | # | Tarea | Descripción | Estado |
 |---|-------|-------------|--------|
-| 9.1 | Deploy v1.0.5 | Probar deploy completo a Azure | ⏳ En prueba |
+| 9.1 | Deploy v1.0.5 | Probar deploy completo a Azure | ❌ Falló |
 | 9.2 | Verificar API | Probar /api/health | ⏳ Pendiente |
 | 9.3 | Verificar Auth | Login con Azure AD | ⏳ Pendiente |
 | 9.4 | Deploy Frontend | Desplegar frontend manualmente | ⏳ Pendiente |
@@ -116,10 +116,23 @@ appName = "dilux"  →  dilux-abc123-api, dilux-abc123-scheduler, etc.
 - v1.0.2: Faltaba `jq` en container Azure CLI → Corregido en v1.0.3
 - v1.0.3: `apk add` no existe en CBL-Mariner (Azure CLI no usa Alpine) → Corregido en v1.0.4
 - v1.0.4: RBAC role assignments no propagados a tiempo → Corregido en v1.0.5
+- v1.0.5: "script failed without returning any errors" → **PENDIENTE INVESTIGAR**
+
+### TODO: Investigar error v1.0.5
+
+**Error:** `DeploymentScriptError: The provided script failed without returning any errors`
+
+**Resource Group:** dilux-backup-rg4
+
+**Qué hacer:**
+1. Ver los logs del deployment script en Azure Portal:
+   - Ir a dilux-backup-rg4 → buscar recurso "deploy-application-code" → Logs
+   - O via CLI: `az deployment-scripts show-log --resource-group dilux-backup-rg4 --name deploy-application-code`
+2. El error "without returning any errors" significa que el script crasheó sin capturar el error
+3. Probablemente el script tiene un bug en el manejo de errores o hay un comando que falla silenciosamente
+4. Revisar si `set -e` está causando exit temprano sin mensaje
 
 **Nota v1.0.4+:** El deployment script solo despliega las Function Apps. El frontend (Static Web App) debe desplegarse por separado usando SWA CLI o GitHub Actions.
-
-**Nota v1.0.5:** El script ahora espera 60s después de crear role assignments y reintenta hasta 5 veces con delays incrementales para manejar la propagación de Azure AD RBAC.
 
 ---
 
