@@ -93,6 +93,7 @@
 | v1.0.2 | 2025-12-20 | Fix: Nombres únicos para Function Apps y Static Web App |
 | v1.0.3 | 2025-12-20 | Fix: Instalar jq en script de RBAC |
 | v1.0.4 | 2025-12-21 | Fix: Compatibilidad CBL-Mariner (remover apk) |
+| v1.0.5 | 2025-12-21 | Fix: Espera y retry para propagación de RBAC |
 
 **Convención de nombres (v1.0.2+):**
 ```
@@ -101,11 +102,11 @@ appName = "dilux"  →  dilux-abc123-api, dilux-abc123-scheduler, etc.
                           sufijo único basado en RG + appName
 ```
 
-### Pendiente: Validar Deploy v1.0.4
+### Pendiente: Validar Deploy v1.0.5
 
 | # | Tarea | Descripción | Estado |
 |---|-------|-------------|--------|
-| 9.1 | Deploy v1.0.4 | Probar deploy completo a Azure | ⏳ En prueba |
+| 9.1 | Deploy v1.0.5 | Probar deploy completo a Azure | ⏳ En prueba |
 | 9.2 | Verificar API | Probar /api/health | ⏳ Pendiente |
 | 9.3 | Verificar Auth | Login con Azure AD | ⏳ Pendiente |
 | 9.4 | Deploy Frontend | Desplegar frontend manualmente | ⏳ Pendiente |
@@ -113,9 +114,12 @@ appName = "dilux"  →  dilux-abc123-api, dilux-abc123-scheduler, etc.
 
 **Historial de errores:**
 - v1.0.2: Faltaba `jq` en container Azure CLI → Corregido en v1.0.3
-- v1.0.3: `apk add` no existe en CBL-Mariner (Azure CLI usa CBL-Mariner, no Alpine) → Corregido en v1.0.4
+- v1.0.3: `apk add` no existe en CBL-Mariner (Azure CLI no usa Alpine) → Corregido en v1.0.4
+- v1.0.4: RBAC role assignments no propagados a tiempo → Corregido en v1.0.5
 
-**Nota v1.0.4:** El deployment script ahora solo despliega las Function Apps. El frontend (Static Web App) debe desplegarse por separado usando SWA CLI o GitHub Actions.
+**Nota v1.0.4+:** El deployment script solo despliega las Function Apps. El frontend (Static Web App) debe desplegarse por separado usando SWA CLI o GitHub Actions.
+
+**Nota v1.0.5:** El script ahora espera 60s después de crear role assignments y reintenta hasta 5 veces con delays incrementales para manejar la propagación de Azure AD RBAC.
 
 ---
 

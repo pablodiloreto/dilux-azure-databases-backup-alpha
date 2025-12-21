@@ -727,6 +727,17 @@ This error can have multiple causes:
 - Fixed in v1.0.4 by removing Node.js installation from script
 - Frontend deployment is now manual (see above)
 
+#### Error: "AuthorizationFailed" / "does not have authorization to perform action"
+This occurs when the deployment script runs before Azure AD has propagated the RBAC role assignments.
+
+**Root cause:** Azure AD role assignments can take up to 5 minutes to propagate internally. The script executes before the Managed Identity's Contributor role is recognized.
+
+**Fixed in v1.0.5:**
+- Added 60 second initial wait after RBAC assignments
+- Added retry logic (5 attempts with 30s, 60s, 90s, 120s delays)
+
+If you still see this error, try re-running the deployment - it should work on retry.
+
 #### How to view deployment script logs
 ```bash
 # Via Azure CLI
