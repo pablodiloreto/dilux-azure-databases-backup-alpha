@@ -1,14 +1,14 @@
 // ============================================================================
-// Code Deployment Module (Optimized)
+// Code Deployment Module
 // ============================================================================
 // Downloads PRE-BUILT release assets from GitHub and deploys them:
-// - frontend.zip → Static Web App
-// - api.zip → API Function App
-// - scheduler.zip → Scheduler Function App
-// - processor.zip → Processor Function App
+// - api.zip -> API Function App
+// - scheduler.zip -> Scheduler Function App
+// - processor.zip -> Processor Function App
 //
-// IMPORTANT: This requires the release to have pre-built assets.
-// Run the "Build Release Assets" GitHub Action before deploying.
+// NOTE: Static Web App (frontend) deployment is handled separately via GitHub
+// Actions workflow, as SWA requires Node.js/SWA CLI which isn't available in
+// the Azure CLI container.
 // ============================================================================
 
 @description('Azure region')
@@ -45,7 +45,7 @@ param resourceGroupName string
 param apiBaseUrl string
 
 // ============================================================================
-// Deployment Script - Downloads and deploys pre-built assets
+// Deployment Script - Downloads and deploys pre-built Function App assets
 // ============================================================================
 
 resource deploymentScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
@@ -61,7 +61,7 @@ resource deploymentScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
   }
   properties: {
     azCliVersion: '2.50.0'
-    timeout: 'PT15M' // 15 minutes should be more than enough now
+    timeout: 'PT15M'
     retentionInterval: 'PT1H'
     cleanupPreference: 'OnSuccess'
     environmentVariables: [
@@ -75,132 +75,163 @@ resource deploymentScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
       { name: 'VITE_API_BASE_URL', value: apiBaseUrl }
     ]
     scriptContent: '''
-      #!/bin/bash
-      set -e
+#!/bin/bash
+set -e
 
-      echo "=========================================="
-      echo "Deploying Dilux Database Backup"
-      echo "=========================================="
+echo "=========================================="
+echo "Deploying Dilux Database Backup"
+echo "=========================================="
 
-      # Resolve "latest" to actual version tag using GitHub API
-      if [ "$VERSION" == "latest" ]; then
-        echo "Resolving latest release from GitHub..."
-        RESOLVED_VERSION=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
+# Resolve "latest" to actual version tag using GitHub API
+if [ "$VERSION" == "latest" ]; then
+  echo "Resolving latest release from GitHub..."
 
-        if [ -z "$RESOLVED_VERSION" ] || [ "$RESOLVED_VERSION" == "null" ]; then
-          echo "❌ ERROR: Could not resolve latest release"
-          echo "Make sure the repository has at least one published release."
-          echo "{\"status\": \"failed\", \"error\": \"No releases found\"}" > $AZ_SCRIPTS_OUTPUT_PATH
-          exit 1
-        fi
+  RELEASE_INFO=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases/latest")
+  RESOLVED_VERSION=$(echo "$RELEASE_INFO" | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
 
-        echo "✅ Resolved 'latest' to: $RESOLVED_VERSION"
-        VERSION=$RESOLVED_VERSION
-      fi
+  if [ -z "$RESOLVED_VERSION" ] || [ "$RESOLVED_VERSION" == "null" ]; then
+    echo "ERROR: Could not resolve latest release"
+    echo "Make sure the repository has at least one published release."
+    echo '{"status": "failed", "error": "No releases found"}' > $AZ_SCRIPTS_OUTPUT_PATH
+    exit 1
+  fi
 
-      echo "Version: $VERSION"
-      echo "=========================================="
+  echo "Resolved latest to: $RESOLVED_VERSION"
+  VERSION=$RESOLVED_VERSION
+fi
 
-      # Base URL for release assets
-      RELEASE_URL="https://github.com/$GITHUB_REPO/releases/download/$VERSION"
+echo "Version: $VERSION"
+echo "Repository: $GITHUB_REPO"
+echo "=========================================="
 
-      echo ""
-      echo "Downloading pre-built release assets..."
-      echo "From: $RELEASE_URL"
-      echo ""
+# Base URL for release assets
+RELEASE_URL="https://github.com/$GITHUB_REPO/releases/download/$VERSION"
 
-      # Download all pre-built ZIPs
-      echo "📦 Downloading frontend.zip..."
-      curl -L -f -o frontend.zip "$RELEASE_URL/frontend.zip" || {
-        echo "❌ ERROR: Could not download frontend.zip"
-        echo ""
-        echo "Make sure the release $VERSION has pre-built assets."
-        echo "Run the 'Build Release Assets' GitHub Action first."
-        echo ""
-        echo "{\"status\": \"failed\", \"error\": \"Release assets not found\"}" > $AZ_SCRIPTS_OUTPUT_PATH
-        exit 1
-      }
+echo ""
+echo "Downloading pre-built release assets from:"
+echo "$RELEASE_URL"
+echo ""
 
-      echo "📦 Downloading api.zip..."
-      curl -L -f -o api.zip "$RELEASE_URL/api.zip"
+# Download Function App ZIPs
+echo "[1/3] Downloading api.zip..."
+if ! curl -L -f -s -o api.zip "$RELEASE_URL/api.zip"; then
+  echo "ERROR: Could not download api.zip"
+  echo "URL: $RELEASE_URL/api.zip"
+  echo ""
+  echo "Make sure:"
+  echo "1. The release $VERSION exists"
+  echo "2. The release has api.zip, scheduler.zip, processor.zip assets"
+  echo "3. Run the Build Release Assets GitHub Action first"
+  echo ""
+  echo '{"status": "failed", "error": "Could not download api.zip"}' > $AZ_SCRIPTS_OUTPUT_PATH
+  exit 1
+fi
+echo "    Downloaded api.zip"
 
-      echo "📦 Downloading scheduler.zip..."
-      curl -L -f -o scheduler.zip "$RELEASE_URL/scheduler.zip"
+echo "[2/3] Downloading scheduler.zip..."
+if ! curl -L -f -s -o scheduler.zip "$RELEASE_URL/scheduler.zip"; then
+  echo "ERROR: Could not download scheduler.zip"
+  echo '{"status": "failed", "error": "Could not download scheduler.zip"}' > $AZ_SCRIPTS_OUTPUT_PATH
+  exit 1
+fi
+echo "    Downloaded scheduler.zip"
 
-      echo "📦 Downloading processor.zip..."
-      curl -L -f -o processor.zip "$RELEASE_URL/processor.zip"
+echo "[3/3] Downloading processor.zip..."
+if ! curl -L -f -s -o processor.zip "$RELEASE_URL/processor.zip"; then
+  echo "ERROR: Could not download processor.zip"
+  echo '{"status": "failed", "error": "Could not download processor.zip"}' > $AZ_SCRIPTS_OUTPUT_PATH
+  exit 1
+fi
+echo "    Downloaded processor.zip"
 
-      echo ""
-      echo "✅ All assets downloaded"
-      ls -lh *.zip
-      echo ""
+echo ""
+echo "All assets downloaded successfully:"
+ls -lh *.zip
+echo ""
 
-      # ========================================
-      # Deploy Frontend to Static Web App
-      # ========================================
-      echo "=========================================="
-      echo "Deploying Frontend to Static Web App..."
-      echo "=========================================="
+# ========================================
+# Deploy Function Apps
+# ========================================
+echo "=========================================="
+echo "Deploying Function Apps..."
+echo "=========================================="
 
-      # Get deployment token
-      SWA_TOKEN=$(az staticwebapp secrets list \
-        --name $STATIC_WEB_APP_NAME \
-        --resource-group $RESOURCE_GROUP \
-        --query "properties.apiKey" -o tsv)
+echo ""
+echo "[1/3] Deploying API Function App: $API_FUNCTION_APP_NAME"
+az functionapp deployment source config-zip \
+  --resource-group $RESOURCE_GROUP \
+  --name $API_FUNCTION_APP_NAME \
+  --src api.zip \
+  --timeout 300
+echo "    API Function App deployed"
 
-      # Install SWA CLI
-      apk add --no-cache nodejs npm > /dev/null 2>&1
-      npm install -g @azure/static-web-apps-cli > /dev/null 2>&1
+echo ""
+echo "[2/3] Deploying Scheduler Function App: $SCHEDULER_FUNCTION_APP_NAME"
+az functionapp deployment source config-zip \
+  --resource-group $RESOURCE_GROUP \
+  --name $SCHEDULER_FUNCTION_APP_NAME \
+  --src scheduler.zip \
+  --timeout 300
+echo "    Scheduler Function App deployed"
 
-      # Extract and deploy frontend
-      mkdir -p frontend-dist
-      unzip -q frontend.zip -d frontend-dist
-      cd frontend-dist
-      swa deploy . --deployment-token $SWA_TOKEN --env production
-      cd ..
+echo ""
+echo "[3/3] Deploying Processor Function App: $PROCESSOR_FUNCTION_APP_NAME"
+az functionapp deployment source config-zip \
+  --resource-group $RESOURCE_GROUP \
+  --name $PROCESSOR_FUNCTION_APP_NAME \
+  --src processor.zip \
+  --timeout 300
+echo "    Processor Function App deployed"
 
-      echo "✅ Frontend deployed"
+# ========================================
+# Static Web App Info
+# ========================================
+echo ""
+echo "=========================================="
+echo "Static Web App Deployment"
+echo "=========================================="
+echo ""
+echo "Static Web App: $STATIC_WEB_APP_NAME"
+echo ""
+echo "The frontend will be deployed automatically via GitHub Actions"
+echo "when you connect the Static Web App to your GitHub repository."
+echo ""
+echo "Alternatively, get the deployment token from Azure Portal and"
+echo "use the SWA CLI locally: swa deploy ./dist --deployment-token <token>"
+echo ""
 
-      # ========================================
-      # Deploy Function Apps
-      # ========================================
-      echo ""
-      echo "=========================================="
-      echo "Deploying API Function App..."
-      echo "=========================================="
-      az functionapp deployment source config-zip \
-        --resource-group $RESOURCE_GROUP \
-        --name $API_FUNCTION_APP_NAME \
-        --src api.zip
-      echo "✅ API deployed"
+# Get SWA hostname for output
+SWA_URL=$(az staticwebapp show \
+  --name $STATIC_WEB_APP_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --query "defaultHostname" -o tsv 2>/dev/null || echo "")
 
-      echo ""
-      echo "=========================================="
-      echo "Deploying Scheduler Function App..."
-      echo "=========================================="
-      az functionapp deployment source config-zip \
-        --resource-group $RESOURCE_GROUP \
-        --name $SCHEDULER_FUNCTION_APP_NAME \
-        --src scheduler.zip
-      echo "✅ Scheduler deployed"
+API_URL=$(az functionapp show \
+  --name $API_FUNCTION_APP_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --query "defaultHostName" -o tsv 2>/dev/null || echo "")
 
-      echo ""
-      echo "=========================================="
-      echo "Deploying Processor Function App..."
-      echo "=========================================="
-      az functionapp deployment source config-zip \
-        --resource-group $RESOURCE_GROUP \
-        --name $PROCESSOR_FUNCTION_APP_NAME \
-        --src processor.zip
-      echo "✅ Processor deployed"
+echo "=========================================="
+echo "DEPLOYMENT COMPLETE"
+echo "=========================================="
+echo ""
+echo "Function Apps deployed successfully!"
+echo ""
+echo "URLs:"
+echo "  API:      https://$API_URL"
+echo "  Frontend: https://$SWA_URL"
+echo ""
 
-      echo ""
-      echo "=========================================="
-      echo "🎉 Deployment Complete!"
-      echo "=========================================="
-
-      # Output results
-      echo "{\"status\": \"success\", \"version\": \"$VERSION\"}" > $AZ_SCRIPTS_OUTPUT_PATH
+# Output results
+cat > $AZ_SCRIPTS_OUTPUT_PATH << EOF
+{
+  "status": "success",
+  "version": "$VERSION",
+  "functionAppsDeployed": true,
+  "apiUrl": "https://$API_URL",
+  "frontendUrl": "https://$SWA_URL"
+}
+EOF
     '''
   }
 }

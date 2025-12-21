@@ -68,7 +68,15 @@
       "Bash(timeout 10 func start:*)",
       "Bash(git push:*)",
       "Bash(az keyvault list-deleted:*)",
-      "Bash(git tag:*)"
+      "Bash(git tag:*)",
+      "Bash(gh release list:*)",
+      "Bash(gh release view:*)",
+      "Bash(gh workflow list:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(ls:*)",
+      "Bash(git reset:*)",
+      "Bash(az deployment-scripts show-log:*)"
     ],
     "deny": [],
     "ask": []
