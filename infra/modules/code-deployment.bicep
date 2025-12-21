@@ -82,6 +82,39 @@ echo "=========================================="
 echo "Deploying Dilux Database Backup"
 echo "=========================================="
 
+# Function to deploy with retry (for RBAC propagation delay)
+deploy_with_retry() {
+  local app_name=$1
+  local zip_file=$2
+  local max_attempts=5
+  local attempt=1
+  local wait_time=30
+
+  while [ $attempt -le $max_attempts ]; do
+    echo "    Attempt $attempt of $max_attempts..."
+
+    if az functionapp deployment source config-zip \
+      --resource-group $RESOURCE_GROUP \
+      --name $app_name \
+      --src $zip_file \
+      --timeout 300 2>&1; then
+      echo "    Success!"
+      return 0
+    fi
+
+    if [ $attempt -lt $max_attempts ]; then
+      echo "    Failed. Waiting ${wait_time}s for RBAC propagation..."
+      sleep $wait_time
+      wait_time=$((wait_time + 30))
+    fi
+
+    attempt=$((attempt + 1))
+  done
+
+  echo "    ERROR: Failed after $max_attempts attempts"
+  return 1
+}
+
 # Resolve "latest" to actual version tag using GitHub API
 if [ "$VERSION" == "latest" ]; then
   echo "Resolving latest release from GitHub..."
@@ -150,7 +183,18 @@ ls -lh *.zip
 echo ""
 
 # ========================================
-# Deploy Function Apps
+# Wait for RBAC propagation
+# ========================================
+echo "=========================================="
+echo "Waiting for RBAC permissions to propagate..."
+echo "=========================================="
+echo "(Azure AD role assignments can take up to 5 minutes to propagate)"
+sleep 60
+echo "Waited 60 seconds. Starting deployment..."
+echo ""
+
+# ========================================
+# Deploy Function Apps (with retry)
 # ========================================
 echo "=========================================="
 echo "Deploying Function Apps..."
@@ -158,30 +202,24 @@ echo "=========================================="
 
 echo ""
 echo "[1/3] Deploying API Function App: $API_FUNCTION_APP_NAME"
-az functionapp deployment source config-zip \
-  --resource-group $RESOURCE_GROUP \
-  --name $API_FUNCTION_APP_NAME \
-  --src api.zip \
-  --timeout 300
-echo "    API Function App deployed"
+if ! deploy_with_retry $API_FUNCTION_APP_NAME api.zip; then
+  echo '{"status": "failed", "error": "Failed to deploy API Function App"}' > $AZ_SCRIPTS_OUTPUT_PATH
+  exit 1
+fi
 
 echo ""
 echo "[2/3] Deploying Scheduler Function App: $SCHEDULER_FUNCTION_APP_NAME"
-az functionapp deployment source config-zip \
-  --resource-group $RESOURCE_GROUP \
-  --name $SCHEDULER_FUNCTION_APP_NAME \
-  --src scheduler.zip \
-  --timeout 300
-echo "    Scheduler Function App deployed"
+if ! deploy_with_retry $SCHEDULER_FUNCTION_APP_NAME scheduler.zip; then
+  echo '{"status": "failed", "error": "Failed to deploy Scheduler Function App"}' > $AZ_SCRIPTS_OUTPUT_PATH
+  exit 1
+fi
 
 echo ""
 echo "[3/3] Deploying Processor Function App: $PROCESSOR_FUNCTION_APP_NAME"
-az functionapp deployment source config-zip \
-  --resource-group $RESOURCE_GROUP \
-  --name $PROCESSOR_FUNCTION_APP_NAME \
-  --src processor.zip \
-  --timeout 300
-echo "    Processor Function App deployed"
+if ! deploy_with_retry $PROCESSOR_FUNCTION_APP_NAME processor.zip; then
+  echo '{"status": "failed", "error": "Failed to deploy Processor Function App"}' > $AZ_SCRIPTS_OUTPUT_PATH
+  exit 1
+fi
 
 # ========================================
 # Static Web App Info
