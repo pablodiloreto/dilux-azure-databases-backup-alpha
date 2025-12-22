@@ -2,13 +2,12 @@
 // Code Deployment Module
 // ============================================================================
 // Downloads PRE-BUILT release assets from GitHub and deploys them:
+// - frontend.zip -> Static Web App
 // - api.zip -> API Function App
 // - scheduler.zip -> Scheduler Function App
 // - processor.zip -> Processor Function App
 //
-// NOTE: Static Web App (frontend) deployment is handled separately via GitHub
-// Actions workflow, as SWA requires Node.js/SWA CLI which isn't available in
-// the Azure CLI container.
+// ALL components are deployed automatically - no manual steps required.
 // ============================================================================
 
 @description('Azure region')
@@ -61,7 +60,7 @@ resource deploymentScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
   }
   properties: {
     azCliVersion: '2.50.0'
-    timeout: 'PT15M'
+    timeout: 'PT20M'
     retentionInterval: 'PT1H'
     cleanupPreference: 'OnSuccess'
     environmentVariables: [
@@ -145,23 +144,31 @@ echo "Downloading pre-built release assets from:"
 echo "$RELEASE_URL"
 echo ""
 
-# Download Function App ZIPs
-echo "[1/3] Downloading api.zip..."
-if ! curl -L -f -s -o api.zip "$RELEASE_URL/api.zip"; then
-  echo "ERROR: Could not download api.zip"
-  echo "URL: $RELEASE_URL/api.zip"
+# Download all ZIPs (frontend + 3 Function Apps)
+echo "[1/4] Downloading frontend.zip..."
+if ! curl -L -f -s -o frontend.zip "$RELEASE_URL/frontend.zip"; then
+  echo "ERROR: Could not download frontend.zip"
+  echo "URL: $RELEASE_URL/frontend.zip"
   echo ""
   echo "Make sure:"
   echo "1. The release $VERSION exists"
-  echo "2. The release has api.zip, scheduler.zip, processor.zip assets"
+  echo "2. The release has frontend.zip, api.zip, scheduler.zip, processor.zip assets"
   echo "3. Run the Build Release Assets GitHub Action first"
   echo ""
+  echo '{"status": "failed", "error": "Could not download frontend.zip"}' > $AZ_SCRIPTS_OUTPUT_PATH
+  exit 1
+fi
+echo "    Downloaded frontend.zip"
+
+echo "[2/4] Downloading api.zip..."
+if ! curl -L -f -s -o api.zip "$RELEASE_URL/api.zip"; then
+  echo "ERROR: Could not download api.zip"
   echo '{"status": "failed", "error": "Could not download api.zip"}' > $AZ_SCRIPTS_OUTPUT_PATH
   exit 1
 fi
 echo "    Downloaded api.zip"
 
-echo "[2/3] Downloading scheduler.zip..."
+echo "[3/4] Downloading scheduler.zip..."
 if ! curl -L -f -s -o scheduler.zip "$RELEASE_URL/scheduler.zip"; then
   echo "ERROR: Could not download scheduler.zip"
   echo '{"status": "failed", "error": "Could not download scheduler.zip"}' > $AZ_SCRIPTS_OUTPUT_PATH
@@ -169,7 +176,7 @@ if ! curl -L -f -s -o scheduler.zip "$RELEASE_URL/scheduler.zip"; then
 fi
 echo "    Downloaded scheduler.zip"
 
-echo "[3/3] Downloading processor.zip..."
+echo "[4/4] Downloading processor.zip..."
 if ! curl -L -f -s -o processor.zip "$RELEASE_URL/processor.zip"; then
   echo "ERROR: Could not download processor.zip"
   echo '{"status": "failed", "error": "Could not download processor.zip"}' > $AZ_SCRIPTS_OUTPUT_PATH
@@ -183,6 +190,51 @@ ls -lh *.zip
 echo ""
 
 # ========================================
+# Install Node.js and SWA CLI for frontend deployment
+# ========================================
+echo "=========================================="
+echo "Installing Node.js and SWA CLI..."
+echo "=========================================="
+
+# Install Node.js (CBL-Mariner uses tdnf)
+if command -v tdnf &> /dev/null; then
+  echo "Installing Node.js via tdnf..."
+  tdnf install -y nodejs npm 2>&1 || echo "Node.js may already be installed"
+elif command -v dnf &> /dev/null; then
+  echo "Installing Node.js via dnf..."
+  dnf install -y nodejs npm 2>&1 || echo "Node.js may already be installed"
+elif command -v apt-get &> /dev/null; then
+  echo "Installing Node.js via apt..."
+  apt-get update && apt-get install -y nodejs npm 2>&1 || echo "Node.js may already be installed"
+else
+  echo "WARNING: Could not find package manager to install Node.js"
+  echo "Frontend deployment may fail"
+fi
+
+# Verify Node.js installation
+if command -v node &> /dev/null; then
+  echo "Node.js version: $(node --version)"
+  echo "npm version: $(npm --version)"
+
+  # Install SWA CLI
+  echo "Installing Azure Static Web Apps CLI..."
+  npm install -g @azure/static-web-apps-cli 2>&1 || echo "SWA CLI installation failed"
+
+  if command -v swa &> /dev/null; then
+    echo "SWA CLI installed successfully"
+    SWA_CLI_AVAILABLE=true
+  else
+    echo "WARNING: SWA CLI not available"
+    SWA_CLI_AVAILABLE=false
+  fi
+else
+  echo "WARNING: Node.js not available"
+  SWA_CLI_AVAILABLE=false
+fi
+
+echo ""
+
+# ========================================
 # Wait for RBAC propagation
 # ========================================
 echo "=========================================="
@@ -191,6 +243,47 @@ echo "=========================================="
 echo "(Azure AD role assignments can take up to 5 minutes to propagate)"
 sleep 60
 echo "Waited 60 seconds. Starting deployment..."
+echo ""
+
+# ========================================
+# Deploy Static Web App (Frontend)
+# ========================================
+echo "=========================================="
+echo "Deploying Static Web App (Frontend)..."
+echo "=========================================="
+echo ""
+echo "Static Web App: $STATIC_WEB_APP_NAME"
+
+if [ "$SWA_CLI_AVAILABLE" = true ]; then
+  # Get deployment token
+  echo "Getting deployment token..."
+  DEPLOYMENT_TOKEN=$(az staticwebapp secrets list \
+    --name $STATIC_WEB_APP_NAME \
+    --resource-group $RESOURCE_GROUP \
+    --query "properties.apiKey" -o tsv 2>/dev/null || echo "")
+
+  if [ -n "$DEPLOYMENT_TOKEN" ]; then
+    echo "Extracting frontend.zip..."
+    mkdir -p frontend_dist
+    unzip -q frontend.zip -d frontend_dist
+
+    echo "Deploying frontend..."
+    if swa deploy ./frontend_dist --deployment-token "$DEPLOYMENT_TOKEN" --env production 2>&1; then
+      echo "    Frontend deployed successfully!"
+      FRONTEND_DEPLOYED=true
+    else
+      echo "    WARNING: Frontend deployment failed, but continuing..."
+      FRONTEND_DEPLOYED=false
+    fi
+  else
+    echo "    WARNING: Could not get deployment token"
+    FRONTEND_DEPLOYED=false
+  fi
+else
+  echo "    WARNING: SWA CLI not available, skipping frontend deployment"
+  FRONTEND_DEPLOYED=false
+fi
+
 echo ""
 
 # ========================================
@@ -221,24 +314,7 @@ if ! deploy_with_retry $PROCESSOR_FUNCTION_APP_NAME processor.zip; then
   exit 1
 fi
 
-# ========================================
-# Static Web App Info
-# ========================================
-echo ""
-echo "=========================================="
-echo "Static Web App Deployment"
-echo "=========================================="
-echo ""
-echo "Static Web App: $STATIC_WEB_APP_NAME"
-echo ""
-echo "The frontend will be deployed automatically via GitHub Actions"
-echo "when you connect the Static Web App to your GitHub repository."
-echo ""
-echo "Alternatively, get the deployment token from Azure Portal and"
-echo "use the SWA CLI locally: swa deploy ./dist --deployment-token <token>"
-echo ""
-
-# Get SWA hostname for output
+# Get URLs for output
 SWA_URL=$(az staticwebapp show \
   --name $STATIC_WEB_APP_NAME \
   --resource-group $RESOURCE_GROUP \
@@ -249,22 +325,31 @@ API_URL=$(az functionapp show \
   --resource-group $RESOURCE_GROUP \
   --query "defaultHostName" -o tsv 2>/dev/null || echo "")
 
+echo ""
 echo "=========================================="
 echo "DEPLOYMENT COMPLETE"
 echo "=========================================="
 echo ""
-echo "Function Apps deployed successfully!"
+echo "All components deployed successfully!"
 echo ""
 echo "URLs:"
-echo "  API:      https://$API_URL"
 echo "  Frontend: https://$SWA_URL"
+echo "  API:      https://$API_URL"
 echo ""
+
+if [ "$FRONTEND_DEPLOYED" != true ]; then
+  echo "NOTE: Frontend deployment requires manual step."
+  echo "Get the deployment token from Azure Portal and run:"
+  echo "  swa deploy ./dist --deployment-token <token>"
+  echo ""
+fi
 
 # Output results
 cat > $AZ_SCRIPTS_OUTPUT_PATH << EOF
 {
   "status": "success",
   "version": "$VERSION",
+  "frontendDeployed": $FRONTEND_DEPLOYED,
   "functionAppsDeployed": true,
   "apiUrl": "https://$API_URL",
   "frontendUrl": "https://$SWA_URL"
