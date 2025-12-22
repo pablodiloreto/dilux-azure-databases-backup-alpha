@@ -128,6 +128,15 @@ module deploymentIdentity 'modules/identity.bicep' = {
   }
 }
 
+// Contributor role for deployment identity (MUST be native Bicep, not script)
+// This ensures the identity has permissions BEFORE any deployment scripts run
+module rbacDeploymentContributor 'modules/rbac-contributor.bicep' = {
+  name: 'rbac-deployment-contributor'
+  params: {
+    principalId: deploymentIdentity.outputs.principalId
+  }
+}
+
 // ============================================================================
 // Step 2: Static Web App (needed for App Registration redirect URI)
 // ============================================================================
@@ -166,6 +175,7 @@ module appRegistration 'modules/appregistration.bicep' = if (!skipAppRegistratio
   name: 'appregistration-deployment'
   dependsOn: [
     rbacDeploymentKeyVault
+    rbacDeploymentContributor
   ]
   params: {
     appName: appName
@@ -284,6 +294,7 @@ module rbacAssignments 'modules/rbac-resilient.bicep' = {
     functionAppApi
     functionAppScheduler
     functionAppProcessor
+    rbacDeploymentContributor  // Ensure Contributor role is assigned before this script runs
   ]
   params: {
     location: location
@@ -291,13 +302,9 @@ module rbacAssignments 'modules/rbac-resilient.bicep' = {
     identityId: deploymentIdentity.outputs.identityId
     resourceGroupName: resourceGroup().name
     roleAssignments: [
-      // Deployment Identity - Contributor (for code deployment)
-      {
-        principalId: deploymentIdentity.outputs.principalId
-        scope: resourceGroup().id
-        roleId: contributorRoleId
-        description: 'Deployment Identity - Contributor'
-      }
+      // NOTE: Deployment Identity Contributor role is now assigned via native Bicep
+      // (see rbac-contributor.bicep) to ensure it exists BEFORE any scripts run
+
       // API Function App - Key Vault
       {
         principalId: functionAppApi.outputs.principalId
@@ -393,7 +400,8 @@ module codeDeployment 'modules/code-deployment.bicep' = {
     functionAppScheduler
     functionAppProcessor
     staticWebApp
-    rbacAssignments  // Resilient - won't block even if roles exist
+    rbacAssignments
+    rbacDeploymentContributor  // Ensure Contributor role exists before deployment
   ]
   params: {
     location: location
