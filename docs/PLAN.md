@@ -95,6 +95,7 @@
 | v1.0.4 | 2025-12-21 | Fix: Compatibilidad CBL-Mariner (remover apk) |
 | v1.0.5 | 2025-12-21 | Fix: Espera y retry para propagación de RBAC |
 | v1.0.6 | 2025-12-22 | Fix: RBAC Contributor via Bicep nativo (no script) |
+| v1.0.7 | 2025-12-22 | Feat: Deployment automático del frontend (SWA CLI) |
 
 **Convención de nombres (v1.0.2+):**
 ```
@@ -119,6 +120,7 @@ appName = "dilux"  →  dilux-abc123-api, dilux-abc123-scheduler, etc.
 - v1.0.4: RBAC role assignments no propagados a tiempo → Corregido en v1.0.5
 - v1.0.5: AuthorizationFailed - Managed Identity sin Contributor role → **Corregido en v1.0.6**
 - v1.0.6: Infraestructura OK, pero Functions no se registran → **PENDIENTE INVESTIGAR**
+- v1.0.7: Añadido deployment automático de frontend → **PENDIENTE PROBAR**
 
 ### Sesión 2025-12-22: Fix v1.0.6 y nuevo problema
 
@@ -213,7 +215,40 @@ az monitor app-insights query --app diluxbk1-insights --resource-group dilux-bac
   --analytics-query "exceptions | where timestamp > ago(1h) | order by timestamp desc"
 ```
 
-**Nota v1.0.4+:** El deployment script solo despliega las Function Apps. El frontend (Static Web App) debe desplegarse por separado usando SWA CLI o GitHub Actions.
+---
+
+#### v1.0.7: Deployment automático completo
+
+**Cambio:** El script de deployment ahora despliega TODO automáticamente:
+1. Descarga los 4 ZIPs (frontend, api, scheduler, processor)
+2. Instala Node.js y SWA CLI en el container
+3. Obtiene el deployment token del Static Web App
+4. Despliega el frontend con `swa deploy`
+5. Despliega las 3 Function Apps
+
+**Archivos modificados:**
+- `infra/modules/code-deployment.bicep` - Script completo con frontend
+- `infra/azuredeploy.json` - Recompilado
+
+**Pendiente probar mañana:**
+1. Hacer nuevo deployment con v1.0.7
+2. Verificar que el frontend se despliega (no placeholder)
+3. Verificar que las Functions responden (/api/health)
+4. Si Functions siguen en 404, investigar logs de Python
+
+**Para probar:**
+```bash
+# Opción 1: Desde Azure Portal
+# Ir a: https://portal.azure.com/#create/Microsoft.Template/uri/...
+# Usar appVersion=v1.0.7
+
+# Opción 2: Desde CLI (resource group nuevo)
+az group create --name dilux-backup-rg2 --location eastus
+az deployment group create \
+  --resource-group dilux-backup-rg2 \
+  --template-file infra/main.bicep \
+  --parameters appName=diluxtest adminEmail=tu@email.com appVersion=v1.0.7
+```
 
 ---
 
