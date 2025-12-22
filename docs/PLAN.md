@@ -94,6 +94,7 @@
 | v1.0.3 | 2025-12-20 | Fix: Instalar jq en script de RBAC |
 | v1.0.4 | 2025-12-21 | Fix: Compatibilidad CBL-Mariner (remover apk) |
 | v1.0.5 | 2025-12-21 | Fix: Espera y retry para propagación de RBAC |
+| v1.0.6 | 2025-12-22 | Fix: RBAC Contributor via Bicep nativo (no script) |
 
 **Convención de nombres (v1.0.2+):**
 ```
@@ -102,12 +103,12 @@ appName = "dilux"  →  dilux-abc123-api, dilux-abc123-scheduler, etc.
                           sufijo único basado en RG + appName
 ```
 
-### Pendiente: Validar Deploy v1.0.5
+### Pendiente: Validar Deploy v1.0.6
 
 | # | Tarea | Descripción | Estado |
 |---|-------|-------------|--------|
-| 9.1 | Deploy v1.0.5 | Probar deploy completo a Azure | ❌ Falló |
-| 9.2 | Verificar API | Probar /api/health | ⏳ Pendiente |
+| 9.1 | Deploy v1.0.6 | Probar deploy completo a Azure | ✅ Infraestructura OK |
+| 9.2 | Verificar API | Probar /api/health | ❌ 404 - Functions no registradas |
 | 9.3 | Verificar Auth | Login con Azure AD | ⏳ Pendiente |
 | 9.4 | Deploy Frontend | Desplegar frontend manualmente | ⏳ Pendiente |
 | 9.5 | Test Backup | Crear DB y ejecutar backup | ⏳ Pendiente |
@@ -116,21 +117,101 @@ appName = "dilux"  →  dilux-abc123-api, dilux-abc123-scheduler, etc.
 - v1.0.2: Faltaba `jq` en container Azure CLI → Corregido en v1.0.3
 - v1.0.3: `apk add` no existe en CBL-Mariner (Azure CLI no usa Alpine) → Corregido en v1.0.4
 - v1.0.4: RBAC role assignments no propagados a tiempo → Corregido en v1.0.5
-- v1.0.5: "script failed without returning any errors" → **PENDIENTE INVESTIGAR**
+- v1.0.5: AuthorizationFailed - Managed Identity sin Contributor role → **Corregido en v1.0.6**
+- v1.0.6: Infraestructura OK, pero Functions no se registran → **PENDIENTE INVESTIGAR**
 
-### TODO: Investigar error v1.0.5
+### Sesión 2025-12-22: Fix v1.0.6 y nuevo problema
 
-**Error:** `DeploymentScriptError: The provided script failed without returning any errors`
+#### ✅ Resuelto: Error de deployment v1.0.5
 
-**Resource Group:** dilux-backup-rg4
+**Error original:** `DeploymentScriptError: The provided script failed without returning any errors`
 
-**Qué hacer:**
-1. Ver los logs del deployment script en Azure Portal:
-   - Ir a dilux-backup-rg4 → buscar recurso "deploy-application-code" → Logs
-   - O via CLI: `az deployment-scripts show-log --resource-group dilux-backup-rg4 --name deploy-application-code`
-2. El error "without returning any errors" significa que el script crasheó sin capturar el error
-3. Probablemente el script tiene un bug en el manejo de errores o hay un comando que falla silenciosamente
-4. Revisar si `set -e` está causando exit temprano sin mensaje
+**Logs obtenidos (v1.0.5):**
+```
+ERROR: (AuthorizationFailed) The client '...' does not have authorization
+to perform action 'Microsoft.Web/sites/read' over scope '...diluxbk1-fwwxk4-api'
+...
+ERROR: Failed after 5 attempts
+```
+
+**Causa raíz:** Problema circular (chicken-and-egg):
+1. `rbac-resilient.bicep` intentaba asignar rol Contributor a la Managed Identity
+2. Pero el script **usaba** esa misma identity que aún no tenía permisos
+3. El rol Contributor se asignaba via script, pero el script necesitaba ese rol para ejecutarse
+
+**Solución implementada (v1.0.6):**
+1. Creado nuevo módulo `infra/modules/rbac-contributor.bicep`
+2. Asigna rol Contributor usando **Bicep nativo** (no un deployment script)
+3. Se ejecuta inmediatamente después de crear la identity
+4. Actualizado `main.bicep` para que todos los scripts dependan de este módulo
+
+**Archivos modificados:**
+- `infra/modules/rbac-contributor.bicep` (nuevo)
+- `infra/main.bicep` (añadido módulo y dependencias)
+- `infra/azuredeploy.json` (recompilado)
+
+**Resultado del deployment v1.0.6:**
+```
+rbac-deployment-contributor  Succeeded  2025-12-22T04:13:30
+code-deployment              Succeeded  2025-12-22T04:17:17
+main                         Succeeded  2025-12-22T04:17:18
+```
+
+Los 3 Function Apps se desplegaron al **primer intento** (sin retries).
+
+---
+
+#### ❓ Pendiente: Functions no se registran
+
+**Síntoma:**
+- Deployment completa exitosamente
+- API devuelve HTTP 404
+- `az functionapp function list` devuelve lista vacía
+
+**Verificaciones realizadas:**
+1. ✅ Estructura del ZIP correcta:
+   - `function_app.py` (126KB) en raíz
+   - `host.json` en raíz
+   - `requirements.txt` en raíz
+   - `.python_packages/` con dependencias
+
+2. ✅ Configuración de Function App correcta:
+   - `FUNCTIONS_EXTENSION_VERSION`: ~4
+   - `FUNCTIONS_WORKER_RUNTIME`: python
+   - `linuxFxVersion`: PYTHON|3.10
+   - `WEBSITE_RUN_FROM_PACKAGE`: URL del blob con ZIP
+
+3. ❓ Pendiente revisar:
+   - Logs de inicialización del runtime Python
+   - Errores en Application Insights
+   - Si hay problema con imports o dependencias
+
+**Resource Group de prueba:** dilux-backup-rg1
+
+**URLs desplegadas:**
+- API: https://diluxbk1-fwwxk4-api.azurewebsites.net (404)
+- Scheduler: https://diluxbk1-fwwxk4-scheduler.azurewebsites.net
+- Processor: https://diluxbk1-fwwxk4-processor.azurewebsites.net
+- Frontend: https://happy-dune-0ee8df80f.4.azurestaticapps.net
+
+**Comandos útiles para mañana:**
+```bash
+# Ver logs de la Function App
+az webapp log tail --name diluxbk1-fwwxk4-api --resource-group dilux-backup-rg1
+
+# Listar funciones registradas
+az functionapp function list --name diluxbk1-fwwxk4-api --resource-group dilux-backup-rg1
+
+# Reiniciar Function App
+az functionapp restart --name diluxbk1-fwwxk4-api --resource-group dilux-backup-rg1
+
+# Ver configuración completa
+az functionapp config appsettings list --name diluxbk1-fwwxk4-api --resource-group dilux-backup-rg1
+
+# Query Application Insights
+az monitor app-insights query --app diluxbk1-insights --resource-group dilux-backup-rg1 \
+  --analytics-query "exceptions | where timestamp > ago(1h) | order by timestamp desc"
+```
 
 **Nota v1.0.4+:** El deployment script solo despliega las Function Apps. El frontend (Static Web App) debe desplegarse por separado usando SWA CLI o GitHub Actions.
 
