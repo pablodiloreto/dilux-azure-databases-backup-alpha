@@ -15,9 +15,20 @@ from pathlib import Path
 import azure.functions as func
 
 # Add shared package to path
-shared_path = Path(__file__).parent.parent.parent / "shared"
-if str(shared_path) not in sys.path:
-    sys.path.insert(0, str(shared_path))
+# In development: src/functions/processor/function_app.py -> src/shared (3 levels up)
+# In production:  function_app.py + shared/ in same directory (1 level up = same dir)
+dev_shared_path = Path(__file__).parent.parent.parent / "shared"
+prod_shared_path = Path(__file__).parent / "shared"
+
+if prod_shared_path.exists():
+    shared_path = prod_shared_path
+elif dev_shared_path.exists():
+    shared_path = dev_shared_path
+else:
+    shared_path = dev_shared_path  # Fallback for imports to fail with clear error
+
+if str(shared_path.parent) not in sys.path:
+    sys.path.insert(0, str(shared_path.parent))
 
 from shared.config import get_settings
 from shared.models import BackupJob, BackupResult, BackupStatus, DatabaseType
