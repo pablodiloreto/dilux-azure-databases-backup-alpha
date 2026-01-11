@@ -3,8 +3,145 @@
 ## Resumen Ejecutivo
 
 **Release actual**: v1.0.10
-**Estado**: Funcional con un paso manual (frontend deployment)
+**Estado**: ⚠️ PARCIALMENTE FUNCIONAL - Ver problemas críticos abajo
 **Resource Group de prueba**: dilux4-test-rg (activo)
+
+---
+
+## ⛔ PROBLEMAS CRÍTICOS PENDIENTES
+
+### 1. LOGIN CON MICROSOFT NO FUNCIONA
+
+**Síntoma visible**:
+- El frontend muestra **"Modo de desarrollo (Mock Auth)"**
+- Al hacer clic en "Iniciar sesión con Microsoft" **NO PASA NADA**
+- El botón no hace nada, no redirige, no muestra error
+
+**Causa raíz**:
+- El App Registration **FALLA** durante el deployment
+- `azureAdClientId` está **VACÍO** en config.json
+- Por eso `authMode = "mock"` en lugar de `"azure"`
+- En modo mock, el login real está deshabilitado
+
+**Config.json actual** (MAL):
+```json
+{
+  "apiUrl": "https://dilux4-slbkfy-api.azurewebsites.net",
+  "azureClientId": "",        // <-- VACÍO! Este es el problema
+  "azureTenantId": "0247cf34-7abc-4ba3-bcc0-d105e9a29a5f",
+  "azureRedirectUri": "https://thankful-glacier-01ff6d50f.4.azurestaticapps.net",
+  "authMode": "mock"          // <-- Por eso está en mock
+}
+```
+
+**Lo que debería ser** (BIEN):
+```json
+{
+  "apiUrl": "https://dilux4-slbkfy-api.azurewebsites.net",
+  "azureClientId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",  // <-- GUID del App Registration
+  "azureTenantId": "0247cf34-7abc-4ba3-bcc0-d105e9a29a5f",
+  "azureRedirectUri": "https://thankful-glacier-01ff6d50f.4.azurestaticapps.net",
+  "authMode": "azure"         // <-- Cambiaría automáticamente si hay clientId
+}
+```
+
+**Por qué falla el App Registration**:
+- El script en `infra/modules/appregistration.bicep` usa `az ad app create`
+- El Managed Identity NO tiene permisos de Microsoft Graph API
+- Se necesita el permiso `Application.ReadWrite.All` en Graph API
+- Este permiso requiere **consentimiento de admin del tenant**
+
+**Opciones para arreglar**:
+
+1. **OPCIÓN A - Crear App Registration MANUALMENTE** (más fácil):
+   ```
+   1. Ir a Azure Portal > Microsoft Entra ID > App registrations
+   2. Click "New registration"
+   3. Nombre: "Dilux Database Backup"
+   4. Supported account types: "Single tenant"
+   5. Redirect URI:
+      - Platform: "Single-page application (SPA)"
+      - URL: https://thankful-glacier-01ff6d50f.4.azurestaticapps.net
+   6. Click "Register"
+   7. Copiar el "Application (client) ID"
+   8. Actualizar config.json en el frontend con ese ID
+   9. Re-deployar el frontend
+   ```
+
+2. **OPCIÓN B - Dar permisos al Managed Identity** (más complejo):
+   - Requiere ser Global Admin o Privileged Role Admin
+   - Asignar rol "Cloud Application Administrator" al Managed Identity
+   - O dar permiso de Graph API `Application.ReadWrite.All`
+
+3. **OPCIÓN C - Usar un Service Principal pre-existente**:
+   - Crear el App Registration una vez manualmente
+   - Pasar el clientId como parámetro al deployment
+   - Modificar el Bicep para aceptar clientId opcional
+
+---
+
+### 2. FRONTEND NO SE DESPLIEGA AUTOMÁTICAMENTE
+
+**Síntoma visible**:
+- Después del deployment de Azure, el frontend muestra la página default de Azure SWA
+- Hay que deployar manualmente con SWA CLI
+
+**Causa raíz**:
+- El container de deployment (Azure CLI) no tiene Node.js
+- No se puede instalar SWA CLI
+- La API REST que probamos (`content-*.azurestaticapps.net/api/zipdeploy`) retorna 404
+
+**Estado actual**:
+- El script genera `config.json` correctamente ✅
+- Pero NO puede subir los archivos al Static Web App ❌
+
+**Workaround manual** (funciona pero es tedioso):
+```bash
+# Desde una máquina con Node.js
+cd /tmp
+curl -L -o frontend.zip https://github.com/.../releases/download/v1.0.10/frontend.zip
+unzip frontend.zip -d dist
+
+# Crear config.json con los valores correctos
+cat > dist/config.json << 'EOF'
+{
+  "apiUrl": "https://dilux4-slbkfy-api.azurewebsites.net",
+  "azureClientId": "",
+  "azureTenantId": "0247cf34-7abc-4ba3-bcc0-d105e9a29a5f",
+  "azureRedirectUri": "https://thankful-glacier-01ff6d50f.4.azurestaticapps.net",
+  "authMode": "mock"
+}
+EOF
+
+# Obtener token y deployar
+TOKEN=$(az staticwebapp secrets list --name dilux4-slbkfy-web -g dilux4-test-rg --query "properties.apiKey" -o tsv)
+npx @azure/static-web-apps-cli deploy ./dist --deployment-token "$TOKEN" --env production
+```
+
+**Opciones para automatizar** (por investigar):
+1. GitHub Actions con `azure/static-web-apps-deploy@v1`
+2. Usar Azure Container Instance con imagen que tenga Node.js
+3. Investigar si hay otra API REST para SWA deployment
+
+---
+
+### 3. ERROR 404 EN LLAMADAS A LA API (POSIBLE)
+
+**Nota**: Este error puede aparecer si:
+- El frontend no tiene el `config.json` correcto
+- La API URL está mal configurada
+- Hay problemas de CORS
+
+**Verificar**:
+```bash
+# La API funciona?
+curl https://dilux4-slbkfy-api.azurewebsites.net/api/health
+# Debería retornar: {"status": "healthy", ...}
+
+# El config.json está correcto?
+curl https://thankful-glacier-01ff6d50f.4.azurestaticapps.net/config.json
+# Verificar que apiUrl apunte a la API correcta
+```
 
 ---
 
@@ -291,4 +428,27 @@ infra/azuredeploy.json                     # Recompilado
 
 ---
 
-*Última actualización: 11 Enero 2026, 23:35 UTC*
+*Última actualización: 11 Enero 2026, 23:50 UTC*
+
+---
+
+## RESUMEN RÁPIDO PARA CONTINUAR
+
+**3 problemas críticos pendientes:**
+
+1. ❌ **LOGIN NO FUNCIONA** → App Registration falla → clientId vacío → authMode="mock"
+2. ❌ **FRONTEND NO SE DESPLIEGA SOLO** → No hay Node.js en container → API REST no existe
+3. ⚠️ **Posibles 404 en API** → Verificar config.json y CORS
+
+**Para arreglar el login rápidamente:**
+```bash
+# Crear App Registration manualmente en Azure Portal
+# Luego actualizar config.json y re-deployar frontend
+```
+
+**Para continuar el desarrollo:**
+```bash
+# Leer este archivo completo
+# El resource group dilux4-test-rg está activo
+# La API funciona: curl https://dilux4-slbkfy-api.azurewebsites.net/api/health
+```
