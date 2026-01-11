@@ -414,6 +414,8 @@ module codeDeployment 'modules/code-deployment.bicep' = {
     processorFunctionAppName: functionAppProcessorName
     resourceGroupName: resourceGroup().name
     apiBaseUrl: 'https://${functionAppApiName}.azurewebsites.net'
+    azureAdTenantId: tenantId
+    azureAdClientId: clientId
   }
 }
 

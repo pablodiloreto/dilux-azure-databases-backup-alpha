@@ -1,10 +1,12 @@
 import axios, { AxiosInstance, AxiosError } from 'axios'
 import { msalInstance, isAzureAuthEnabled, loginRequest } from '../auth'
+import { getConfig } from '../config'
 
-const API_URL = import.meta.env.VITE_API_URL || '/api'
+// Get API URL from runtime config (loaded from /config.json in production)
+const getApiUrl = () => getConfig().apiUrl
 
 export const apiClient: AxiosInstance = axios.create({
-  baseURL: API_URL,
+  baseURL: getApiUrl(),
   headers: {
     'Content-Type': 'application/json',
   },

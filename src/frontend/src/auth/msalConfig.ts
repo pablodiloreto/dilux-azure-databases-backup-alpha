@@ -3,28 +3,31 @@
  *
  * This configures the Microsoft Authentication Library (MSAL) for
  * single-page application (SPA) authentication with Azure AD.
+ *
+ * Configuration is loaded from:
+ * - /config.json in production (generated during Azure deployment)
+ * - Vite environment variables in development
  */
 
 import { Configuration, LogLevel } from '@azure/msal-browser'
+import { getConfig, isAzureAuthEnabled as checkAzureAuth } from '../config'
 
-// Environment variables
-const clientId = import.meta.env.VITE_AZURE_CLIENT_ID || ''
-const tenantId = import.meta.env.VITE_AZURE_TENANT_ID || ''
-const redirectUri = import.meta.env.VITE_AZURE_REDIRECT_URI || window.location.origin
+// Get config from runtime configuration system
+const getAuthConfig = () => getConfig()
 
-// Auth mode: 'azure' for real auth, 'mock' for development without Azure AD
-export const AUTH_MODE = import.meta.env.VITE_AUTH_MODE || 'mock'
-export const isAzureAuthEnabled = AUTH_MODE === 'azure' && !!clientId && !!tenantId
+// Auth mode and enabled status from runtime config
+export const AUTH_MODE = getAuthConfig().authMode
+export const isAzureAuthEnabled = checkAzureAuth()
 
 /**
  * MSAL Configuration
  */
 export const msalConfig: Configuration = {
   auth: {
-    clientId,
-    authority: `https://login.microsoftonline.com/${tenantId}`,
-    redirectUri,
-    postLogoutRedirectUri: redirectUri,
+    clientId: getAuthConfig().azureClientId,
+    authority: `https://login.microsoftonline.com/${getAuthConfig().azureTenantId}`,
+    redirectUri: getAuthConfig().azureRedirectUri,
+    postLogoutRedirectUri: getAuthConfig().azureRedirectUri,
     navigateToLoginRequestUrl: true,
   },
   cache: {
@@ -78,14 +81,15 @@ export const loginRequest = {
  * Scopes for API calls (if using custom API with Azure AD protection)
  */
 export const apiRequest = {
-  scopes: [`api://${clientId}/access_as_user`],
+  scopes: [`api://${getAuthConfig().azureClientId}/access_as_user`],
 }
 
 /**
  * Check if MSAL is properly configured
  */
 export function isMsalConfigured(): boolean {
-  return !!clientId && !!tenantId
+  const config = getAuthConfig()
+  return !!config.azureClientId && !!config.azureTenantId
 }
 
 /**
@@ -98,11 +102,12 @@ export function getMsalConfigStatus(): {
   redirectUri: string
   authMode: string
 } {
+  const config = getAuthConfig()
   return {
     configured: isMsalConfigured(),
-    clientId: clientId ? `${clientId.substring(0, 8)}...` : '(not set)',
-    tenantId: tenantId ? `${tenantId.substring(0, 8)}...` : '(not set)',
-    redirectUri,
-    authMode: AUTH_MODE,
+    clientId: config.azureClientId ? `${config.azureClientId.substring(0, 8)}...` : '(not set)',
+    tenantId: config.azureTenantId ? `${config.azureTenantId.substring(0, 8)}...` : '(not set)',
+    redirectUri: config.azureRedirectUri,
+    authMode: config.authMode,
   }
 }

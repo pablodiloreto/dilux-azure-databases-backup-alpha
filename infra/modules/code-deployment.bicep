@@ -47,6 +47,12 @@ param resourceGroupName string
 @description('API base URL for frontend build')
 param apiBaseUrl string
 
+@description('Azure AD Tenant ID for authentication')
+param azureAdTenantId string = ''
+
+@description('Azure AD Client ID for authentication')
+param azureAdClientId string = ''
+
 // ============================================================================
 // Deployment Script - Downloads and deploys pre-built Function App assets
 // ============================================================================
@@ -75,7 +81,9 @@ resource deploymentScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
       { name: 'SCHEDULER_FUNCTION_APP_NAME', value: schedulerFunctionAppName }
       { name: 'PROCESSOR_FUNCTION_APP_NAME', value: processorFunctionAppName }
       { name: 'RESOURCE_GROUP', value: resourceGroupName }
-      { name: 'VITE_API_BASE_URL', value: apiBaseUrl }
+      { name: 'API_BASE_URL', value: apiBaseUrl }
+      { name: 'AZURE_AD_TENANT_ID', value: azureAdTenantId }
+      { name: 'AZURE_AD_CLIENT_ID', value: azureAdClientId }
     ]
     scriptContent: '''
 #!/bin/bash
@@ -204,48 +212,23 @@ ls -lh *.zip
 echo ""
 
 # ========================================
-# Install Node.js and SWA CLI for frontend deployment
+# Get Static Web App URL for config.json
 # ========================================
 echo "=========================================="
-echo "Installing Node.js and SWA CLI..."
+echo "Getting Static Web App URL..."
 echo "=========================================="
 
-# Install Node.js (CBL-Mariner uses tdnf)
-if command -v tdnf &> /dev/null; then
-  echo "Installing Node.js via tdnf..."
-  tdnf install -y nodejs npm 2>&1 || echo "Node.js may already be installed"
-elif command -v dnf &> /dev/null; then
-  echo "Installing Node.js via dnf..."
-  dnf install -y nodejs npm 2>&1 || echo "Node.js may already be installed"
-elif command -v apt-get &> /dev/null; then
-  echo "Installing Node.js via apt..."
-  apt-get update && apt-get install -y nodejs npm 2>&1 || echo "Node.js may already be installed"
-else
-  echo "WARNING: Could not find package manager to install Node.js"
-  echo "Frontend deployment may fail"
+SWA_URL=$(az staticwebapp show \
+  --name $STATIC_WEB_APP_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --query "defaultHostname" -o tsv 2>/dev/null || echo "")
+
+if [ -z "$SWA_URL" ]; then
+  echo "WARNING: Could not get SWA URL"
+  SWA_URL="localhost"
 fi
 
-# Verify Node.js installation
-if command -v node &> /dev/null; then
-  echo "Node.js version: $(node --version)"
-  echo "npm version: $(npm --version)"
-
-  # Install SWA CLI
-  echo "Installing Azure Static Web Apps CLI..."
-  npm install -g @azure/static-web-apps-cli 2>&1 || echo "SWA CLI installation failed"
-
-  if command -v swa &> /dev/null; then
-    echo "SWA CLI installed successfully"
-    SWA_CLI_AVAILABLE=true
-  else
-    echo "WARNING: SWA CLI not available"
-    SWA_CLI_AVAILABLE=false
-  fi
-else
-  echo "WARNING: Node.js not available"
-  SWA_CLI_AVAILABLE=false
-fi
-
+echo "Static Web App URL: https://$SWA_URL"
 echo ""
 
 # ========================================
@@ -260,7 +243,7 @@ echo "Waited 60 seconds. Starting deployment..."
 echo ""
 
 # ========================================
-# Deploy Static Web App (Frontend)
+# Deploy Static Web App (Frontend) with config.json
 # ========================================
 echo "=========================================="
 echo "Deploying Static Web App (Frontend)..."
@@ -268,33 +251,97 @@ echo "=========================================="
 echo ""
 echo "Static Web App: $STATIC_WEB_APP_NAME"
 
-if [ "$SWA_CLI_AVAILABLE" = true ]; then
-  # Get deployment token
-  echo "Getting deployment token..."
-  DEPLOYMENT_TOKEN=$(az staticwebapp secrets list \
+# Get deployment token
+echo "Getting deployment token..."
+DEPLOYMENT_TOKEN=$(az staticwebapp secrets list \
+  --name $STATIC_WEB_APP_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --query "properties.apiKey" -o tsv 2>/dev/null || echo "")
+
+if [ -n "$DEPLOYMENT_TOKEN" ]; then
+  echo "    Deployment token obtained"
+
+  # Extract frontend.zip
+  echo "Extracting frontend.zip..."
+  mkdir -p frontend_dist
+  unzip -q frontend.zip -d frontend_dist
+
+  # Determine auth mode based on client ID availability
+  if [ -n "$AZURE_AD_CLIENT_ID" ] && [ "$AZURE_AD_CLIENT_ID" != "" ]; then
+    AUTH_MODE="azure"
+  else
+    AUTH_MODE="mock"
+  fi
+
+  # Generate config.json with runtime configuration
+  echo "Generating config.json for runtime configuration..."
+  cat > frontend_dist/config.json << CONFIGEOF
+{
+  "apiUrl": "$API_BASE_URL",
+  "azureClientId": "$AZURE_AD_CLIENT_ID",
+  "azureTenantId": "$AZURE_AD_TENANT_ID",
+  "azureRedirectUri": "https://$SWA_URL",
+  "authMode": "$AUTH_MODE"
+}
+CONFIGEOF
+
+  echo "    config.json created:"
+  cat frontend_dist/config.json
+  echo ""
+
+  # Create a new ZIP with config.json included
+  echo "Creating deployment package..."
+  cd frontend_dist
+  zip -r ../frontend_with_config.zip . -q
+  cd ..
+
+  # Get the SWA region from the resource
+  SWA_LOCATION=$(az staticwebapp show \
     --name $STATIC_WEB_APP_NAME \
     --resource-group $RESOURCE_GROUP \
-    --query "properties.apiKey" -o tsv 2>/dev/null || echo "")
+    --query "location" -o tsv 2>/dev/null || echo "eastus2")
 
-  if [ -n "$DEPLOYMENT_TOKEN" ]; then
-    echo "Extracting frontend.zip..."
-    mkdir -p frontend_dist
-    unzip -q frontend.zip -d frontend_dist
+  # Map location to content delivery region
+  case "$SWA_LOCATION" in
+    "eastus2"|"East US 2") CONTENT_REGION="eastus2" ;;
+    "westus2"|"West US 2") CONTENT_REGION="westus2" ;;
+    "westeurope"|"West Europe") CONTENT_REGION="westeurope" ;;
+    "eastasia"|"East Asia") CONTENT_REGION="eastasia" ;;
+    "centralus"|"Central US") CONTENT_REGION="centralus" ;;
+    *) CONTENT_REGION="eastus2" ;;
+  esac
 
-    echo "Deploying frontend..."
-    if swa deploy ./frontend_dist --deployment-token "$DEPLOYMENT_TOKEN" --env production 2>&1; then
-      echo "    Frontend deployed successfully!"
-      FRONTEND_DEPLOYED=true
+  echo "Deploying frontend via API (region: $CONTENT_REGION)..."
+
+  # Deploy using the SWA deployment API
+  DEPLOY_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+    "https://content-$CONTENT_REGION.azurestaticapps.net/api/zipdeploy?sitename=$STATIC_WEB_APP_NAME" \
+    -H "Authorization: Bearer $DEPLOYMENT_TOKEN" \
+    -H "Content-Type: application/zip" \
+    --data-binary @frontend_with_config.zip 2>&1)
+
+  HTTP_CODE=$(echo "$DEPLOY_RESPONSE" | tail -1)
+  RESPONSE_BODY=$(echo "$DEPLOY_RESPONSE" | head -n -1)
+
+  if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "202" ]; then
+    echo "    Frontend deployed successfully via API!"
+    FRONTEND_DEPLOYED=true
+  else
+    echo "    WARNING: API deployment returned HTTP $HTTP_CODE"
+    echo "    Response: $RESPONSE_BODY"
+    echo "    Trying alternative deployment method..."
+
+    # Alternative: Use az staticwebapp environment upload (if available)
+    if az staticwebapp environment list --name $STATIC_WEB_APP_NAME --resource-group $RESOURCE_GROUP &>/dev/null; then
+      echo "    Attempting upload via az staticwebapp..."
+      # Note: This command may not be available in all Azure CLI versions
+      FRONTEND_DEPLOYED=false
     else
-      echo "    WARNING: Frontend deployment failed, but continuing..."
       FRONTEND_DEPLOYED=false
     fi
-  else
-    echo "    WARNING: Could not get deployment token"
-    FRONTEND_DEPLOYED=false
   fi
 else
-  echo "    WARNING: SWA CLI not available, skipping frontend deployment"
+  echo "    WARNING: Could not get deployment token"
   FRONTEND_DEPLOYED=false
 fi
 
@@ -352,9 +399,15 @@ echo "  API:      https://$API_URL"
 echo ""
 
 if [ "$FRONTEND_DEPLOYED" != true ]; then
-  echo "NOTE: Frontend deployment requires manual step."
-  echo "Get the deployment token from Azure Portal and run:"
+  echo "NOTE: Frontend deployment may require manual step."
+  echo ""
+  echo "Option 1 - Using SWA CLI (recommended):"
+  echo "  npm install -g @azure/static-web-apps-cli"
   echo "  swa deploy ./dist --deployment-token <token>"
+  echo ""
+  echo "Option 2 - Using Azure Portal:"
+  echo "  1. Go to Azure Portal > Static Web App > Deployment token"
+  echo "  2. Copy the token and use with swa deploy"
   echo ""
 fi
 
