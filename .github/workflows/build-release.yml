@@ -4,15 +4,17 @@
 # This workflow runs when a version tag is pushed (v*) and:
 # 1. Creates a GitHub Release automatically
 # 2. Builds the frontend (React)
-# 3. Packages each Function App with dependencies
+# 3. Packages each Function App (source code only, NO dependencies)
 # 4. Uploads all ZIPs as release assets
+#
+# IMPORTANT: ZIPs do NOT include .python_packages/ because:
+# - Dependencies must be installed on Azure's runtime (glibc compatibility)
+# - Azure Functions uses "remote build" to install from requirements.txt
+# - This avoids GLIBC version mismatch errors with cryptography package
 #
 # Usage:
 #   git tag v1.0.1
 #   git push --tags
-#
-# The Bicep deployment script downloads these pre-built assets,
-# making deployments much faster (~5 min instead of 30+ min timeout).
 # ============================================================================
 
 name: Build Release Assets
@@ -49,10 +51,8 @@ jobs:
           cache: 'npm'
           cache-dependency-path: src/frontend/package-lock.json
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+      # Note: Python setup not needed - we don't install dependencies locally
+      # Azure Functions will install deps via remote build using requirements.txt
 
       # ========================================
       # Build Frontend
@@ -93,19 +93,18 @@ jobs:
         run: |
           cd src/functions/api
 
-          # Install dependencies
-          pip install --target=".python_packages/lib/site-packages" -r requirements.txt --quiet
-
-          # Create ZIP (exclude unnecessary files)
+          # Create ZIP with source code only (NO .python_packages/)
+          # Azure will install dependencies via remote build using requirements.txt
           zip -r ../../../api.zip . \
             -x "*.pyc" \
             -x "*__pycache__*" \
             -x ".venv/*" \
+            -x ".python_packages/*" \
             -x "local.settings.json" \
             -x ".funcignore" \
             -x "*.md"
 
-          echo "✅ API Function App packaged"
+          echo "✅ API Function App packaged (source only, ~100KB)"
 
       # ========================================
       # Build Scheduler Function App
@@ -114,17 +113,17 @@ jobs:
         run: |
           cd src/functions/scheduler
 
-          pip install --target=".python_packages/lib/site-packages" -r requirements.txt --quiet
-
+          # Create ZIP with source code only (NO .python_packages/)
           zip -r ../../../scheduler.zip . \
             -x "*.pyc" \
             -x "*__pycache__*" \
             -x ".venv/*" \
+            -x ".python_packages/*" \
             -x "local.settings.json" \
             -x ".funcignore" \
             -x "*.md"
 
-          echo "✅ Scheduler Function App packaged"
+          echo "✅ Scheduler Function App packaged (source only)"
 
       # ========================================
       # Build Processor Function App
@@ -133,17 +132,17 @@ jobs:
         run: |
           cd src/functions/processor
 
-          pip install --target=".python_packages/lib/site-packages" -r requirements.txt --quiet
-
+          # Create ZIP with source code only (NO .python_packages/)
           zip -r ../../../processor.zip . \
             -x "*.pyc" \
             -x "*__pycache__*" \
             -x ".venv/*" \
+            -x ".python_packages/*" \
             -x "local.settings.json" \
             -x ".funcignore" \
             -x "*.md"
 
-          echo "✅ Processor Function App packaged"
+          echo "✅ Processor Function App packaged (source only)"
 
       # ========================================
       # Show built assets
@@ -164,11 +163,14 @@ jobs:
             ## Dilux Database Backup ${{ steps.version.outputs.version }}
 
             ### Pre-built Assets
-            This release includes pre-built deployment packages:
+            This release includes deployment packages:
             - `frontend.zip` - React frontend (ready to deploy to Static Web App)
-            - `api.zip` - API Function App
-            - `scheduler.zip` - Scheduler Function App
-            - `processor.zip` - Processor Function App
+            - `api.zip` - API Function App (source code, deps installed via remote build)
+            - `scheduler.zip` - Scheduler Function App (source code)
+            - `processor.zip` - Processor Function App (source code)
+
+            > **Note**: Function App ZIPs contain source code only. Dependencies are installed
+            > automatically during deployment using Azure's remote build feature.
 
             ### Deploy to Azure
             Use the "Deploy to Azure" button in the README, or run:

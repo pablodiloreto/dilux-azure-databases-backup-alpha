@@ -1,11 +1,15 @@
 // ============================================================================
 // Code Deployment Module
 // ============================================================================
-// Downloads PRE-BUILT release assets from GitHub and deploys them:
+// Downloads release assets from GitHub and deploys them:
 // - frontend.zip -> Static Web App
-// - api.zip -> API Function App
-// - scheduler.zip -> Scheduler Function App
-// - processor.zip -> Processor Function App
+// - api.zip -> API Function App (source only, deps via remote build)
+// - scheduler.zip -> Scheduler Function App (source only)
+// - processor.zip -> Processor Function App (source only)
+//
+// IMPORTANT: Function App ZIPs contain source code only (no .python_packages/).
+// Dependencies are installed via Azure's remote build using requirements.txt.
+// This avoids GLIBC version mismatch errors with the cryptography package.
 //
 // ALL components are deployed automatically - no manual steps required.
 // ============================================================================
@@ -60,7 +64,7 @@ resource deploymentScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
   }
   properties: {
     azCliVersion: '2.50.0'
-    timeout: 'PT20M'
+    timeout: 'PT30M'  // Increased for remote build (installs Python dependencies)
     retentionInterval: 'PT1H'
     cleanupPreference: 'OnSuccess'
     environmentVariables: [
@@ -81,23 +85,33 @@ echo "=========================================="
 echo "Deploying Dilux Database Backup"
 echo "=========================================="
 
-# Function to deploy with retry (for RBAC propagation delay)
-deploy_with_retry() {
+# Function to deploy with remote build (installs dependencies on Azure)
+deploy_with_remote_build() {
   local app_name=$1
   local zip_file=$2
   local max_attempts=5
   local attempt=1
   local wait_time=30
 
-  while [ $attempt -le $max_attempts ]; do
-    echo "    Attempt $attempt of $max_attempts..."
+  # Enable remote build settings
+  echo "    Configuring remote build..."
+  az functionapp config appsettings set \
+    --name $app_name \
+    --resource-group $RESOURCE_GROUP \
+    --settings "SCM_DO_BUILD_DURING_DEPLOYMENT=true" "ENABLE_ORYX_BUILD=true" \
+    -o none 2>&1 || true
 
+  while [ $attempt -le $max_attempts ]; do
+    echo "    Attempt $attempt of $max_attempts (with remote build)..."
+
+    # Use --build-remote true to install dependencies on Azure
     if az functionapp deployment source config-zip \
       --resource-group $RESOURCE_GROUP \
       --name $app_name \
       --src $zip_file \
-      --timeout 300 2>&1; then
-      echo "    Success!"
+      --build-remote true \
+      --timeout 600 2>&1; then
+      echo "    Success! (dependencies installed via remote build)"
       return 0
     fi
 
@@ -295,21 +309,21 @@ echo "=========================================="
 
 echo ""
 echo "[1/3] Deploying API Function App: $API_FUNCTION_APP_NAME"
-if ! deploy_with_retry $API_FUNCTION_APP_NAME api.zip; then
+if ! deploy_with_remote_build $API_FUNCTION_APP_NAME api.zip; then
   echo '{"status": "failed", "error": "Failed to deploy API Function App"}' > $AZ_SCRIPTS_OUTPUT_PATH
   exit 1
 fi
 
 echo ""
 echo "[2/3] Deploying Scheduler Function App: $SCHEDULER_FUNCTION_APP_NAME"
-if ! deploy_with_retry $SCHEDULER_FUNCTION_APP_NAME scheduler.zip; then
+if ! deploy_with_remote_build $SCHEDULER_FUNCTION_APP_NAME scheduler.zip; then
   echo '{"status": "failed", "error": "Failed to deploy Scheduler Function App"}' > $AZ_SCRIPTS_OUTPUT_PATH
   exit 1
 fi
 
 echo ""
 echo "[3/3] Deploying Processor Function App: $PROCESSOR_FUNCTION_APP_NAME"
-if ! deploy_with_retry $PROCESSOR_FUNCTION_APP_NAME processor.zip; then
+if ! deploy_with_remote_build $PROCESSOR_FUNCTION_APP_NAME processor.zip; then
   echo '{"status": "failed", "error": "Failed to deploy Processor Function App"}' > $AZ_SCRIPTS_OUTPUT_PATH
   exit 1
 fi

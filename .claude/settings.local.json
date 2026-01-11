@@ -92,7 +92,15 @@
       "Bash(az functionapp log download:*)",
       "Bash(unzip:*)",
       "Bash(az webapp log:*)",
-      "Bash(az group delete:*)"
+      "Bash(az group delete:*)",
+      "Bash(az group create:*)",
+      "Bash(for i in 1 2 3 4 5)",
+      "Bash(do echo \"Request $i:\")",
+      "Bash(done)",
+      "Bash(az functionapp deployment source config-zip:*)",
+      "Bash(az functionapp config appsettings set:*)",
+      "Bash(git checkout:*)",
+      "Bash(zip:*)"
     ],
     "deny": [],
     "ask": []
