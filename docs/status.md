@@ -440,11 +440,59 @@ infra/azuredeploy.json                     # Recompilado
 2. ❌ **FRONTEND NO SE DESPLIEGA SOLO** → No hay Node.js en container → API REST no existe
 3. ⚠️ **Posibles 404 en API** → Verificar config.json y CORS
 
-**Para arreglar el login rápidamente:**
-```bash
-# Crear App Registration manualmente en Azure Portal
-# Luego actualizar config.json y re-deployar frontend
+---
+
+## PLAN DE SOLUCIÓN (PENDIENTE DE EJECUTAR)
+
+### Contexto importante - NO OLVIDAR:
+- **GitHub Actions SOLO crea releases** (builds del código en ZIPs)
+- **"Deploy to Azure" debe hacer TODO automático** (sin pasos manuales)
+- Cientos de usuarios van a usar el botón, no pueden depender de nada externo
+- La arquitectura actual es CORRECTA, solo fallan 2 puntos técnicos
+
+### Problema 1: LOGIN NO FUNCIONA
+**Tarea**: Investigar por qué falla `appregistration.bicep` y ARREGLARLO.
+- Ver logs del deployment script de app registration
+- Identificar error exacto (¿permisos? ¿API? ¿sintaxis?)
+- Buscar cómo dar permisos de Graph API al Managed Identity
+- O encontrar método alternativo para crear App Registration desde Bicep
+- **Objetivo**: Que el App Registration se cree automáticamente en el deployment
+
+### Problema 2: FRONTEND NO SE DESPLIEGA
+**Tarea**: Encontrar método para deployar frontend DENTRO del deployment script.
+- NO usar GitHub Actions (no es opción para deploy de usuarios)
+- NO depender de Node.js/SWA CLI (no está disponible en el container)
+- Investigar API REST correcta de Azure Static Web Apps
+- O encontrar comando de Azure CLI que funcione (`az staticwebapp` ?)
+- **Objetivo**: Que el frontend se deploye automáticamente con config.json correcto
+
+### Problema 3: 404 EN API
+**Tarea**: Investigar causa exacta y solucionar.
+- Revisar configuración CORS en Function Apps
+- Verificar que config.json tenga URLs correctas
+- Probar llamadas desde el frontend
+- **Objetivo**: Que las llamadas del frontend a la API funcionen
+
+### Flujo esperado (objetivo final):
 ```
+Usuario hace clic en "Deploy to Azure"
+    ↓
+Bicep crea infraestructura (storage, functions, SWA, etc.)
+    ↓
+Bicep crea App Registration automáticamente ← FALLA HOY
+    ↓
+Bicep descarga ZIPs del release de GitHub
+    ↓
+Bicep despliega Function Apps (ya funciona ✅)
+    ↓
+Bicep genera config.json con URLs correctas (ya funciona ✅)
+    ↓
+Bicep despliega frontend al SWA ← FALLA HOY
+    ↓
+Usuario accede a la URL y TODO FUNCIONA
+```
+
+---
 
 **Para continuar el desarrollo:**
 ```bash
