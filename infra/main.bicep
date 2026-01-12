@@ -52,9 +52,6 @@ var functionAppApiName = '${appName}-${shortSuffix}-api'
 var functionAppSchedulerName = '${appName}-${shortSuffix}-scheduler'
 var functionAppProcessorName = '${appName}-${shortSuffix}-processor'
 
-// Static Web App (globally unique - need suffix)
-var staticWebAppName = '${appName}-${shortSuffix}-web'
-
 // These are resource-group scoped (don't need unique suffix)
 var appInsightsName = '${appName}-insights'
 var appServicePlanName = '${appName}-plan'
@@ -138,24 +135,7 @@ module rbacDeploymentContributor 'modules/rbac-contributor.bicep' = {
 }
 
 // ============================================================================
-// Step 2: Static Web App (needed for App Registration redirect URI)
-// ============================================================================
-
-// Static Web App (React Frontend) - Deploy early to get hostname
-module staticWebApp 'modules/staticwebapp.bicep' = {
-  name: 'staticwebapp-deployment'
-  params: {
-    staticWebAppName: staticWebAppName
-    location: location
-    tags: tags
-    apiBaseUrl: 'https://${functionAppApiName}.azurewebsites.net'
-    tenantId: tenantId
-    clientId: '' // Will be updated after App Registration
-  }
-}
-
-// ============================================================================
-// Step 3: RBAC for Deployment Identity
+// Step 2: RBAC for Deployment Identity
 // ============================================================================
 
 // Give deployment identity Key Vault Secrets Officer role
@@ -168,7 +148,7 @@ module rbacDeploymentKeyVault 'modules/rbac-keyvault-officer.bicep' = {
 }
 
 // ============================================================================
-// Step 4: App Registration (via Deployment Script)
+// Step 3: App Registration (via Deployment Script)
 // ============================================================================
 
 module appRegistration 'modules/appregistration.bicep' = if (!skipAppRegistration) {
@@ -181,7 +161,7 @@ module appRegistration 'modules/appregistration.bicep' = if (!skipAppRegistratio
     appName: appName
     location: location
     tags: tags
-    staticWebAppHostname: staticWebApp.outputs.defaultHostnameClean
+    storageAccountName: storage.outputs.storageAccountName
     apiFunctionAppHostname: '${functionAppApiName}.azurewebsites.net'
     keyVaultName: keyVault.outputs.keyVaultName
     managedIdentityId: deploymentIdentity.outputs.identityId
@@ -189,7 +169,7 @@ module appRegistration 'modules/appregistration.bicep' = if (!skipAppRegistratio
 }
 
 // ============================================================================
-// Step 5: Function Apps (depend on App Registration)
+// Step 4: Function Apps (depend on App Registration)
 // ============================================================================
 
 // Get client ID from App Registration or use empty string if skipped
@@ -220,6 +200,7 @@ module functionAppApi 'modules/functionapp.bicep' = {
       INSTALLATION_ID: installationId
       AZURE_AD_TENANT_ID: tenantId
       AZURE_AD_CLIENT_ID: clientId
+      AUTH_MODE: empty(clientId) ? 'mock' : 'azure'
     }
   }
 }
@@ -246,6 +227,7 @@ module functionAppScheduler 'modules/functionapp.bicep' = {
       FUNCTION_APP_TYPE: 'scheduler'
       APP_VERSION: appVersion
       INSTALLATION_ID: installationId
+      AUTH_MODE: empty(clientId) ? 'mock' : 'azure'
     }
   }
 }
@@ -272,12 +254,13 @@ module functionAppProcessor 'modules/functionapp.bicep' = {
       FUNCTION_APP_TYPE: 'processor'
       APP_VERSION: appVersion
       INSTALLATION_ID: installationId
+      AUTH_MODE: empty(clientId) ? 'mock' : 'azure'
     }
   }
 }
 
 // ============================================================================
-// Step 6: RBAC for Function Apps (Resilient - won't fail on re-deploy)
+// Step 5: RBAC for Function Apps (Resilient - won't fail on re-deploy)
 // ============================================================================
 
 // Role definition IDs
@@ -388,9 +371,10 @@ module rbacAssignments 'modules/rbac-resilient.bicep' = {
 }
 
 // ============================================================================
-// Step 7: Code Deployment
+// Step 6: Code Deployment
 // ============================================================================
 // Deploy application code from GitHub Release
+// Frontend is deployed to Blob Storage Static Website
 
 // Deploy application code
 module codeDeployment 'modules/code-deployment.bicep' = {
@@ -399,7 +383,6 @@ module codeDeployment 'modules/code-deployment.bicep' = {
     functionAppApi
     functionAppScheduler
     functionAppProcessor
-    staticWebApp
     rbacAssignments
     rbacDeploymentContributor  // Ensure Contributor role exists before deployment
   ]
@@ -408,7 +391,6 @@ module codeDeployment 'modules/code-deployment.bicep' = {
     tags: tags
     identityId: deploymentIdentity.outputs.identityId
     version: appVersion
-    staticWebAppName: staticWebAppName
     apiFunctionAppName: functionAppApiName
     schedulerFunctionAppName: functionAppSchedulerName
     processorFunctionAppName: functionAppProcessorName
@@ -416,6 +398,7 @@ module codeDeployment 'modules/code-deployment.bicep' = {
     apiBaseUrl: 'https://${functionAppApiName}.azurewebsites.net'
     azureAdTenantId: tenantId
     azureAdClientId: clientId
+    storageAccountName: storage.outputs.storageAccountName
   }
 }
 
@@ -426,8 +409,8 @@ module codeDeployment 'modules/code-deployment.bicep' = {
 @description('URL of the API Function App')
 output apiUrl string = 'https://${functionAppApiName}.azurewebsites.net'
 
-@description('URL of the Static Web App (Frontend)')
-output frontendUrl string = staticWebApp.outputs.defaultHostname
+@description('URL of the Frontend (Blob Storage Static Website - check deployment logs for exact URL)')
+output frontendUrl string = 'See deployment logs for frontend URL (Blob Storage Static Website)'
 
 @description('Storage Account name')
 output storageAccountName string = storage.outputs.storageAccountName
@@ -457,7 +440,7 @@ output azureAdTenantId string = tenantId
 output appRegistrationSuccess bool = skipAppRegistration ? false : appRegistration.outputs.success
 
 @description('Next steps message')
-output nextSteps string = (skipAppRegistration || !appRegistration.outputs.success) ? 'App Registration requires manual setup. Check deployment logs for instructions.' : 'Deployment complete! Access the app at https://${staticWebApp.outputs.defaultHostname}'
+output nextSteps string = (skipAppRegistration || !appRegistration.outputs.success) ? 'App Registration requires manual setup. Check deployment logs for instructions.' : 'Deployment complete! Check deployment logs for frontend URL.'
 
 @description('Code deployment status')
 output codeDeploymentStatus string = codeDeployment.outputs.status

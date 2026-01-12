@@ -168,8 +168,9 @@ def get_current_user(
     if storage_service is None:
         storage_service = StorageService()
 
-    # Development bypass (only when AUTH_MODE is mock)
-    if IS_DEVELOPMENT and AUTH_MODE == "mock":
+    # Mock auth bypass (when AUTH_MODE is mock, regardless of environment)
+    # This allows testing without Azure AD in any environment
+    if AUTH_MODE == "mock":
         return _get_dev_user(storage_service)
 
     # Validate Azure AD token

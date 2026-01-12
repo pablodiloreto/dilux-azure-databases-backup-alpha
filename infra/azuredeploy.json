@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "12527307465526338197"
+      "templateHash": "1674975154457592447"
     }
   },
   "parameters": {
@@ -73,7 +73,6 @@
     "functionAppApiName": "[format('{0}-{1}-api', parameters('appName'), variables('shortSuffix'))]",
     "functionAppSchedulerName": "[format('{0}-{1}-scheduler', parameters('appName'), variables('shortSuffix'))]",
     "functionAppProcessorName": "[format('{0}-{1}-processor', parameters('appName'), variables('shortSuffix'))]",
-    "staticWebAppName": "[format('{0}-{1}-web', parameters('appName'), variables('shortSuffix'))]",
     "appInsightsName": "[format('{0}-insights', parameters('appName'))]",
     "appServicePlanName": "[format('{0}-plan', parameters('appName'))]",
     "deploymentIdentityName": "[format('{0}-deploy-identity', parameters('appName'))]",
@@ -119,7 +118,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "17117786387198307596"
+              "templateHash": "11228603459106108061"
             }
           },
           "parameters": {
@@ -157,7 +156,7 @@
                 "accessTier": "Hot",
                 "supportsHttpsTrafficOnly": true,
                 "minimumTlsVersion": "TLS1_2",
-                "allowBlobPublicAccess": false,
+                "allowBlobPublicAccess": true,
                 "networkAcls": {
                   "defaultAction": "Allow",
                   "bypass": "AzureServices"
@@ -827,161 +826,6 @@
     {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
-      "name": "staticwebapp-deployment",
-      "properties": {
-        "expressionEvaluationOptions": {
-          "scope": "inner"
-        },
-        "mode": "Incremental",
-        "parameters": {
-          "staticWebAppName": {
-            "value": "[variables('staticWebAppName')]"
-          },
-          "location": {
-            "value": "[parameters('location')]"
-          },
-          "tags": {
-            "value": "[variables('tags')]"
-          },
-          "apiBaseUrl": {
-            "value": "[format('https://{0}.azurewebsites.net', variables('functionAppApiName'))]"
-          },
-          "tenantId": {
-            "value": "[variables('tenantId')]"
-          },
-          "clientId": {
-            "value": ""
-          }
-        },
-        "template": {
-          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-          "contentVersion": "1.0.0.0",
-          "metadata": {
-            "_generator": {
-              "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "3843008348940777103"
-            }
-          },
-          "parameters": {
-            "staticWebAppName": {
-              "type": "string",
-              "metadata": {
-                "description": "Name of the Static Web App"
-              }
-            },
-            "location": {
-              "type": "string",
-              "metadata": {
-                "description": "Azure region (Static Web Apps have limited regions)"
-              }
-            },
-            "tags": {
-              "type": "object",
-              "metadata": {
-                "description": "Tags to apply"
-              }
-            },
-            "apiBaseUrl": {
-              "type": "string",
-              "metadata": {
-                "description": "API base URL for the backend"
-              }
-            },
-            "tenantId": {
-              "type": "string",
-              "metadata": {
-                "description": "Azure AD Tenant ID"
-              }
-            },
-            "clientId": {
-              "type": "string",
-              "metadata": {
-                "description": "Azure AD Client ID"
-              }
-            }
-          },
-          "variables": {
-            "staticWebAppLocation": "[if(contains(createArray('eastus2', 'westus2', 'westeurope', 'eastasia', 'centralus'), parameters('location')), parameters('location'), 'eastus2')]"
-          },
-          "resources": [
-            {
-              "type": "Microsoft.Web/staticSites",
-              "apiVersion": "2023-01-01",
-              "name": "[parameters('staticWebAppName')]",
-              "location": "[variables('staticWebAppLocation')]",
-              "tags": "[parameters('tags')]",
-              "sku": {
-                "name": "Free",
-                "tier": "Free"
-              },
-              "properties": {
-                "stagingEnvironmentPolicy": "Enabled",
-                "allowConfigFileUpdates": true,
-                "buildProperties": {
-                  "appLocation": "src/frontend",
-                  "apiLocation": "",
-                  "outputLocation": "dist"
-                }
-              }
-            },
-            {
-              "type": "Microsoft.Web/staticSites/config",
-              "apiVersion": "2023-01-01",
-              "name": "[format('{0}/{1}', parameters('staticWebAppName'), 'appsettings')]",
-              "properties": {
-                "VITE_API_BASE_URL": "[parameters('apiBaseUrl')]",
-                "VITE_AZURE_AD_TENANT_ID": "[parameters('tenantId')]",
-                "VITE_AZURE_AD_CLIENT_ID": "[parameters('clientId')]"
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.Web/staticSites', parameters('staticWebAppName'))]"
-              ]
-            }
-          ],
-          "outputs": {
-            "staticWebAppName": {
-              "type": "string",
-              "metadata": {
-                "description": "Static Web App name"
-              },
-              "value": "[parameters('staticWebAppName')]"
-            },
-            "defaultHostname": {
-              "type": "string",
-              "metadata": {
-                "description": "Static Web App default hostname (with https)"
-              },
-              "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/staticSites', parameters('staticWebAppName')), '2023-01-01').defaultHostname)]"
-            },
-            "defaultHostnameClean": {
-              "type": "string",
-              "metadata": {
-                "description": "Static Web App default hostname (without protocol, for redirect URIs)"
-              },
-              "value": "[reference(resourceId('Microsoft.Web/staticSites', parameters('staticWebAppName')), '2023-01-01').defaultHostname]"
-            },
-            "resourceId": {
-              "type": "string",
-              "metadata": {
-                "description": "Static Web App resource ID"
-              },
-              "value": "[resourceId('Microsoft.Web/staticSites', parameters('staticWebAppName'))]"
-            },
-            "deploymentToken": {
-              "type": "string",
-              "metadata": {
-                "description": "Deployment token (for CI/CD)"
-              },
-              "value": "[listSecrets(resourceId('Microsoft.Web/staticSites', parameters('staticWebAppName')), '2023-01-01').properties.apiKey]"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "Microsoft.Resources/deployments",
-      "apiVersion": "2025-04-01",
       "name": "rbac-deployment-keyvault",
       "properties": {
         "expressionEvaluationOptions": {
@@ -1072,8 +916,8 @@
           "tags": {
             "value": "[variables('tags')]"
           },
-          "staticWebAppHostname": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'staticwebapp-deployment'), '2025-04-01').outputs.defaultHostnameClean.value]"
+          "storageAccountName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
           },
           "apiFunctionAppHostname": {
             "value": "[format('{0}.azurewebsites.net', variables('functionAppApiName'))]"
@@ -1092,7 +936,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "10459075157730796584"
+              "templateHash": "12716660450442657765"
             }
           },
           "parameters": {
@@ -1114,10 +958,10 @@
                 "description": "Tags to apply"
               }
             },
-            "staticWebAppHostname": {
+            "storageAccountName": {
               "type": "string",
               "metadata": {
-                "description": "Static Web App default hostname (for redirect URI)"
+                "description": "Storage Account name (for redirect URI - uses Static Website)"
               }
             },
             "apiFunctionAppHostname": {
@@ -1164,8 +1008,8 @@
                     "value": "[parameters('appName')]"
                   },
                   {
-                    "name": "STATIC_WEB_APP_HOSTNAME",
-                    "value": "[parameters('staticWebAppHostname')]"
+                    "name": "STORAGE_ACCOUNT_NAME",
+                    "value": "[parameters('storageAccountName')]"
                   },
                   {
                     "name": "API_HOSTNAME",
@@ -1176,7 +1020,7 @@
                     "value": "[parameters('keyVaultName')]"
                   }
                 ],
-                "scriptContent": "      #!/bin/bash\n      set -e\n\n      echo \"==========================================\"\n      echo \"Creating Azure AD App Registration\"\n      echo \"==========================================\"\n\n      # Check if we have permissions to create app registrations\n      echo \"Checking permissions...\"\n\n      # Try to create the app registration\n      APP_DISPLAY_NAME=\"Dilux Database Backup - ${APP_NAME}\"\n\n      # Check if app already exists\n      EXISTING_APP=$(az ad app list --display-name \"$APP_DISPLAY_NAME\" --query \"[0].appId\" -o tsv 2>/dev/null || echo \"\")\n\n      if [ -n \"$EXISTING_APP\" ] && [ \"$EXISTING_APP\" != \"None\" ]; then\n        echo \"App Registration already exists: $EXISTING_APP\"\n        CLIENT_ID=$EXISTING_APP\n      else\n        echo \"Creating new App Registration...\"\n\n        # Create the app registration\n        CREATE_RESULT=$(az ad app create \\\n          --display-name \"$APP_DISPLAY_NAME\" \\\n          --sign-in-audience \"AzureADMyOrg\" \\\n          --web-redirect-uris \"https://${STATIC_WEB_APP_HOSTNAME}\" \"https://${STATIC_WEB_APP_HOSTNAME}/auth/callback\" \\\n          --enable-id-token-issuance true \\\n          --enable-access-token-issuance true \\\n          2>&1) || {\n            echo \"==========================================\"\n            echo \"ERROR: No se pudo crear el App Registration\"\n            echo \"==========================================\"\n            echo \"\"\n            echo \"El usuario que ejecuta el deploy no tiene permisos para crear\"\n            echo \"App Registrations en Azure AD.\"\n            echo \"\"\n            echo \"SOLUCIÓN MANUAL:\"\n            echo \"1. Ve a Azure Portal → Azure Active Directory → App registrations\"\n            echo \"2. Click en 'New registration'\"\n            echo \"3. Nombre: $APP_DISPLAY_NAME\"\n            echo \"4. Supported account types: Single tenant\"\n            echo \"5. Redirect URI (Web): https://${STATIC_WEB_APP_HOSTNAME}\"\n            echo \"6. Después de crear, ve a 'Authentication' y agrega:\"\n            echo \"   - https://${STATIC_WEB_APP_HOSTNAME}/auth/callback\"\n            echo \"   - Marca 'ID tokens' y 'Access tokens'\"\n            echo \"7. Copia el 'Application (client) ID'\"\n            echo \"8. Ve a 'Certificates & secrets' → 'New client secret'\"\n            echo \"9. Guarda el secret en Key Vault: $KEY_VAULT_NAME\"\n            echo \"   - Nombre del secret: azure-ad-client-secret\"\n            echo \"10. Actualiza las Function Apps con:\"\n            echo \"    - AZURE_AD_CLIENT_ID = <tu client id>\"\n            echo \"\"\n            echo \"==========================================\"\n\n            # Output empty values so the deployment doesn't fail completely\n            echo \"{\\\"clientId\\\": \\\"\\\", \\\"success\\\": false, \\\"message\\\": \\\"Manual setup required\\\"}\" > $AZ_SCRIPTS_OUTPUT_PATH\n            exit 0\n          }\n\n        CLIENT_ID=$(echo $CREATE_RESULT | jq -r '.appId')\n        echo \"App Registration created: $CLIENT_ID\"\n      fi\n\n      # Create a client secret\n      echo \"Creating client secret...\"\n      SECRET_RESULT=$(az ad app credential reset \\\n        --id $CLIENT_ID \\\n        --display-name \"Dilux Backup Secret\" \\\n        --years 2 \\\n        --query password -o tsv 2>/dev/null) || {\n          echo \"Warning: Could not create client secret. Manual setup may be required.\"\n          SECRET_RESULT=\"\"\n        }\n\n      # Store the secret in Key Vault\n      if [ -n \"$SECRET_RESULT\" ]; then\n        echo \"Storing client secret in Key Vault...\"\n        az keyvault secret set \\\n          --vault-name \"$KEY_VAULT_NAME\" \\\n          --name \"azure-ad-client-secret\" \\\n          --value \"$SECRET_RESULT\" \\\n          --only-show-errors || echo \"Warning: Could not store secret in Key Vault\"\n\n        # Also store the client ID\n        az keyvault secret set \\\n          --vault-name \"$KEY_VAULT_NAME\" \\\n          --name \"azure-ad-client-id\" \\\n          --value \"$CLIENT_ID\" \\\n          --only-show-errors || echo \"Warning: Could not store client ID in Key Vault\"\n      fi\n\n      # Get tenant ID\n      TENANT_ID=$(az account show --query tenantId -o tsv)\n\n      echo \"==========================================\"\n      echo \"App Registration configured successfully!\"\n      echo \"==========================================\"\n      echo \"Client ID: $CLIENT_ID\"\n      echo \"Tenant ID: $TENANT_ID\"\n      echo \"Redirect URIs configured for: https://${STATIC_WEB_APP_HOSTNAME}\"\n      echo \"==========================================\"\n\n      # Output the results\n      echo \"{\\\"clientId\\\": \\\"$CLIENT_ID\\\", \\\"tenantId\\\": \\\"$TENANT_ID\\\", \\\"success\\\": true}\" > $AZ_SCRIPTS_OUTPUT_PATH\n    "
+                "scriptContent": "      #!/bin/bash\n      set -e\n\n      echo \"==========================================\"\n      echo \"Creating Azure AD App Registration (SPA)\"\n      echo \"==========================================\"\n\n      # Get the Storage Static Website URL\n      # Note: Static website might not be enabled yet, so we'll use a predictable URL pattern\n      # The actual URL will be available after code-deployment enables static website\n      STORAGE_WEB_URL=$(az storage account show \\\n        --name \"$STORAGE_ACCOUNT_NAME\" \\\n        --query \"primaryEndpoints.web\" -o tsv 2>/dev/null | sed 's:/*$::' || echo \"\")\n\n      if [ -z \"$STORAGE_WEB_URL\" ]; then\n        # If static website isn't enabled yet, we can't get the URL\n        # The App Registration will need to be updated manually later\n        echo \"WARNING: Storage static website not yet enabled\"\n        echo \"App Registration redirect URIs will need to be updated after deployment\"\n        STORAGE_WEB_URL=\"https://localhost\"\n      fi\n\n      echo \"Storage Website URL: $STORAGE_WEB_URL\"\n\n      APP_DISPLAY_NAME=\"Dilux Database Backup - ${APP_NAME}\"\n      REDIRECT_URI_1=\"${STORAGE_WEB_URL}\"\n      REDIRECT_URI_2=\"${STORAGE_WEB_URL}/auth/callback\"\n\n      # Check if app already exists using Graph API\n      echo \"Checking if App Registration already exists...\"\n      EXISTING_APP=$(az rest --method GET \\\n        --uri \"https://graph.microsoft.com/v1.0/applications?\\$filter=displayName eq '${APP_DISPLAY_NAME}'\" \\\n        --query \"value[0].appId\" -o tsv 2>/dev/null || echo \"\")\n\n      if [ -n \"$EXISTING_APP\" ] && [ \"$EXISTING_APP\" != \"None\" ] && [ \"$EXISTING_APP\" != \"null\" ]; then\n        echo \"App Registration already exists: $EXISTING_APP\"\n        CLIENT_ID=$EXISTING_APP\n\n        # Get Object ID for updates\n        OBJECT_ID=$(az rest --method GET \\\n          --uri \"https://graph.microsoft.com/v1.0/applications?\\$filter=displayName eq '${APP_DISPLAY_NAME}'\" \\\n          --query \"value[0].id\" -o tsv 2>/dev/null || echo \"\")\n\n        # Update SPA redirect URIs if needed\n        echo \"Updating SPA redirect URIs...\"\n        az rest --method PATCH \\\n          --uri \"https://graph.microsoft.com/v1.0/applications/${OBJECT_ID}\" \\\n          --headers \"Content-Type=application/json\" \\\n          --body \"{\\\"spa\\\":{\\\"redirectUris\\\":[\\\"${REDIRECT_URI_1}\\\",\\\"${REDIRECT_URI_2}\\\"]}}\" \\\n          2>/dev/null || echo \"Warning: Could not update redirect URIs\"\n      else\n        echo \"Creating new App Registration with SPA redirect URIs...\"\n\n        # Create app using Graph API with SPA redirect URIs\n        CREATE_RESULT=$(az rest --method POST \\\n          --uri \"https://graph.microsoft.com/v1.0/applications\" \\\n          --headers \"Content-Type=application/json\" \\\n          --body \"{\n            \\\"displayName\\\": \\\"${APP_DISPLAY_NAME}\\\",\n            \\\"signInAudience\\\": \\\"AzureADMyOrg\\\",\n            \\\"spa\\\": {\n              \\\"redirectUris\\\": [\\\"${REDIRECT_URI_1}\\\", \\\"${REDIRECT_URI_2}\\\"]\n            },\n            \\\"requiredResourceAccess\\\": [\n              {\n                \\\"resourceAppId\\\": \\\"00000003-0000-0000-c000-000000000000\\\",\n                \\\"resourceAccess\\\": [\n                  {\n                    \\\"id\\\": \\\"e1fe6dd8-ba31-4d61-89e7-88639da4683d\\\",\n                    \\\"type\\\": \\\"Scope\\\"\n                  }\n                ]\n              }\n            ]\n          }\" 2>&1) || {\n            echo \"==========================================\"\n            echo \"ERROR: No se pudo crear el App Registration\"\n            echo \"==========================================\"\n            echo \"\"\n            echo \"El Managed Identity no tiene permisos de Microsoft Graph API\"\n            echo \"para crear App Registrations.\"\n            echo \"\"\n            echo \"SOLUCIÓN MANUAL:\"\n            echo \"1. Ve a Azure Portal → Microsoft Entra ID → App registrations\"\n            echo \"2. Click en 'New registration'\"\n            echo \"3. Nombre: ${APP_DISPLAY_NAME}\"\n            echo \"4. Supported account types: Single tenant\"\n            echo \"5. Redirect URI: Select 'Single-page application (SPA)'\"\n            echo \"   URL: ${REDIRECT_URI_1}\"\n            echo \"6. Click 'Register'\"\n            echo \"7. Ve a 'Authentication' y agrega otro redirect URI:\"\n            echo \"   ${REDIRECT_URI_2}\"\n            echo \"8. Copia el 'Application (client) ID'\"\n            echo \"9. Actualiza el archivo config.json en el frontend con:\"\n            echo \"   - azureClientId: <tu client id>\"\n            echo \"   - authMode: azure\"\n            echo \"\"\n            echo \"==========================================\"\n\n            # Output empty values so the deployment doesn't fail completely\n            echo \"{\\\"clientId\\\": \\\"\\\", \\\"success\\\": false, \\\"message\\\": \\\"Manual setup required\\\"}\" > $AZ_SCRIPTS_OUTPUT_PATH\n            exit 0\n          }\n\n        CLIENT_ID=$(echo \"$CREATE_RESULT\" | jq -r '.appId')\n        OBJECT_ID=$(echo \"$CREATE_RESULT\" | jq -r '.id')\n\n        if [ -z \"$CLIENT_ID\" ] || [ \"$CLIENT_ID\" == \"null\" ]; then\n          echo \"ERROR: Failed to extract Client ID from response\"\n          echo \"Response: $CREATE_RESULT\"\n          echo \"{\\\"clientId\\\": \\\"\\\", \\\"success\\\": false, \\\"message\\\": \\\"Failed to create app\\\"}\" > $AZ_SCRIPTS_OUTPUT_PATH\n          exit 0\n        fi\n\n        echo \"App Registration created successfully!\"\n        echo \"Client ID: $CLIENT_ID\"\n        echo \"Object ID: $OBJECT_ID\"\n      fi\n\n      # Store the client ID in Key Vault\n      echo \"Storing client ID in Key Vault...\"\n      az keyvault secret set \\\n        --vault-name \"$KEY_VAULT_NAME\" \\\n        --name \"azure-ad-client-id\" \\\n        --value \"$CLIENT_ID\" \\\n        --only-show-errors 2>/dev/null || echo \"Warning: Could not store client ID in Key Vault\"\n\n      # Get tenant ID\n      TENANT_ID=$(az account show --query tenantId -o tsv)\n\n      echo \"==========================================\"\n      echo \"App Registration configured successfully!\"\n      echo \"==========================================\"\n      echo \"Client ID: $CLIENT_ID\"\n      echo \"Tenant ID: $TENANT_ID\"\n      echo \"Redirect URIs (SPA):\"\n      echo \"  - ${REDIRECT_URI_1}\"\n      echo \"  - ${REDIRECT_URI_2}\"\n      echo \"==========================================\"\n\n      # Output the results\n      echo \"{\\\"clientId\\\": \\\"$CLIENT_ID\\\", \\\"tenantId\\\": \\\"$TENANT_ID\\\", \\\"success\\\": true}\" > $AZ_SCRIPTS_OUTPUT_PATH\n    "
               }
             }
           ],
@@ -1210,7 +1054,7 @@
         "[resourceId('Microsoft.Resources/deployments', 'keyvault-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'rbac-deployment-contributor')]",
         "[resourceId('Microsoft.Resources/deployments', 'rbac-deployment-keyvault')]",
-        "[resourceId('Microsoft.Resources/deployments', 'staticwebapp-deployment')]"
+        "[resourceId('Microsoft.Resources/deployments', 'storage-deployment')]"
       ]
     },
     {
@@ -1265,7 +1109,8 @@
               "APP_VERSION": "[parameters('appVersion')]",
               "INSTALLATION_ID": "[variables('installationId')]",
               "AZURE_AD_TENANT_ID": "[variables('tenantId')]",
-              "AZURE_AD_CLIENT_ID": "[if(parameters('skipAppRegistration'), '', if(reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.success.value, reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.clientId.value, ''))]"
+              "AZURE_AD_CLIENT_ID": "[if(parameters('skipAppRegistration'), '', if(reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.success.value, reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.clientId.value, ''))]",
+              "AUTH_MODE": "[if(empty(if(parameters('skipAppRegistration'), '', if(reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.success.value, reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.clientId.value, ''))), 'mock', 'azure')]"
             }
           }
         },
@@ -1276,7 +1121,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "13760038921440905211"
+              "templateHash": "9594556621634665573"
             }
           },
           "parameters": {
@@ -1427,7 +1272,9 @@
                   "cors": {
                     "allowedOrigins": [
                       "https://portal.azure.com",
-                      "https://*.azurestaticapps.net"
+                      "https://*.web.core.windows.net",
+                      "http://localhost:3000",
+                      "http://localhost:5173"
                     ],
                     "supportCredentials": true
                   }
@@ -1531,7 +1378,8 @@
             "value": {
               "FUNCTION_APP_TYPE": "scheduler",
               "APP_VERSION": "[parameters('appVersion')]",
-              "INSTALLATION_ID": "[variables('installationId')]"
+              "INSTALLATION_ID": "[variables('installationId')]",
+              "AUTH_MODE": "[if(empty(if(parameters('skipAppRegistration'), '', if(reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.success.value, reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.clientId.value, ''))), 'mock', 'azure')]"
             }
           }
         },
@@ -1542,7 +1390,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "13760038921440905211"
+              "templateHash": "9594556621634665573"
             }
           },
           "parameters": {
@@ -1693,7 +1541,9 @@
                   "cors": {
                     "allowedOrigins": [
                       "https://portal.azure.com",
-                      "https://*.azurestaticapps.net"
+                      "https://*.web.core.windows.net",
+                      "http://localhost:3000",
+                      "http://localhost:5173"
                     ],
                     "supportCredentials": true
                   }
@@ -1797,7 +1647,8 @@
             "value": {
               "FUNCTION_APP_TYPE": "processor",
               "APP_VERSION": "[parameters('appVersion')]",
-              "INSTALLATION_ID": "[variables('installationId')]"
+              "INSTALLATION_ID": "[variables('installationId')]",
+              "AUTH_MODE": "[if(empty(if(parameters('skipAppRegistration'), '', if(reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.success.value, reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.clientId.value, ''))), 'mock', 'azure')]"
             }
           }
         },
@@ -1808,7 +1659,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "13760038921440905211"
+              "templateHash": "9594556621634665573"
             }
           },
           "parameters": {
@@ -1959,7 +1810,9 @@
                   "cors": {
                     "allowedOrigins": [
                       "https://portal.azure.com",
-                      "https://*.azurestaticapps.net"
+                      "https://*.web.core.windows.net",
+                      "http://localhost:3000",
+                      "http://localhost:5173"
                     ],
                     "supportCredentials": true
                   }
@@ -2231,9 +2084,6 @@
           "version": {
             "value": "[parameters('appVersion')]"
           },
-          "staticWebAppName": {
-            "value": "[variables('staticWebAppName')]"
-          },
           "apiFunctionAppName": {
             "value": "[variables('functionAppApiName')]"
           },
@@ -2252,7 +2102,10 @@
           "azureAdTenantId": {
             "value": "[variables('tenantId')]"
           },
-          "azureAdClientId": "[if(parameters('skipAppRegistration'), createObject('value', ''), if(reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.success.value, createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.clientId.value), createObject('value', '')))]"
+          "azureAdClientId": "[if(parameters('skipAppRegistration'), createObject('value', ''), if(reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.success.value, createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.clientId.value), createObject('value', '')))]",
+          "storageAccountName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
+          }
         },
         "template": {
           "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
@@ -2261,7 +2114,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "9037880473587540488"
+              "templateHash": "2537465606607577452"
             }
           },
           "parameters": {
@@ -2294,12 +2147,6 @@
               "type": "string",
               "metadata": {
                 "description": "Version to deploy (GitHub release tag)"
-              }
-            },
-            "staticWebAppName": {
-              "type": "string",
-              "metadata": {
-                "description": "Static Web App name"
               }
             },
             "apiFunctionAppName": {
@@ -2345,6 +2192,13 @@
               "metadata": {
                 "description": "Azure AD Client ID for authentication"
               }
+            },
+            "storageAccountName": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Storage Account name for uploading frontend ZIP"
+              }
             }
           },
           "resources": [
@@ -2376,10 +2230,6 @@
                     "value": "[parameters('version')]"
                   },
                   {
-                    "name": "STATIC_WEB_APP_NAME",
-                    "value": "[parameters('staticWebAppName')]"
-                  },
-                  {
                     "name": "API_FUNCTION_APP_NAME",
                     "value": "[parameters('apiFunctionAppName')]"
                   },
@@ -2406,9 +2256,13 @@
                   {
                     "name": "AZURE_AD_CLIENT_ID",
                     "value": "[parameters('azureAdClientId')]"
+                  },
+                  {
+                    "name": "STORAGE_ACCOUNT_NAME",
+                    "value": "[parameters('storageAccountName')]"
                   }
                 ],
-                "scriptContent": "#!/bin/bash\nset -e\n\necho \"==========================================\"\necho \"Deploying Dilux Database Backup\"\necho \"==========================================\"\n\n# Function to deploy with remote build (installs dependencies on Azure)\ndeploy_with_remote_build() {\n  local app_name=$1\n  local zip_file=$2\n  local max_attempts=5\n  local attempt=1\n  local wait_time=30\n\n  # Enable remote build settings\n  echo \"    Configuring remote build...\"\n  az functionapp config appsettings set \\\n    --name $app_name \\\n    --resource-group $RESOURCE_GROUP \\\n    --settings \"SCM_DO_BUILD_DURING_DEPLOYMENT=true\" \"ENABLE_ORYX_BUILD=true\" \\\n    -o none 2>&1 || true\n\n  while [ $attempt -le $max_attempts ]; do\n    echo \"    Attempt $attempt of $max_attempts (with remote build)...\"\n\n    # Use --build-remote true to install dependencies on Azure\n    if az functionapp deployment source config-zip \\\n      --resource-group $RESOURCE_GROUP \\\n      --name $app_name \\\n      --src $zip_file \\\n      --build-remote true \\\n      --timeout 600 2>&1; then\n      echo \"    Success! (dependencies installed via remote build)\"\n      return 0\n    fi\n\n    if [ $attempt -lt $max_attempts ]; then\n      echo \"    Failed. Waiting ${wait_time}s for RBAC propagation...\"\n      sleep $wait_time\n      wait_time=$((wait_time + 30))\n    fi\n\n    attempt=$((attempt + 1))\n  done\n\n  echo \"    ERROR: Failed after $max_attempts attempts\"\n  return 1\n}\n\n# Resolve \"latest\" to actual version tag using GitHub API\nif [ \"$VERSION\" == \"latest\" ]; then\n  echo \"Resolving latest release from GitHub...\"\n\n  RELEASE_INFO=$(curl -s \"https://api.github.com/repos/$GITHUB_REPO/releases/latest\")\n  RESOLVED_VERSION=$(echo \"$RELEASE_INFO\" | grep '\"tag_name\"' | head -1 | sed -E 's/.*\"tag_name\": *\"([^\"]+)\".*/\\1/')\n\n  if [ -z \"$RESOLVED_VERSION\" ] || [ \"$RESOLVED_VERSION\" == \"null\" ]; then\n    echo \"ERROR: Could not resolve latest release\"\n    echo \"Make sure the repository has at least one published release.\"\n    echo '{\"status\": \"failed\", \"error\": \"No releases found\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n    exit 1\n  fi\n\n  echo \"Resolved latest to: $RESOLVED_VERSION\"\n  VERSION=$RESOLVED_VERSION\nfi\n\necho \"Version: $VERSION\"\necho \"Repository: $GITHUB_REPO\"\necho \"==========================================\"\n\n# Base URL for release assets\nRELEASE_URL=\"https://github.com/$GITHUB_REPO/releases/download/$VERSION\"\n\necho \"\"\necho \"Downloading pre-built release assets from:\"\necho \"$RELEASE_URL\"\necho \"\"\n\n# Download all ZIPs (frontend + 3 Function Apps)\necho \"[1/4] Downloading frontend.zip...\"\nif ! curl -L -f -s -o frontend.zip \"$RELEASE_URL/frontend.zip\"; then\n  echo \"ERROR: Could not download frontend.zip\"\n  echo \"URL: $RELEASE_URL/frontend.zip\"\n  echo \"\"\n  echo \"Make sure:\"\n  echo \"1. The release $VERSION exists\"\n  echo \"2. The release has frontend.zip, api.zip, scheduler.zip, processor.zip assets\"\n  echo \"3. Run the Build Release Assets GitHub Action first\"\n  echo \"\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download frontend.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded frontend.zip\"\n\necho \"[2/4] Downloading api.zip...\"\nif ! curl -L -f -s -o api.zip \"$RELEASE_URL/api.zip\"; then\n  echo \"ERROR: Could not download api.zip\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download api.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded api.zip\"\n\necho \"[3/4] Downloading scheduler.zip...\"\nif ! curl -L -f -s -o scheduler.zip \"$RELEASE_URL/scheduler.zip\"; then\n  echo \"ERROR: Could not download scheduler.zip\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download scheduler.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded scheduler.zip\"\n\necho \"[4/4] Downloading processor.zip...\"\nif ! curl -L -f -s -o processor.zip \"$RELEASE_URL/processor.zip\"; then\n  echo \"ERROR: Could not download processor.zip\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download processor.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded processor.zip\"\n\necho \"\"\necho \"All assets downloaded successfully:\"\nls -lh *.zip\necho \"\"\n\n# ========================================\n# Get Static Web App URL for config.json\n# ========================================\necho \"==========================================\"\necho \"Getting Static Web App URL...\"\necho \"==========================================\"\n\nSWA_URL=$(az staticwebapp show \\\n  --name $STATIC_WEB_APP_NAME \\\n  --resource-group $RESOURCE_GROUP \\\n  --query \"defaultHostname\" -o tsv 2>/dev/null || echo \"\")\n\nif [ -z \"$SWA_URL\" ]; then\n  echo \"WARNING: Could not get SWA URL\"\n  SWA_URL=\"localhost\"\nfi\n\necho \"Static Web App URL: https://$SWA_URL\"\necho \"\"\n\n# ========================================\n# Wait for RBAC propagation\n# ========================================\necho \"==========================================\"\necho \"Waiting for RBAC permissions to propagate...\"\necho \"==========================================\"\necho \"(Azure AD role assignments can take up to 5 minutes to propagate)\"\nsleep 60\necho \"Waited 60 seconds. Starting deployment...\"\necho \"\"\n\n# ========================================\n# Deploy Static Web App (Frontend) with config.json\n# ========================================\necho \"==========================================\"\necho \"Deploying Static Web App (Frontend)...\"\necho \"==========================================\"\necho \"\"\necho \"Static Web App: $STATIC_WEB_APP_NAME\"\n\n# Get deployment token\necho \"Getting deployment token...\"\nDEPLOYMENT_TOKEN=$(az staticwebapp secrets list \\\n  --name $STATIC_WEB_APP_NAME \\\n  --resource-group $RESOURCE_GROUP \\\n  --query \"properties.apiKey\" -o tsv 2>/dev/null || echo \"\")\n\nif [ -n \"$DEPLOYMENT_TOKEN\" ]; then\n  echo \"    Deployment token obtained\"\n\n  # Extract frontend.zip\n  echo \"Extracting frontend.zip...\"\n  mkdir -p frontend_dist\n  unzip -q frontend.zip -d frontend_dist\n\n  # Determine auth mode based on client ID availability\n  if [ -n \"$AZURE_AD_CLIENT_ID\" ] && [ \"$AZURE_AD_CLIENT_ID\" != \"\" ]; then\n    AUTH_MODE=\"azure\"\n  else\n    AUTH_MODE=\"mock\"\n  fi\n\n  # Generate config.json with runtime configuration\n  echo \"Generating config.json for runtime configuration...\"\n  cat > frontend_dist/config.json << CONFIGEOF\n{\n  \"apiUrl\": \"$API_BASE_URL\",\n  \"azureClientId\": \"$AZURE_AD_CLIENT_ID\",\n  \"azureTenantId\": \"$AZURE_AD_TENANT_ID\",\n  \"azureRedirectUri\": \"https://$SWA_URL\",\n  \"authMode\": \"$AUTH_MODE\"\n}\nCONFIGEOF\n\n  echo \"    config.json created:\"\n  cat frontend_dist/config.json\n  echo \"\"\n\n  # Create a new ZIP with config.json included\n  echo \"Creating deployment package...\"\n  cd frontend_dist\n  zip -r ../frontend_with_config.zip . -q\n  cd ..\n\n  # Get the SWA region from the resource\n  SWA_LOCATION=$(az staticwebapp show \\\n    --name $STATIC_WEB_APP_NAME \\\n    --resource-group $RESOURCE_GROUP \\\n    --query \"location\" -o tsv 2>/dev/null || echo \"eastus2\")\n\n  # Map location to content delivery region\n  case \"$SWA_LOCATION\" in\n    \"eastus2\"|\"East US 2\") CONTENT_REGION=\"eastus2\" ;;\n    \"westus2\"|\"West US 2\") CONTENT_REGION=\"westus2\" ;;\n    \"westeurope\"|\"West Europe\") CONTENT_REGION=\"westeurope\" ;;\n    \"eastasia\"|\"East Asia\") CONTENT_REGION=\"eastasia\" ;;\n    \"centralus\"|\"Central US\") CONTENT_REGION=\"centralus\" ;;\n    *) CONTENT_REGION=\"eastus2\" ;;\n  esac\n\n  echo \"Deploying frontend via API (region: $CONTENT_REGION)...\"\n\n  # Deploy using the SWA deployment API\n  DEPLOY_RESPONSE=$(curl -s -w \"\\n%{http_code}\" -X POST \\\n    \"https://content-$CONTENT_REGION.azurestaticapps.net/api/zipdeploy?sitename=$STATIC_WEB_APP_NAME\" \\\n    -H \"Authorization: Bearer $DEPLOYMENT_TOKEN\" \\\n    -H \"Content-Type: application/zip\" \\\n    --data-binary @frontend_with_config.zip 2>&1)\n\n  HTTP_CODE=$(echo \"$DEPLOY_RESPONSE\" | tail -1)\n  RESPONSE_BODY=$(echo \"$DEPLOY_RESPONSE\" | head -n -1)\n\n  if [ \"$HTTP_CODE\" = \"200\" ] || [ \"$HTTP_CODE\" = \"202\" ]; then\n    echo \"    Frontend deployed successfully via API!\"\n    FRONTEND_DEPLOYED=true\n  else\n    echo \"    WARNING: API deployment returned HTTP $HTTP_CODE\"\n    echo \"    Response: $RESPONSE_BODY\"\n    echo \"    Trying alternative deployment method...\"\n\n    # Alternative: Use az staticwebapp environment upload (if available)\n    if az staticwebapp environment list --name $STATIC_WEB_APP_NAME --resource-group $RESOURCE_GROUP &>/dev/null; then\n      echo \"    Attempting upload via az staticwebapp...\"\n      # Note: This command may not be available in all Azure CLI versions\n      FRONTEND_DEPLOYED=false\n    else\n      FRONTEND_DEPLOYED=false\n    fi\n  fi\nelse\n  echo \"    WARNING: Could not get deployment token\"\n  FRONTEND_DEPLOYED=false\nfi\n\necho \"\"\n\n# ========================================\n# Deploy Function Apps (with retry)\n# ========================================\necho \"==========================================\"\necho \"Deploying Function Apps...\"\necho \"==========================================\"\n\necho \"\"\necho \"[1/3] Deploying API Function App: $API_FUNCTION_APP_NAME\"\nif ! deploy_with_remote_build $API_FUNCTION_APP_NAME api.zip; then\n  echo '{\"status\": \"failed\", \"error\": \"Failed to deploy API Function App\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\n\necho \"\"\necho \"[2/3] Deploying Scheduler Function App: $SCHEDULER_FUNCTION_APP_NAME\"\nif ! deploy_with_remote_build $SCHEDULER_FUNCTION_APP_NAME scheduler.zip; then\n  echo '{\"status\": \"failed\", \"error\": \"Failed to deploy Scheduler Function App\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\n\necho \"\"\necho \"[3/3] Deploying Processor Function App: $PROCESSOR_FUNCTION_APP_NAME\"\nif ! deploy_with_remote_build $PROCESSOR_FUNCTION_APP_NAME processor.zip; then\n  echo '{\"status\": \"failed\", \"error\": \"Failed to deploy Processor Function App\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\n\n# Get URLs for output\nSWA_URL=$(az staticwebapp show \\\n  --name $STATIC_WEB_APP_NAME \\\n  --resource-group $RESOURCE_GROUP \\\n  --query \"defaultHostname\" -o tsv 2>/dev/null || echo \"\")\n\nAPI_URL=$(az functionapp show \\\n  --name $API_FUNCTION_APP_NAME \\\n  --resource-group $RESOURCE_GROUP \\\n  --query \"defaultHostName\" -o tsv 2>/dev/null || echo \"\")\n\necho \"\"\necho \"==========================================\"\necho \"DEPLOYMENT COMPLETE\"\necho \"==========================================\"\necho \"\"\necho \"All components deployed successfully!\"\necho \"\"\necho \"URLs:\"\necho \"  Frontend: https://$SWA_URL\"\necho \"  API:      https://$API_URL\"\necho \"\"\n\nif [ \"$FRONTEND_DEPLOYED\" != true ]; then\n  echo \"NOTE: Frontend deployment may require manual step.\"\n  echo \"\"\n  echo \"Option 1 - Using SWA CLI (recommended):\"\n  echo \"  npm install -g @azure/static-web-apps-cli\"\n  echo \"  swa deploy ./dist --deployment-token <token>\"\n  echo \"\"\n  echo \"Option 2 - Using Azure Portal:\"\n  echo \"  1. Go to Azure Portal > Static Web App > Deployment token\"\n  echo \"  2. Copy the token and use with swa deploy\"\n  echo \"\"\nfi\n\n# Output results\ncat > $AZ_SCRIPTS_OUTPUT_PATH << EOF\n{\n  \"status\": \"success\",\n  \"version\": \"$VERSION\",\n  \"frontendDeployed\": $FRONTEND_DEPLOYED,\n  \"functionAppsDeployed\": true,\n  \"apiUrl\": \"https://$API_URL\",\n  \"frontendUrl\": \"https://$SWA_URL\"\n}\nEOF\n    "
+                "scriptContent": "#!/bin/bash\nset -e\n\necho \"==========================================\"\necho \"Deploying Dilux Database Backup\"\necho \"==========================================\"\n\n# Function to deploy with remote build (installs dependencies on Azure)\ndeploy_with_remote_build() {\n  local app_name=$1\n  local zip_file=$2\n  local max_attempts=5\n  local attempt=1\n  local wait_time=30\n\n  # Enable remote build settings\n  echo \"    Configuring remote build...\"\n  az functionapp config appsettings set \\\n    --name $app_name \\\n    --resource-group $RESOURCE_GROUP \\\n    --settings \"SCM_DO_BUILD_DURING_DEPLOYMENT=true\" \"ENABLE_ORYX_BUILD=true\" \\\n    -o none 2>&1 || true\n\n  while [ $attempt -le $max_attempts ]; do\n    echo \"    Attempt $attempt of $max_attempts (with remote build)...\"\n\n    # Use --build-remote true to install dependencies on Azure\n    if az functionapp deployment source config-zip \\\n      --resource-group $RESOURCE_GROUP \\\n      --name $app_name \\\n      --src $zip_file \\\n      --build-remote true \\\n      --timeout 600 2>&1; then\n      echo \"    Success! (dependencies installed via remote build)\"\n      return 0\n    fi\n\n    if [ $attempt -lt $max_attempts ]; then\n      echo \"    Failed. Waiting ${wait_time}s for RBAC propagation...\"\n      sleep $wait_time\n      wait_time=$((wait_time + 30))\n    fi\n\n    attempt=$((attempt + 1))\n  done\n\n  echo \"    ERROR: Failed after $max_attempts attempts\"\n  return 1\n}\n\n# Resolve \"latest\" to actual version tag using GitHub API\nif [ \"$VERSION\" == \"latest\" ]; then\n  echo \"Resolving latest release from GitHub...\"\n\n  RELEASE_INFO=$(curl -s \"https://api.github.com/repos/$GITHUB_REPO/releases/latest\")\n  RESOLVED_VERSION=$(echo \"$RELEASE_INFO\" | grep '\"tag_name\"' | head -1 | sed -E 's/.*\"tag_name\": *\"([^\"]+)\".*/\\1/')\n\n  if [ -z \"$RESOLVED_VERSION\" ] || [ \"$RESOLVED_VERSION\" == \"null\" ]; then\n    echo \"ERROR: Could not resolve latest release\"\n    echo \"Make sure the repository has at least one published release.\"\n    echo '{\"status\": \"failed\", \"error\": \"No releases found\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n    exit 1\n  fi\n\n  echo \"Resolved latest to: $RESOLVED_VERSION\"\n  VERSION=$RESOLVED_VERSION\nfi\n\necho \"Version: $VERSION\"\necho \"Repository: $GITHUB_REPO\"\necho \"==========================================\"\n\n# Base URL for release assets\nRELEASE_URL=\"https://github.com/$GITHUB_REPO/releases/download/$VERSION\"\n\necho \"\"\necho \"Downloading pre-built release assets from:\"\necho \"$RELEASE_URL\"\necho \"\"\n\n# Download all ZIPs (frontend + 3 Function Apps)\necho \"[1/4] Downloading frontend.zip...\"\nif ! curl -L -f -s -o frontend.zip \"$RELEASE_URL/frontend.zip\"; then\n  echo \"ERROR: Could not download frontend.zip\"\n  echo \"URL: $RELEASE_URL/frontend.zip\"\n  echo \"\"\n  echo \"Make sure:\"\n  echo \"1. The release $VERSION exists\"\n  echo \"2. The release has frontend.zip, api.zip, scheduler.zip, processor.zip assets\"\n  echo \"3. Run the Build Release Assets GitHub Action first\"\n  echo \"\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download frontend.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded frontend.zip\"\n\necho \"[2/4] Downloading api.zip...\"\nif ! curl -L -f -s -o api.zip \"$RELEASE_URL/api.zip\"; then\n  echo \"ERROR: Could not download api.zip\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download api.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded api.zip\"\n\necho \"[3/4] Downloading scheduler.zip...\"\nif ! curl -L -f -s -o scheduler.zip \"$RELEASE_URL/scheduler.zip\"; then\n  echo \"ERROR: Could not download scheduler.zip\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download scheduler.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded scheduler.zip\"\n\necho \"[4/4] Downloading processor.zip...\"\nif ! curl -L -f -s -o processor.zip \"$RELEASE_URL/processor.zip\"; then\n  echo \"ERROR: Could not download processor.zip\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download processor.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded processor.zip\"\n\necho \"\"\necho \"All assets downloaded successfully:\"\nls -lh *.zip\necho \"\"\n\n# ========================================\n# Wait for RBAC propagation\n# ========================================\necho \"==========================================\"\necho \"Waiting for RBAC permissions to propagate...\"\necho \"==========================================\"\necho \"(Azure AD role assignments can take up to 5 minutes to propagate)\"\nsleep 60\necho \"Waited 60 seconds. Starting deployment...\"\necho \"\"\n\n# ========================================\n# Deploy Frontend to Blob Storage Static Website\n# ========================================\necho \"==========================================\"\necho \"Deploying Frontend to Blob Storage Static Website...\"\necho \"==========================================\"\necho \"\"\n\n# Get storage account\nif [ -n \"$STORAGE_ACCOUNT_NAME\" ]; then\n  STORAGE_ACCOUNT=\"$STORAGE_ACCOUNT_NAME\"\nelse\n  STORAGE_ACCOUNT=$(az storage account list --resource-group $RESOURCE_GROUP --query \"[0].name\" -o tsv 2>/dev/null || echo \"\")\nfi\n\nif [ -z \"$STORAGE_ACCOUNT\" ]; then\n  echo \"ERROR: Could not find storage account\"\n  FRONTEND_DEPLOYED=false\n  FRONTEND_URL=\"\"\nelse\n  echo \"Storage Account: $STORAGE_ACCOUNT\"\n\n  # Get storage account key\n  echo \"Getting storage account key...\"\n  ACCOUNT_KEY=$(az storage account keys list --account-name $STORAGE_ACCOUNT --resource-group $RESOURCE_GROUP --query \"[0].value\" -o tsv 2>/dev/null)\n\n  if [ -z \"$ACCOUNT_KEY\" ]; then\n    echo \"ERROR: Could not get storage account key\"\n    FRONTEND_DEPLOYED=false\n    FRONTEND_URL=\"\"\n  else\n    # Enable static website on storage account\n    echo \"Enabling static website on storage account...\"\n    az storage blob service-properties update \\\n      --account-name $STORAGE_ACCOUNT \\\n      --account-key \"$ACCOUNT_KEY\" \\\n      --static-website \\\n      --index-document index.html \\\n      --404-document index.html \\\n      --only-show-errors\n\n    echo \"    Static website enabled\"\n\n    # Get the static website URL\n    FRONTEND_URL=$(az storage account show \\\n      --name $STORAGE_ACCOUNT \\\n      --resource-group $RESOURCE_GROUP \\\n      --query \"primaryEndpoints.web\" -o tsv 2>/dev/null | sed 's:/*$::')\n\n    echo \"    Static Website URL: $FRONTEND_URL\"\n\n    # Extract frontend.zip\n    echo \"Extracting frontend.zip...\"\n    mkdir -p frontend_dist\n    unzip -q frontend.zip -d frontend_dist\n\n    # Determine auth mode based on client ID availability\n    if [ -n \"$AZURE_AD_CLIENT_ID\" ] && [ \"$AZURE_AD_CLIENT_ID\" != \"\" ]; then\n      AUTH_MODE=\"azure\"\n    else\n      AUTH_MODE=\"mock\"\n    fi\n\n    # Generate config.json with runtime configuration\n    echo \"Generating config.json for runtime configuration...\"\n    cat > frontend_dist/config.json << CONFIGEOF\n{\n  \"apiUrl\": \"$API_BASE_URL\",\n  \"azureClientId\": \"$AZURE_AD_CLIENT_ID\",\n  \"azureTenantId\": \"$AZURE_AD_TENANT_ID\",\n  \"azureRedirectUri\": \"$FRONTEND_URL\",\n  \"authMode\": \"$AUTH_MODE\"\n}\nCONFIGEOF\n\n    echo \"    config.json created:\"\n    cat frontend_dist/config.json\n    echo \"\"\n\n    # Upload all files to $web container using batch upload\n    echo \"Uploading frontend files to \\$web container...\"\n\n    az storage blob upload-batch \\\n      --account-name $STORAGE_ACCOUNT \\\n      --account-key \"$ACCOUNT_KEY\" \\\n      --destination '$web' \\\n      --source frontend_dist \\\n      --overwrite \\\n      --only-show-errors 2>/dev/null\n\n    echo \"    Frontend files uploaded successfully!\"\n    FRONTEND_DEPLOYED=true\n  fi\nfi\n\necho \"\"\n\n# ========================================\n# Deploy Function Apps (with retry)\n# ========================================\necho \"==========================================\"\necho \"Deploying Function Apps...\"\necho \"==========================================\"\n\necho \"\"\necho \"[1/3] Deploying API Function App: $API_FUNCTION_APP_NAME\"\nif ! deploy_with_remote_build $API_FUNCTION_APP_NAME api.zip; then\n  echo '{\"status\": \"failed\", \"error\": \"Failed to deploy API Function App\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\n\necho \"\"\necho \"[2/3] Deploying Scheduler Function App: $SCHEDULER_FUNCTION_APP_NAME\"\nif ! deploy_with_remote_build $SCHEDULER_FUNCTION_APP_NAME scheduler.zip; then\n  echo '{\"status\": \"failed\", \"error\": \"Failed to deploy Scheduler Function App\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\n\necho \"\"\necho \"[3/3] Deploying Processor Function App: $PROCESSOR_FUNCTION_APP_NAME\"\nif ! deploy_with_remote_build $PROCESSOR_FUNCTION_APP_NAME processor.zip; then\n  echo '{\"status\": \"failed\", \"error\": \"Failed to deploy Processor Function App\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\n\n# Get API URL for output\nAPI_URL=$(az functionapp show \\\n  --name $API_FUNCTION_APP_NAME \\\n  --resource-group $RESOURCE_GROUP \\\n  --query \"defaultHostName\" -o tsv 2>/dev/null || echo \"\")\n\necho \"\"\necho \"==========================================\"\necho \"DEPLOYMENT COMPLETE\"\necho \"==========================================\"\necho \"\"\necho \"All components deployed successfully!\"\necho \"\"\necho \"URLs:\"\necho \"  Frontend: $FRONTEND_URL\"\necho \"  API:      https://$API_URL\"\necho \"\"\n\nif [ \"$FRONTEND_DEPLOYED\" != true ]; then\n  echo \"NOTE: Frontend deployment failed.\"\n  echo \"Check the storage account permissions and try again.\"\n  echo \"\"\nfi\n\n# Output results\ncat > $AZ_SCRIPTS_OUTPUT_PATH << EOF\n{\n  \"status\": \"success\",\n  \"version\": \"$VERSION\",\n  \"frontendDeployed\": $FRONTEND_DEPLOYED,\n  \"functionAppsDeployed\": true,\n  \"apiUrl\": \"https://$API_URL\",\n  \"frontendUrl\": \"$FRONTEND_URL\"\n}\nEOF\n    "
               }
             }
           ],
@@ -2438,7 +2292,7 @@
         "[resourceId('Microsoft.Resources/deployments', 'functionapp-scheduler-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'rbac-all-assignments')]",
         "[resourceId('Microsoft.Resources/deployments', 'rbac-deployment-contributor')]",
-        "[resourceId('Microsoft.Resources/deployments', 'staticwebapp-deployment')]"
+        "[resourceId('Microsoft.Resources/deployments', 'storage-deployment')]"
       ]
     }
   ],
@@ -2453,9 +2307,9 @@
     "frontendUrl": {
       "type": "string",
       "metadata": {
-        "description": "URL of the Static Web App (Frontend)"
+        "description": "URL of the Frontend (Blob Storage Static Website - check deployment logs for exact URL)"
       },
-      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'staticwebapp-deployment'), '2025-04-01').outputs.defaultHostname.value]"
+      "value": "See deployment logs for frontend URL (Blob Storage Static Website)"
     },
     "storageAccountName": {
       "type": "string",
@@ -2525,7 +2379,7 @@
       "metadata": {
         "description": "Next steps message"
       },
-      "value": "[if(or(parameters('skipAppRegistration'), not(reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.success.value)), 'App Registration requires manual setup. Check deployment logs for instructions.', format('Deployment complete! Access the app at https://{0}', reference(resourceId('Microsoft.Resources/deployments', 'staticwebapp-deployment'), '2025-04-01').outputs.defaultHostname.value))]"
+      "value": "[if(or(parameters('skipAppRegistration'), not(reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.success.value)), 'App Registration requires manual setup. Check deployment logs for instructions.', 'Deployment complete! Check deployment logs for frontend URL.')]"
     },
     "codeDeploymentStatus": {
       "type": "string",

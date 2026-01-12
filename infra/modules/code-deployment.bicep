@@ -2,7 +2,7 @@
 // Code Deployment Module
 // ============================================================================
 // Downloads release assets from GitHub and deploys them:
-// - frontend.zip -> Static Web App
+// - frontend.zip -> Blob Storage Static Website ($web container)
 // - api.zip -> API Function App (source only, deps via remote build)
 // - scheduler.zip -> Scheduler Function App (source only)
 // - processor.zip -> Processor Function App (source only)
@@ -10,6 +10,9 @@
 // IMPORTANT: Function App ZIPs contain source code only (no .python_packages/).
 // Dependencies are installed via Azure's remote build using requirements.txt.
 // This avoids GLIBC version mismatch errors with the cryptography package.
+//
+// Frontend is deployed to Azure Blob Storage Static Website which provides
+// HTTPS automatically without requiring Azure CDN.
 //
 // ALL components are deployed automatically - no manual steps required.
 // ============================================================================
@@ -28,9 +31,6 @@ param gitHubRepo string = 'pablodiloreto/dilux-azure-databases-backup-alpha'
 
 @description('Version to deploy (GitHub release tag)')
 param version string
-
-@description('Static Web App name')
-param staticWebAppName string
 
 @description('API Function App name')
 param apiFunctionAppName string
@@ -52,6 +52,9 @@ param azureAdTenantId string = ''
 
 @description('Azure AD Client ID for authentication')
 param azureAdClientId string = ''
+
+@description('Storage Account name for uploading frontend ZIP')
+param storageAccountName string = ''
 
 // ============================================================================
 // Deployment Script - Downloads and deploys pre-built Function App assets
@@ -76,7 +79,6 @@ resource deploymentScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
     environmentVariables: [
       { name: 'GITHUB_REPO', value: gitHubRepo }
       { name: 'VERSION', value: version }
-      { name: 'STATIC_WEB_APP_NAME', value: staticWebAppName }
       { name: 'API_FUNCTION_APP_NAME', value: apiFunctionAppName }
       { name: 'SCHEDULER_FUNCTION_APP_NAME', value: schedulerFunctionAppName }
       { name: 'PROCESSOR_FUNCTION_APP_NAME', value: processorFunctionAppName }
@@ -84,6 +86,7 @@ resource deploymentScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
       { name: 'API_BASE_URL', value: apiBaseUrl }
       { name: 'AZURE_AD_TENANT_ID', value: azureAdTenantId }
       { name: 'AZURE_AD_CLIENT_ID', value: azureAdClientId }
+      { name: 'STORAGE_ACCOUNT_NAME', value: storageAccountName }
     ]
     scriptContent: '''
 #!/bin/bash
@@ -212,26 +215,6 @@ ls -lh *.zip
 echo ""
 
 # ========================================
-# Get Static Web App URL for config.json
-# ========================================
-echo "=========================================="
-echo "Getting Static Web App URL..."
-echo "=========================================="
-
-SWA_URL=$(az staticwebapp show \
-  --name $STATIC_WEB_APP_NAME \
-  --resource-group $RESOURCE_GROUP \
-  --query "defaultHostname" -o tsv 2>/dev/null || echo "")
-
-if [ -z "$SWA_URL" ]; then
-  echo "WARNING: Could not get SWA URL"
-  SWA_URL="localhost"
-fi
-
-echo "Static Web App URL: https://$SWA_URL"
-echo ""
-
-# ========================================
 # Wait for RBAC propagation
 # ========================================
 echo "=========================================="
@@ -243,106 +226,98 @@ echo "Waited 60 seconds. Starting deployment..."
 echo ""
 
 # ========================================
-# Deploy Static Web App (Frontend) with config.json
+# Deploy Frontend to Blob Storage Static Website
 # ========================================
 echo "=========================================="
-echo "Deploying Static Web App (Frontend)..."
+echo "Deploying Frontend to Blob Storage Static Website..."
 echo "=========================================="
 echo ""
-echo "Static Web App: $STATIC_WEB_APP_NAME"
 
-# Get deployment token
-echo "Getting deployment token..."
-DEPLOYMENT_TOKEN=$(az staticwebapp secrets list \
-  --name $STATIC_WEB_APP_NAME \
-  --resource-group $RESOURCE_GROUP \
-  --query "properties.apiKey" -o tsv 2>/dev/null || echo "")
+# Get storage account
+if [ -n "$STORAGE_ACCOUNT_NAME" ]; then
+  STORAGE_ACCOUNT="$STORAGE_ACCOUNT_NAME"
+else
+  STORAGE_ACCOUNT=$(az storage account list --resource-group $RESOURCE_GROUP --query "[0].name" -o tsv 2>/dev/null || echo "")
+fi
 
-if [ -n "$DEPLOYMENT_TOKEN" ]; then
-  echo "    Deployment token obtained"
+if [ -z "$STORAGE_ACCOUNT" ]; then
+  echo "ERROR: Could not find storage account"
+  FRONTEND_DEPLOYED=false
+  FRONTEND_URL=""
+else
+  echo "Storage Account: $STORAGE_ACCOUNT"
 
-  # Extract frontend.zip
-  echo "Extracting frontend.zip..."
-  mkdir -p frontend_dist
-  unzip -q frontend.zip -d frontend_dist
+  # Get storage account key
+  echo "Getting storage account key..."
+  ACCOUNT_KEY=$(az storage account keys list --account-name $STORAGE_ACCOUNT --resource-group $RESOURCE_GROUP --query "[0].value" -o tsv 2>/dev/null)
 
-  # Determine auth mode based on client ID availability
-  if [ -n "$AZURE_AD_CLIENT_ID" ] && [ "$AZURE_AD_CLIENT_ID" != "" ]; then
-    AUTH_MODE="azure"
+  if [ -z "$ACCOUNT_KEY" ]; then
+    echo "ERROR: Could not get storage account key"
+    FRONTEND_DEPLOYED=false
+    FRONTEND_URL=""
   else
-    AUTH_MODE="mock"
-  fi
+    # Enable static website on storage account
+    echo "Enabling static website on storage account..."
+    az storage blob service-properties update \
+      --account-name $STORAGE_ACCOUNT \
+      --account-key "$ACCOUNT_KEY" \
+      --static-website \
+      --index-document index.html \
+      --404-document index.html \
+      --only-show-errors
 
-  # Generate config.json with runtime configuration
-  echo "Generating config.json for runtime configuration..."
-  cat > frontend_dist/config.json << CONFIGEOF
+    echo "    Static website enabled"
+
+    # Get the static website URL
+    FRONTEND_URL=$(az storage account show \
+      --name $STORAGE_ACCOUNT \
+      --resource-group $RESOURCE_GROUP \
+      --query "primaryEndpoints.web" -o tsv 2>/dev/null | sed 's:/*$::')
+
+    echo "    Static Website URL: $FRONTEND_URL"
+
+    # Extract frontend.zip
+    echo "Extracting frontend.zip..."
+    mkdir -p frontend_dist
+    unzip -q frontend.zip -d frontend_dist
+
+    # Determine auth mode based on client ID availability
+    if [ -n "$AZURE_AD_CLIENT_ID" ] && [ "$AZURE_AD_CLIENT_ID" != "" ]; then
+      AUTH_MODE="azure"
+    else
+      AUTH_MODE="mock"
+    fi
+
+    # Generate config.json with runtime configuration
+    echo "Generating config.json for runtime configuration..."
+    cat > frontend_dist/config.json << CONFIGEOF
 {
   "apiUrl": "$API_BASE_URL",
   "azureClientId": "$AZURE_AD_CLIENT_ID",
   "azureTenantId": "$AZURE_AD_TENANT_ID",
-  "azureRedirectUri": "https://$SWA_URL",
+  "azureRedirectUri": "$FRONTEND_URL",
   "authMode": "$AUTH_MODE"
 }
 CONFIGEOF
 
-  echo "    config.json created:"
-  cat frontend_dist/config.json
-  echo ""
+    echo "    config.json created:"
+    cat frontend_dist/config.json
+    echo ""
 
-  # Create a new ZIP with config.json included
-  echo "Creating deployment package..."
-  cd frontend_dist
-  zip -r ../frontend_with_config.zip . -q
-  cd ..
+    # Upload all files to $web container using batch upload
+    echo "Uploading frontend files to \$web container..."
 
-  # Get the SWA region from the resource
-  SWA_LOCATION=$(az staticwebapp show \
-    --name $STATIC_WEB_APP_NAME \
-    --resource-group $RESOURCE_GROUP \
-    --query "location" -o tsv 2>/dev/null || echo "eastus2")
+    az storage blob upload-batch \
+      --account-name $STORAGE_ACCOUNT \
+      --account-key "$ACCOUNT_KEY" \
+      --destination '$web' \
+      --source frontend_dist \
+      --overwrite \
+      --only-show-errors 2>/dev/null
 
-  # Map location to content delivery region
-  case "$SWA_LOCATION" in
-    "eastus2"|"East US 2") CONTENT_REGION="eastus2" ;;
-    "westus2"|"West US 2") CONTENT_REGION="westus2" ;;
-    "westeurope"|"West Europe") CONTENT_REGION="westeurope" ;;
-    "eastasia"|"East Asia") CONTENT_REGION="eastasia" ;;
-    "centralus"|"Central US") CONTENT_REGION="centralus" ;;
-    *) CONTENT_REGION="eastus2" ;;
-  esac
-
-  echo "Deploying frontend via API (region: $CONTENT_REGION)..."
-
-  # Deploy using the SWA deployment API
-  DEPLOY_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-    "https://content-$CONTENT_REGION.azurestaticapps.net/api/zipdeploy?sitename=$STATIC_WEB_APP_NAME" \
-    -H "Authorization: Bearer $DEPLOYMENT_TOKEN" \
-    -H "Content-Type: application/zip" \
-    --data-binary @frontend_with_config.zip 2>&1)
-
-  HTTP_CODE=$(echo "$DEPLOY_RESPONSE" | tail -1)
-  RESPONSE_BODY=$(echo "$DEPLOY_RESPONSE" | head -n -1)
-
-  if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "202" ]; then
-    echo "    Frontend deployed successfully via API!"
+    echo "    Frontend files uploaded successfully!"
     FRONTEND_DEPLOYED=true
-  else
-    echo "    WARNING: API deployment returned HTTP $HTTP_CODE"
-    echo "    Response: $RESPONSE_BODY"
-    echo "    Trying alternative deployment method..."
-
-    # Alternative: Use az staticwebapp environment upload (if available)
-    if az staticwebapp environment list --name $STATIC_WEB_APP_NAME --resource-group $RESOURCE_GROUP &>/dev/null; then
-      echo "    Attempting upload via az staticwebapp..."
-      # Note: This command may not be available in all Azure CLI versions
-      FRONTEND_DEPLOYED=false
-    else
-      FRONTEND_DEPLOYED=false
-    fi
   fi
-else
-  echo "    WARNING: Could not get deployment token"
-  FRONTEND_DEPLOYED=false
 fi
 
 echo ""
@@ -375,12 +350,7 @@ if ! deploy_with_remote_build $PROCESSOR_FUNCTION_APP_NAME processor.zip; then
   exit 1
 fi
 
-# Get URLs for output
-SWA_URL=$(az staticwebapp show \
-  --name $STATIC_WEB_APP_NAME \
-  --resource-group $RESOURCE_GROUP \
-  --query "defaultHostname" -o tsv 2>/dev/null || echo "")
-
+# Get API URL for output
 API_URL=$(az functionapp show \
   --name $API_FUNCTION_APP_NAME \
   --resource-group $RESOURCE_GROUP \
@@ -394,20 +364,13 @@ echo ""
 echo "All components deployed successfully!"
 echo ""
 echo "URLs:"
-echo "  Frontend: https://$SWA_URL"
+echo "  Frontend: $FRONTEND_URL"
 echo "  API:      https://$API_URL"
 echo ""
 
 if [ "$FRONTEND_DEPLOYED" != true ]; then
-  echo "NOTE: Frontend deployment may require manual step."
-  echo ""
-  echo "Option 1 - Using SWA CLI (recommended):"
-  echo "  npm install -g @azure/static-web-apps-cli"
-  echo "  swa deploy ./dist --deployment-token <token>"
-  echo ""
-  echo "Option 2 - Using Azure Portal:"
-  echo "  1. Go to Azure Portal > Static Web App > Deployment token"
-  echo "  2. Copy the token and use with swa deploy"
+  echo "NOTE: Frontend deployment failed."
+  echo "Check the storage account permissions and try again."
   echo ""
 fi
 
@@ -419,7 +382,7 @@ cat > $AZ_SCRIPTS_OUTPUT_PATH << EOF
   "frontendDeployed": $FRONTEND_DEPLOYED,
   "functionAppsDeployed": true,
   "apiUrl": "https://$API_URL",
-  "frontendUrl": "https://$SWA_URL"
+  "frontendUrl": "$FRONTEND_URL"
 }
 EOF
     '''

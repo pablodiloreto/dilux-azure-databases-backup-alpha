@@ -128,7 +128,9 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
       cors: {
         allowedOrigins: [
           'https://portal.azure.com'
-          'https://*.azurestaticapps.net'
+          'https://*.web.core.windows.net'  // Azure Blob Storage Static Website
+          'http://localhost:3000'
+          'http://localhost:5173'
         ]
         supportCredentials: true
       }
