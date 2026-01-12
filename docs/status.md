@@ -1,72 +1,69 @@
-# Estado del Proyecto - 12 Enero 2026 (Actualizado 05:25 UTC)
+# Estado del Proyecto - 12 Enero 2026 (Actualizado 05:32 UTC)
 
 ## Resumen Ejecutivo
 
-**Release actual**: v1.0.10 → preparando v1.0.11
-**Estado**: 🔄 **EN PROGRESO - Aplicando fix de mock auth**
-**Resource Group activo**: dilux9-test-rg (será reemplazado por dilux10-test-rg)
+**Release actual**: v1.0.11
+**Estado**: 🔄 **DEPLOYMENT EN PROGRESO (dilux10-test-rg)**
+**Resource Group**: dilux10-test-rg
 
 ---
 
 ## PROGRESO EN TIEMPO REAL
 
 ### ✅ Completado:
-1. ✅ Fix mock auth en `src/shared/auth/middleware.py` (línea 172)
+1. ✅ Fix mock auth en `src/shared/auth/middleware.py`
 2. ✅ Agregar `AUTH_MODE` a las 3 Function Apps en `main.bicep`
 3. ✅ Recompilar `azuredeploy.json`
+4. ✅ Commit y push de todos los cambios
+5. ✅ Crear tag v1.0.11
+6. ✅ Build de GitHub Actions completado
+7. ✅ Eliminar dilux9-test-rg
+8. ✅ Crear dilux10-test-rg
 
 ### 🔄 En progreso:
-4. 🔄 Commit y push de cambios
+9. 🔄 Deployment en progreso (~14 min total)
 
 ### ⏳ Pendiente:
-5. ⏳ Crear tag v1.0.11
-6. ⏳ Esperar build de GitHub Actions (~5 min)
-7. ⏳ Eliminar dilux9-test-rg
-8. ⏳ Crear dilux10-test-rg y deployar
-9. ⏳ Verificar que login funciona
+10. ⏳ Verificar que login funciona
 
 ---
 
-## CAMBIOS APLICADOS
+## ESTADO DEL DEPLOYMENT
 
-### 1. src/shared/auth/middleware.py
-**Línea 172 cambiada de:**
-```python
-if IS_DEVELOPMENT and AUTH_MODE == "mock":
-```
-**A:**
-```python
-if AUTH_MODE == "mock":
-```
+**Resource Group**: dilux10-test-rg
+**Version**: v1.0.11
+**Iniciado**: 2026-01-12 05:17 UTC
 
-Esto permite mock auth en cualquier environment cuando `AUTH_MODE=mock`.
-
-### 2. infra/main.bicep
-**Agregado `AUTH_MODE` a las 3 Function Apps:**
-```bicep
-AUTH_MODE: empty(clientId) ? 'mock' : 'azure'
-```
-
-Esto configura automáticamente:
-- `AUTH_MODE=mock` cuando no hay App Registration (clientId vacío)
-- `AUTH_MODE=azure` cuando hay App Registration
+| Deployment | Estado |
+|------------|--------|
+| deployment-identity | ✅ Succeeded |
+| appserviceplan-deployment | ✅ Succeeded |
+| rbac-deployment-contributor | ✅ Succeeded |
+| keyvault-deployment | ✅ Succeeded |
+| appinsights-deployment | ✅ Succeeded |
+| storage-deployment | ✅ Succeeded |
+| appregistration-deployment | 🔄 Running |
+| functionapp-*-deployment | ⏳ Pending |
+| rbac-all-assignments | ⏳ Pending |
+| code-deployment | ⏳ Pending |
 
 ---
 
-## ARCHIVOS MODIFICADOS EN ESTA SESION
+## CAMBIOS EN v1.0.11
 
-### Sesión anterior (Blob Storage Static Website):
-1. `infra/modules/storage.bicep`
-2. `infra/modules/code-deployment.bicep`
-3. `infra/modules/appregistration.bicep`
-4. `infra/modules/functionapp.bicep`
-5. `infra/main.bicep`
-6. `infra/azuredeploy.json`
+### 1. Frontend: Blob Storage Static Website
+- Ya NO usa Azure Static Web Apps
+- Usa Azure Blob Storage Static Website ($web container)
+- URL: `https://<storage>.z<N>.web.core.windows.net`
 
-### Esta sesión (Fix Mock Auth):
-7. `src/shared/auth/middleware.py` - **FIX: quitar condición IS_DEVELOPMENT**
-8. `infra/main.bicep` - **Agregar AUTH_MODE a Function Apps**
-9. `infra/azuredeploy.json` - **Recompilado**
+### 2. Mock Auth Fix
+- `src/shared/auth/middleware.py` línea 172
+- Ahora funciona con `AUTH_MODE=mock` sin requerir `ENVIRONMENT=development`
+
+### 3. AUTH_MODE automático
+- Se configura automáticamente en las Function Apps
+- `mock` cuando no hay clientId (App Registration falló)
+- `azure` cuando hay clientId
 
 ---
 
@@ -74,16 +71,35 @@ Esto configura automáticamente:
 
 | Hora (UTC) | Evento |
 |------------|--------|
-| 04:30 | Iniciado cambio a Blob Storage Static Website |
-| 05:03 | Deployment completado (dilux9-test-rg) |
-| 05:15 | Detectado problema: mock auth no funciona |
-| 05:20 | Causa identificada |
-| 05:22 | Fix aplicado en middleware.py |
-| 05:23 | AUTH_MODE agregado a main.bicep |
-| 05:25 | azuredeploy.json recompilado |
-| 05:25 | **Haciendo commit...** |
+| 04:30 | Iniciado cambio a Blob Storage |
+| 05:03 | Deployment dilux9 completado |
+| 05:15 | Bug detectado: mock auth no funciona |
+| 05:22 | Fix aplicado |
+| 05:27 | Tag v1.0.11 creado |
+| 05:28 | Build completado |
+| 05:30 | dilux10-test-rg creado |
+| 05:32 | **Deployment en progreso...** |
 
 ---
 
-*Última actualización: 12 Enero 2026, 05:25 UTC*
-*Próximo paso: Commit, tag v1.0.11, deploy a dilux10-test-rg*
+## VERIFICAR CUANDO TERMINE
+
+```bash
+# Ver estado del deployment
+az deployment group list --resource-group dilux10-test-rg -o table
+
+# Test API health
+curl https://dilux10-<hash>-api.azurewebsites.net/api/health
+
+# Test mock auth (DEBE funcionar ahora)
+curl https://dilux10-<hash>-api.azurewebsites.net/api/users/me
+
+# Ver frontend
+# URL se obtiene de:
+az storage account show --name <storage> --resource-group dilux10-test-rg --query "primaryEndpoints.web" -o tsv
+```
+
+---
+
+*Última actualización: 12 Enero 2026, 05:32 UTC*
+*Esperando que deployment termine (~10 min más)*

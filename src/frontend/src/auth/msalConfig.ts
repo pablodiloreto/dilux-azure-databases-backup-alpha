@@ -12,12 +12,16 @@
 import { Configuration, LogLevel } from '@azure/msal-browser'
 import { getConfig, isAzureAuthEnabled as checkAzureAuth } from '../config'
 
-// Get config from runtime configuration system
+// Get config from runtime configuration system (always fresh)
 const getAuthConfig = () => getConfig()
 
-// Auth mode and enabled status from runtime config
-export const AUTH_MODE = getAuthConfig().authMode
-export const isAzureAuthEnabled = checkAzureAuth()
+// Auth mode and enabled status - use functions to get fresh values after config loads
+export const getAuthMode = () => getAuthConfig().authMode
+export const getIsAzureAuthEnabled = () => checkAzureAuth()
+
+// Legacy exports for backwards compatibility (evaluated at import time - may be stale)
+export const AUTH_MODE = getAuthMode()
+export const isAzureAuthEnabled = getIsAzureAuthEnabled()
 
 /**
  * MSAL Configuration

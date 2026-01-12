@@ -1,12 +1,18 @@
 import axios, { AxiosInstance, AxiosError } from 'axios'
-import { msalInstance, isAzureAuthEnabled, loginRequest } from '../auth'
+import { msalInstance, getIsAzureAuthEnabled, loginRequest } from '../auth'
 import { getConfig } from '../config'
 
 // Get API URL from runtime config (loaded from /config.json in production)
-const getApiUrl = () => getConfig().apiUrl
+const getApiUrl = () => {
+  const config = getConfig()
+  // In production, config.json provides the full API URL
+  // In development, we use /api which gets proxied by Vite
+  return config.apiUrl
+}
 
+// Create axios instance - baseURL will be updated by interceptor after config loads
 export const apiClient: AxiosInstance = axios.create({
-  baseURL: getApiUrl(),
+  // Don't set baseURL here - let the interceptor handle it dynamically
   headers: {
     'Content-Type': 'application/json',
   },
@@ -16,7 +22,7 @@ export const apiClient: AxiosInstance = axios.create({
  * Get access token from MSAL for API requests
  */
 async function getAccessToken(): Promise<string | null> {
-  if (!isAzureAuthEnabled || !msalInstance) {
+  if (!getIsAzureAuthEnabled() || !msalInstance) {
     return null
   }
 
@@ -37,9 +43,19 @@ async function getAccessToken(): Promise<string | null> {
   }
 }
 
-// Request interceptor for adding auth token
+// Request interceptor for adding auth token and updating baseURL
 apiClient.interceptors.request.use(
   async (config) => {
+    // ALWAYS get fresh baseURL from runtime config
+    // This is critical because config.json loads async after the app starts
+    const apiUrl = getApiUrl()
+    config.baseURL = apiUrl
+
+    // Debug log in development
+    if (import.meta.env.DEV) {
+      console.log('[API] Request to:', apiUrl + config.url)
+    }
+
     // Get Azure AD token if available
     const token = await getAccessToken()
     if (token) {
@@ -57,7 +73,7 @@ apiClient.interceptors.response.use(
     let message: string
     if (error.response) {
       // Handle 401 unauthorized - may need to re-authenticate
-      if (error.response.status === 401 && isAzureAuthEnabled) {
+      if (error.response.status === 401 && getIsAzureAuthEnabled()) {
         console.warn('Received 401 - user may need to re-authenticate')
         // Could trigger re-authentication here if needed
       }

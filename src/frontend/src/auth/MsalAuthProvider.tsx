@@ -3,6 +3,8 @@
  *
  * Wraps the app with MSAL authentication context.
  * Supports both Azure AD authentication and mock mode for development.
+ *
+ * Uses lazy initialization to ensure config.json is loaded before checking auth mode.
  */
 
 import { ReactNode, useState } from 'react'
@@ -19,12 +21,33 @@ import {
   AccountInfo,
   InteractionStatus,
 } from '@azure/msal-browser'
-import { msalConfig, loginRequest, isAzureAuthEnabled, AUTH_MODE } from './msalConfig'
+import { msalConfig, loginRequest, getIsAzureAuthEnabled, getAuthMode } from './msalConfig'
 
-// Initialize MSAL instance (only if Azure auth is enabled)
+// MSAL instance - lazily initialized
 let msalInstance: PublicClientApplication | null = null
+let msalInitialized = false
 
-if (isAzureAuthEnabled) {
+/**
+ * Initialize MSAL instance lazily (after config.json is loaded)
+ */
+function initializeMsal(): PublicClientApplication | null {
+  // Check if already initialized
+  if (msalInitialized) {
+    return msalInstance
+  }
+
+  // Check if Azure auth is enabled (using fresh config)
+  const isEnabled = getIsAzureAuthEnabled()
+  console.log('[Auth] Checking Azure auth enabled:', isEnabled, 'Mode:', getAuthMode())
+
+  if (!isEnabled) {
+    console.log('[Auth] Azure auth disabled, using mock mode')
+    msalInitialized = true
+    return null
+  }
+
+  // Create MSAL instance
+  console.log('[Auth] Initializing MSAL instance')
   msalInstance = new PublicClientApplication(msalConfig)
 
   // Handle redirect promise on page load
@@ -43,7 +66,11 @@ if (isAzureAuthEnabled) {
       }
     })
   })
+
+  msalInitialized = true
+  return msalInstance
 }
+
 
 /**
  * Auth context value type
@@ -158,11 +185,19 @@ interface MsalAuthProviderProps {
  *
  * Wraps children with MSAL context if Azure auth is enabled,
  * otherwise provides mock auth context.
+ *
+ * Uses lazy initialization to ensure config.json is loaded first.
  */
 export function MsalAuthProvider({ children }: MsalAuthProviderProps) {
-  if (isAzureAuthEnabled && msalInstance) {
+  // Initialize MSAL lazily (after config.json is loaded by main.tsx)
+  const instance = initializeMsal()
+
+  // Check fresh config values
+  const azureEnabled = getIsAzureAuthEnabled()
+
+  if (azureEnabled && instance) {
     return (
-      <MsalProvider instance={msalInstance}>
+      <MsalProvider instance={instance}>
         {children}
       </MsalProvider>
     )
@@ -180,5 +215,10 @@ export { msalInstance }
 
 /**
  * Export auth mode for conditional rendering
+ * These are functions to ensure fresh config values after config.json loads
  */
-export { isAzureAuthEnabled, AUTH_MODE }
+export { getIsAzureAuthEnabled, getAuthMode }
+
+// Legacy const exports (evaluated at import time - may use stale config)
+export const isAzureAuthEnabled = getIsAzureAuthEnabled()
+export const AUTH_MODE = getAuthMode()

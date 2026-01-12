@@ -8,6 +8,8 @@ export {
   apiRequest,
   isAzureAuthEnabled,
   AUTH_MODE,
+  getIsAzureAuthEnabled,
+  getAuthMode,
   isMsalConfigured,
   getMsalConfigStatus,
 } from './msalConfig'

@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, Re
 import { useIsAuthenticated, useMsal, useAccount } from '@azure/msal-react'
 import { InteractionStatus } from '@azure/msal-browser'
 import { usersApi, authApi } from '../api/users'
-import { isAzureAuthEnabled, loginRequest } from '../auth'
+import { getIsAzureAuthEnabled, loginRequest } from '../auth'
 import type { User, UserRole } from '../types'
 
 interface AuthContextType {
@@ -236,7 +236,8 @@ function MockAuthProvider({ children }: AuthProviderProps) {
  * Main Auth Provider - delegates to Azure or Mock provider based on config
  */
 export function AuthProvider({ children }: AuthProviderProps) {
-  if (isAzureAuthEnabled) {
+  // Use function to get fresh config value (after config.json is loaded)
+  if (getIsAzureAuthEnabled()) {
     return <AzureAuthProvider>{children}</AzureAuthProvider>
   }
   return <MockAuthProvider>{children}</MockAuthProvider>
