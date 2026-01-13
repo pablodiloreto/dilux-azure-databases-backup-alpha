@@ -358,33 +358,97 @@ deploy_infrastructure() {
     echo "  https://portal.azure.com/#@/resource/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/deployments"
     echo ""
 
-    # Run deployment (this takes 10-15 minutes)
-    echo "Ejecutando: az deployment group create..."
-    echo "(Esto puede tardar 10-15 minutos, por favor espera...)"
+    # Run deployment with real-time progress tracking
+    echo "Ejecutando deployment..."
+    echo ""
+    echo "  Portal: https://portal.azure.com/#@/resource/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/deployments"
     echo ""
 
-    # Run deployment and show progress (not capturing output to avoid stdin issues with curl|bash)
+    # Start deployment in background (no-wait)
+    DEPLOYMENT_NAME="main-$(date +%Y%m%d%H%M%S)"
+
     az deployment group create \
         --resource-group "$RESOURCE_GROUP" \
         --template-uri "$TEMPLATE_URL" \
+        --name "$DEPLOYMENT_NAME" \
         --parameters \
             appName="$APP_NAME" \
             adminEmail="$ADMIN_EMAIL" \
             appVersion="$APP_VERSION" \
             azureAdClientId="$CLIENT_ID" \
-        --output none
+        --no-wait \
+        --output none 2>/dev/null
 
-    DEPLOY_EXIT_CODE=$?
+    # Poll deployment status with progress display
+    echo "───────────────────────────────────────────────────────────────"
+    echo "  Progreso del deployment (actualización cada 10 segundos)"
+    echo "───────────────────────────────────────────────────────────────"
+    echo ""
 
-    if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
-        print_error "Error en el deployment"
-        echo ""
-        echo "Para más detalles, revisa en Azure Portal:"
-        echo "  https://portal.azure.com/#@/resource/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/deployments"
-        exit 1
-    fi
+    LAST_STATUS=""
+    COMPLETED_OPS=""
+    START_TIME=$(date +%s)
 
-    print_success "Infraestructura desplegada"
+    while true; do
+        # Get deployment status
+        DEPLOY_STATUS=$(az deployment group show \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$DEPLOYMENT_NAME" \
+            --query "properties.provisioningState" \
+            -o tsv 2>/dev/null || echo "Running")
+
+        # Get operations status
+        OPERATIONS=$(az deployment operation group list \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$DEPLOYMENT_NAME" \
+            --query "[].{name:properties.targetResource.resourceName, type:properties.targetResource.resourceType, status:properties.provisioningState}" \
+            -o json 2>/dev/null || echo "[]")
+
+        # Calculate elapsed time
+        CURRENT_TIME=$(date +%s)
+        ELAPSED=$((CURRENT_TIME - START_TIME))
+        ELAPSED_MIN=$((ELAPSED / 60))
+        ELAPSED_SEC=$((ELAPSED % 60))
+
+        # Show completed operations (only new ones)
+        if [ "$OPERATIONS" != "[]" ]; then
+            echo "$OPERATIONS" | jq -r '.[] | select(.status == "Succeeded") | "  ✅ \(.name) (\(.type | split("/") | .[-1]))"' 2>/dev/null | while read line; do
+                if [[ ! "$COMPLETED_OPS" =~ "$line" ]]; then
+                    echo "$line"
+                    COMPLETED_OPS="$COMPLETED_OPS$line\n"
+                fi
+            done
+        fi
+
+        # Check if deployment is complete
+        if [ "$DEPLOY_STATUS" == "Succeeded" ]; then
+            echo ""
+            print_success "Deployment completado en ${ELAPSED_MIN}m ${ELAPSED_SEC}s"
+            break
+        elif [ "$DEPLOY_STATUS" == "Failed" ]; then
+            echo ""
+            print_error "Deployment falló después de ${ELAPSED_MIN}m ${ELAPSED_SEC}s"
+            echo ""
+            # Show error details
+            az deployment operation group list \
+                --resource-group "$RESOURCE_GROUP" \
+                --name "$DEPLOYMENT_NAME" \
+                --query "[?properties.provisioningState=='Failed'].{resource:properties.targetResource.resourceName, error:properties.statusMessage.error.message}" \
+                -o table 2>/dev/null
+            exit 1
+        fi
+
+        # Show running indicator
+        RUNNING_COUNT=$(echo "$OPERATIONS" | jq '[.[] | select(.status == "Running" or .status == "Accepted")] | length' 2>/dev/null || echo "0")
+        SUCCEEDED_COUNT=$(echo "$OPERATIONS" | jq '[.[] | select(.status == "Succeeded")] | length' 2>/dev/null || echo "0")
+        TOTAL_COUNT=$(echo "$OPERATIONS" | jq 'length' 2>/dev/null || echo "0")
+
+        printf "\r  ⏳ Estado: %s | Completados: %s/%s | Tiempo: %dm %ds    " "$DEPLOY_STATUS" "$SUCCEEDED_COUNT" "$TOTAL_COUNT" "$ELAPSED_MIN" "$ELAPSED_SEC"
+
+        sleep 10
+    done
+
+    echo ""
 
     # Get storage account name from resource group
     STORAGE_ACCOUNT=$(az storage account list --resource-group "$RESOURCE_GROUP" --query "[0].name" -o tsv 2>/dev/null || echo "")
