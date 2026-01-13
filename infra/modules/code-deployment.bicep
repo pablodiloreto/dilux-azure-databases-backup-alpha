@@ -284,6 +284,21 @@ else
     # Determine auth mode based on client ID availability
     if [ -n "$AZURE_AD_CLIENT_ID" ] && [ "$AZURE_AD_CLIENT_ID" != "" ]; then
       AUTH_MODE="azure"
+
+      # Clean up mock users from Table Storage to allow real "first run"
+      # This prevents the dev-user from blocking real Azure AD users
+      echo "    Cleaning up mock users from Table Storage..."
+
+      # Delete mock dev user if exists (RowKey = dev-user-00000000-0000-0000-0000-000000000000)
+      az storage entity delete \
+        --account-name $STORAGE_ACCOUNT \
+        --account-key "$ACCOUNT_KEY" \
+        --table-name users \
+        --partition-key "users" \
+        --row-key "dev-user-00000000-0000-0000-0000-000000000000" \
+        2>/dev/null || true
+
+      echo "    Mock users cleaned up (first login will be admin)"
     else
       AUTH_MODE="mock"
     fi

@@ -21,7 +21,7 @@ import {
   AccountInfo,
   InteractionStatus,
 } from '@azure/msal-browser'
-import { msalConfig, loginRequest, getIsAzureAuthEnabled, getAuthMode } from './msalConfig'
+import { getMsalConfig, loginRequest, getIsAzureAuthEnabled, getAuthMode } from './msalConfig'
 
 // MSAL instance - lazily initialized
 let msalInstance: PublicClientApplication | null = null
@@ -46,8 +46,9 @@ function initializeMsal(): PublicClientApplication | null {
     return null
   }
 
-  // Create MSAL instance
-  console.log('[Auth] Initializing MSAL instance')
+  // Create MSAL instance with fresh config (after config.json is loaded)
+  const msalConfig = getMsalConfig()
+  console.log('[Auth] Initializing MSAL instance with clientId:', msalConfig.auth.clientId ? msalConfig.auth.clientId.substring(0, 8) + '...' : '(empty)')
   msalInstance = new PublicClientApplication(msalConfig)
 
   // Handle redirect promise on page load

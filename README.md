@@ -2,74 +2,69 @@
 
 Solución serverless para respaldos automatizados de bases de datos MySQL, PostgreSQL y SQL Server usando Azure Functions.
 
-## Deploy to Azure
+## Instalación en Azure
+
+### Opción 1: Script Automático (Recomendado)
+
+Ejecuta este comando en [Azure Cloud Shell](https://shell.azure.com) o en tu terminal con Azure CLI:
+
+```bash
+curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/deploy.sh | bash
+```
+
+El script te guiará paso a paso:
+1. ✅ Verifica tus permisos
+2. ✅ Crea el App Registration automáticamente
+3. ✅ Despliega toda la infraestructura
+4. ✅ Configura la autenticación con Azure AD
+5. ✅ El primer login será admin automáticamente
+
+**Requisitos:**
+- Azure CLI instalado (o usar [Azure Cloud Shell](https://shell.azure.com))
+- Permisos de **Contributor** en la Subscription
+- Permisos de **Global Admin** o **Application Administrator** en Azure AD
+
+---
+
+### Opción 2: Deploy to Azure (Botón)
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fpablodiloreto%2Fdilux-azure-databases-backup-alpha%2Fmain%2Finfra%2Fazuredeploy.json)
 
-### Cómo funciona
+> ⚠️ **Nota:** Esta opción NO crea el App Registration automáticamente. Deberás:
+> 1. Crear el App Registration manualmente ([ver instrucciones](#setup-manual-de-app-registration))
+> 2. O pasar el parámetro `azureAdClientId` si ya tienes uno
 
-1. **Click en el botón** → Se abre Azure Portal
-2. **Completás los parámetros** → El wizard te guía
-3. **Click en "Review + Create"** → Azure despliega todo
-4. **Listo** → Accedés a la URL del frontend
+---
 
 ### Qué se crea automáticamente
 
 - ✅ Storage Account (backups, colas, tablas)
 - ✅ Key Vault (secrets)
 - ✅ 3 Function Apps (API, Scheduler, Processor)
-- ✅ Static Web App (Frontend React)
+- ✅ Frontend (Blob Storage Static Website)
 - ✅ Application Insights (monitoreo)
-- ✅ App Registration en Azure AD (autenticación)
+- ✅ App Registration en Azure AD (solo con script)
 - ✅ Managed Identities + RBAC (permisos)
-
-### Parámetros
-
-| Parámetro | Descripción | Ejemplo |
-|-----------|-------------|---------|
-| **App Name** | Nombre único para los recursos (3-20 chars) | `diluxbackup` |
-| **Admin Email** | Tu email (serás el primer admin) | `admin@empresa.com` |
-| **Location** | Región de Azure | `East US 2` |
-| **Function App SKU** | Plan de Functions | `Y1` (gratis) o `EP1` (premium) |
-
-### Requisitos del usuario que despliega
-
-| Permiso | Para qué |
-|---------|----------|
-| **Contributor** en la Subscription | Crear recursos Azure |
-| **Application Administrator** en Azure AD | Crear App Registration automáticamente |
-
-> **Nota:** Si no tenés Application Administrator, el deploy continúa pero te muestra instrucciones para crear el App Registration manualmente. Ver [Setup manual de App Registration](#setup-manual-de-app-registration).
 
 ---
 
 ### Setup manual de App Registration
 
-Solo necesario si el deploy automático no pudo crear el App Registration:
+Solo necesario si usas el botón "Deploy to Azure" sin el script:
 
-1. Ve a **Azure Portal** → **Azure Active Directory** → **App registrations**
+1. Ve a **Azure Portal** → **Microsoft Entra ID** → **App registrations**
 2. Click en **New registration**
 3. Nombre: `Dilux Database Backup - {appName}`
 4. Supported account types: **Single tenant**
-5. Redirect URI (Web): `https://{appName}-web.azurestaticapps.net`
-6. En **Authentication**:
-   - Agrega: `https://{appName}-web.azurestaticapps.net/auth/callback`
-   - Marca: **ID tokens** y **Access tokens**
-7. Copia el **Application (client) ID**
-8. Ve a las Function Apps y agrega la variable `AZURE_AD_CLIENT_ID`
-
----
-
-### Deploy alternativo (CLI)
-
-```bash
-az login
-az group create --name rg-dilux-backup --location eastus2
-az deployment group create \
-  --resource-group rg-dilux-backup \
-  --template-file infra/main.bicep \
-  --parameters appName=diluxbackup adminEmail=tu@email.com
-```
+5. Redirect URI: Selecciona **Single-page application (SPA)**
+   - URL: `https://{storage-account}.z13.web.core.windows.net`
+6. Click **Register**
+7. En **Authentication**, agrega otro redirect URI:
+   - `https://{storage-account}.z13.web.core.windows.net/auth/callback`
+8. Copia el **Application (client) ID**
+9. Actualiza:
+   - Function App API: variable `AZURE_AD_CLIENT_ID` y `AUTH_MODE=azure`
+   - Blob Storage: archivo `config.json` con `azureClientId` y `authMode: azure`
 
 ## Arquitectura
 

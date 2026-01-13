@@ -395,7 +395,7 @@ module codeDeployment 'modules/code-deployment.bicep' = {
     schedulerFunctionAppName: functionAppSchedulerName
     processorFunctionAppName: functionAppProcessorName
     resourceGroupName: resourceGroup().name
-    apiBaseUrl: 'https://${functionAppApiName}.azurewebsites.net'
+    apiBaseUrl: 'https://${functionAppApiName}.azurewebsites.net/api'
     azureAdTenantId: tenantId
     azureAdClientId: clientId
     storageAccountName: storage.outputs.storageAccountName

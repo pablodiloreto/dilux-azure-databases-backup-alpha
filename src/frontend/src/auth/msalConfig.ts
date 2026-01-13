@@ -25,48 +25,58 @@ export const isAzureAuthEnabled = getIsAzureAuthEnabled()
 
 /**
  * MSAL Configuration
+ *
+ * IMPORTANT: This is a FUNCTION, not a constant, because it must be called
+ * AFTER config.json is loaded. If we create a const at module import time,
+ * the config values will be empty (config.json hasn't loaded yet).
  */
-export const msalConfig: Configuration = {
-  auth: {
-    clientId: getAuthConfig().azureClientId,
-    authority: `https://login.microsoftonline.com/${getAuthConfig().azureTenantId}`,
-    redirectUri: getAuthConfig().azureRedirectUri,
-    postLogoutRedirectUri: getAuthConfig().azureRedirectUri,
-    navigateToLoginRequestUrl: true,
-  },
-  cache: {
-    cacheLocation: 'sessionStorage', // Use sessionStorage for better security
-    storeAuthStateInCookie: false,
-  },
-  system: {
-    loggerOptions: {
-      loggerCallback: (level, message, containsPii) => {
-        if (containsPii) return
-        switch (level) {
-          case LogLevel.Error:
-            console.error('[MSAL]', message)
-            break
-          case LogLevel.Warning:
-            console.warn('[MSAL]', message)
-            break
-          case LogLevel.Info:
-            // Only log in development
-            if (import.meta.env.DEV) {
-              console.info('[MSAL]', message)
-            }
-            break
-          case LogLevel.Verbose:
-            // Only log in development with verbose flag
-            if (import.meta.env.DEV && import.meta.env.VITE_MSAL_VERBOSE) {
-              console.debug('[MSAL]', message)
-            }
-            break
-        }
-      },
-      logLevel: import.meta.env.DEV ? LogLevel.Warning : LogLevel.Error,
+export function getMsalConfig(): Configuration {
+  const config = getAuthConfig()
+  return {
+    auth: {
+      clientId: config.azureClientId,
+      authority: `https://login.microsoftonline.com/${config.azureTenantId}`,
+      redirectUri: config.azureRedirectUri,
+      postLogoutRedirectUri: config.azureRedirectUri,
+      navigateToLoginRequestUrl: true,
     },
-  },
+    cache: {
+      cacheLocation: 'sessionStorage', // Use sessionStorage for better security
+      storeAuthStateInCookie: false,
+    },
+    system: {
+      loggerOptions: {
+        loggerCallback: (level, message, containsPii) => {
+          if (containsPii) return
+          switch (level) {
+            case LogLevel.Error:
+              console.error('[MSAL]', message)
+              break
+            case LogLevel.Warning:
+              console.warn('[MSAL]', message)
+              break
+            case LogLevel.Info:
+              // Only log in development
+              if (import.meta.env.DEV) {
+                console.info('[MSAL]', message)
+              }
+              break
+            case LogLevel.Verbose:
+              // Only log in development with verbose flag
+              if (import.meta.env.DEV && import.meta.env.VITE_MSAL_VERBOSE) {
+                console.debug('[MSAL]', message)
+              }
+              break
+          }
+        },
+        logLevel: import.meta.env.DEV ? LogLevel.Warning : LogLevel.Error,
+      },
+    },
+  }
 }
+
+// Legacy export for backwards compatibility - calls the function
+export const msalConfig: Configuration = getMsalConfig()
 
 /**
  * Scopes to request during login
