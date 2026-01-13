@@ -328,31 +328,37 @@ deploy_infrastructure() {
 
     # Get the bicep template URL
     if [ "$APP_VERSION" == "latest" ]; then
-        # Get latest release version
+        # Try to get latest release version, fallback to main branch
         LATEST_VERSION=$(curl -s "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" | jq -r '.tag_name' 2>/dev/null || echo "")
         if [ -z "$LATEST_VERSION" ] || [ "$LATEST_VERSION" == "null" ]; then
-            print_error "No se pudo obtener la última versión"
-            print_info "Especifica una versión manualmente (ej: v1.0.11)"
-            exit 1
+            print_warning "No se pudo obtener la última versión, usando branch main"
+            APP_VERSION="main"
+        else
+            APP_VERSION="$LATEST_VERSION"
         fi
-        APP_VERSION="$LATEST_VERSION"
         print_info "Usando versión: $APP_VERSION"
     fi
 
     TEMPLATE_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/${APP_VERSION}/infra/azuredeploy.json"
 
-    # Verify template exists
+    # Verify template exists, fallback to main if not found
     if ! curl -s --head "$TEMPLATE_URL" | head -n 1 | grep -q "200"; then
-        print_error "No se encontró el template para versión $APP_VERSION"
-        print_info "URL: $TEMPLATE_URL"
-        exit 1
+        print_warning "Template no encontrado para $APP_VERSION, usando branch main"
+        APP_VERSION="main"
+        TEMPLATE_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/main/infra/azuredeploy.json"
     fi
 
     print_info "Template URL: $TEMPLATE_URL"
     echo ""
 
-    # Deploy
+    # Deploy with progress tracking
     echo "Iniciando deployment..."
+    echo ""
+    echo "  Puedes seguir el progreso en Azure Portal:"
+    echo "  https://portal.azure.com/#@/resource/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/deployments"
+    echo ""
+
+    # Run deployment (this takes 10-15 minutes)
     DEPLOY_OUTPUT=$(az deployment group create \
         --resource-group "$RESOURCE_GROUP" \
         --template-uri "$TEMPLATE_URL" \
@@ -364,9 +370,16 @@ deploy_infrastructure() {
         --query "properties.outputs" \
         -o json 2>&1)
 
-    if [ $? -ne 0 ]; then
+    DEPLOY_EXIT_CODE=$?
+
+    if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
         print_error "Error en el deployment"
-        echo "$DEPLOY_OUTPUT"
+        echo ""
+        echo "Detalles del error:"
+        echo "$DEPLOY_OUTPUT" | head -50
+        echo ""
+        echo "Para más detalles, revisa en Azure Portal:"
+        echo "  https://portal.azure.com/#@/resource/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/deployments"
         exit 1
     fi
 
