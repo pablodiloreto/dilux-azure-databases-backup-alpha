@@ -385,9 +385,13 @@ deploy_infrastructure() {
     echo "───────────────────────────────────────────────────────────────"
     echo ""
 
-    LAST_STATUS=""
-    COMPLETED_OPS=""
     START_TIME=$(date +%s)
+    SHOWN_FILE=$(mktemp)
+
+    # Clear line function
+    clear_line() {
+        printf "\r%-80s\r" ""
+    }
 
     while true; do
         # Get deployment status
@@ -412,20 +416,29 @@ deploy_infrastructure() {
 
         # Show completed operations (only new ones)
         if [ "$OPERATIONS" != "[]" ]; then
-            echo "$OPERATIONS" | jq -r '.[] | select(.status == "Succeeded") | "  ✅ \(.name) (\(.type | split("/") | .[-1]))"' 2>/dev/null | while read line; do
-                if [[ ! "$COMPLETED_OPS" =~ "$line" ]]; then
-                    echo "$line"
-                    COMPLETED_OPS="$COMPLETED_OPS$line\n"
-                fi
-            done
+            COMPLETED_LIST=$(echo "$OPERATIONS" | jq -r '.[] | select(.status == "Succeeded") | "\(.name)|\(.type)"' 2>/dev/null || echo "")
+
+            if [ -n "$COMPLETED_LIST" ]; then
+                echo "$COMPLETED_LIST" | while IFS='|' read -r name type; do
+                    if [ -n "$name" ] && ! grep -q "^${name}$" "$SHOWN_FILE" 2>/dev/null; then
+                        clear_line
+                        short_type=$(echo "$type" | rev | cut -d'/' -f1 | rev)
+                        echo "  ✅ ${name} (${short_type})"
+                        echo "$name" >> "$SHOWN_FILE"
+                    fi
+                done
+            fi
         fi
 
         # Check if deployment is complete
         if [ "$DEPLOY_STATUS" == "Succeeded" ]; then
+            clear_line
             echo ""
             print_success "Deployment completado en ${ELAPSED_MIN}m ${ELAPSED_SEC}s"
+            rm -f "$SHOWN_FILE"
             break
         elif [ "$DEPLOY_STATUS" == "Failed" ]; then
+            clear_line
             echo ""
             print_error "Deployment falló después de ${ELAPSED_MIN}m ${ELAPSED_SEC}s"
             echo ""
@@ -435,15 +448,15 @@ deploy_infrastructure() {
                 --name "$DEPLOYMENT_NAME" \
                 --query "[?properties.provisioningState=='Failed'].{resource:properties.targetResource.resourceName, error:properties.statusMessage.error.message}" \
                 -o table 2>/dev/null
+            rm -f "$SHOWN_FILE"
             exit 1
         fi
 
         # Show running indicator
-        RUNNING_COUNT=$(echo "$OPERATIONS" | jq '[.[] | select(.status == "Running" or .status == "Accepted")] | length' 2>/dev/null || echo "0")
         SUCCEEDED_COUNT=$(echo "$OPERATIONS" | jq '[.[] | select(.status == "Succeeded")] | length' 2>/dev/null || echo "0")
         TOTAL_COUNT=$(echo "$OPERATIONS" | jq 'length' 2>/dev/null || echo "0")
 
-        printf "\r  ⏳ Estado: %s | Completados: %s/%s | Tiempo: %dm %ds    " "$DEPLOY_STATUS" "$SUCCEEDED_COUNT" "$TOTAL_COUNT" "$ELAPSED_MIN" "$ELAPSED_SEC"
+        printf "\r  ⏳ Estado: %-10s | Completados: %s/%s | Tiempo: %dm %02ds" "$DEPLOY_STATUS" "$SUCCEEDED_COUNT" "$TOTAL_COUNT" "$ELAPSED_MIN" "$ELAPSED_SEC"
 
         sleep 10
     done
