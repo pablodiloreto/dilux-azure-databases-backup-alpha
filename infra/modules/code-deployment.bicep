@@ -371,6 +371,23 @@ API_URL=$(az functionapp show \
   --resource-group $RESOURCE_GROUP \
   --query "defaultHostName" -o tsv 2>/dev/null || echo "")
 
+# ========================================
+# Configure CORS for API Function App
+# ========================================
+if [ -n "$FRONTEND_URL" ]; then
+  echo ""
+  echo "=========================================="
+  echo "Configuring CORS..."
+  echo "=========================================="
+
+  # Add specific frontend URL to CORS (required for credentials)
+  az functionapp cors add \
+    --name $API_FUNCTION_APP_NAME \
+    --resource-group $RESOURCE_GROUP \
+    --allowed-origins "$FRONTEND_URL" \
+    -o none 2>/dev/null && echo "  ✅ CORS configured for $FRONTEND_URL" || echo "  ⚠️ CORS may already be configured"
+fi
+
 echo ""
 echo "=========================================="
 echo "DEPLOYMENT COMPLETE"

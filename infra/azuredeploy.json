@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "3739063780556969521"
+      "templateHash": "9994366624517509852"
     }
   },
   "parameters": {
@@ -90,12 +90,7 @@
       "Environment": "Production",
       "ManagedBy": "Bicep",
       "Version": "[parameters('appVersion')]"
-    },
-    "keyVaultSecretsUserRoleId": "4633458b-17de-408a-b874-0445c86b69e6",
-    "storageBlobDataContributorRoleId": "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
-    "storageQueueDataContributorRoleId": "974c5e8b-45b9-4653-ba55-5f855dd0fb88",
-    "storageTableDataContributorRoleId": "0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3",
-    "contributorRoleId": "b24988ac-6180-42a0-ab88-20f7382dd24c"
+    }
   },
   "resources": [
     {
@@ -1128,7 +1123,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "9594556621634665573"
+              "templateHash": "11263305518152052649"
             }
           },
           "parameters": {
@@ -1218,9 +1213,17 @@
               "metadata": {
                 "description": "Additional app settings"
               }
+            },
+            "frontendUrl": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Frontend URL for CORS (specific origin required for credentials)"
+              }
             }
           },
           "variables": {
+            "corsOrigins": "[if(empty(parameters('frontendUrl')), createArray('https://portal.azure.com', 'http://localhost:3000', 'http://localhost:5173'), createArray('https://portal.azure.com', 'http://localhost:3000', 'http://localhost:5173', parameters('frontendUrl')))]",
             "isConsumptionPlan": "[equals(parameters('sku'), 'Y1')]",
             "consumptionStorageSettings": {
               "AzureWebJobsStorage": "[parameters('storageConnectionString')]",
@@ -1277,12 +1280,7 @@
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
                   "cors": {
-                    "allowedOrigins": [
-                      "https://portal.azure.com",
-                      "https://*.web.core.windows.net",
-                      "http://localhost:3000",
-                      "http://localhost:5173"
-                    ],
+                    "allowedOrigins": "[variables('corsOrigins')]",
                     "supportCredentials": true
                   }
                 }
@@ -1397,7 +1395,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "9594556621634665573"
+              "templateHash": "11263305518152052649"
             }
           },
           "parameters": {
@@ -1487,9 +1485,17 @@
               "metadata": {
                 "description": "Additional app settings"
               }
+            },
+            "frontendUrl": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Frontend URL for CORS (specific origin required for credentials)"
+              }
             }
           },
           "variables": {
+            "corsOrigins": "[if(empty(parameters('frontendUrl')), createArray('https://portal.azure.com', 'http://localhost:3000', 'http://localhost:5173'), createArray('https://portal.azure.com', 'http://localhost:3000', 'http://localhost:5173', parameters('frontendUrl')))]",
             "isConsumptionPlan": "[equals(parameters('sku'), 'Y1')]",
             "consumptionStorageSettings": {
               "AzureWebJobsStorage": "[parameters('storageConnectionString')]",
@@ -1546,12 +1552,7 @@
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
                   "cors": {
-                    "allowedOrigins": [
-                      "https://portal.azure.com",
-                      "https://*.web.core.windows.net",
-                      "http://localhost:3000",
-                      "http://localhost:5173"
-                    ],
+                    "allowedOrigins": "[variables('corsOrigins')]",
                     "supportCredentials": true
                   }
                 }
@@ -1666,7 +1667,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "9594556621634665573"
+              "templateHash": "11263305518152052649"
             }
           },
           "parameters": {
@@ -1756,9 +1757,17 @@
               "metadata": {
                 "description": "Additional app settings"
               }
+            },
+            "frontendUrl": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Frontend URL for CORS (specific origin required for credentials)"
+              }
             }
           },
           "variables": {
+            "corsOrigins": "[if(empty(parameters('frontendUrl')), createArray('https://portal.azure.com', 'http://localhost:3000', 'http://localhost:5173'), createArray('https://portal.azure.com', 'http://localhost:3000', 'http://localhost:5173', parameters('frontendUrl')))]",
             "isConsumptionPlan": "[equals(parameters('sku'), 'Y1')]",
             "consumptionStorageSettings": {
               "AzureWebJobsStorage": "[parameters('storageConnectionString')]",
@@ -1815,12 +1824,7 @@
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
                   "cors": {
-                    "allowedOrigins": [
-                      "https://portal.azure.com",
-                      "https://*.web.core.windows.net",
-                      "http://localhost:3000",
-                      "http://localhost:5173"
-                    ],
+                    "allowedOrigins": "[variables('corsOrigins')]",
                     "supportCredentials": true
                   }
                 }
@@ -1884,93 +1888,20 @@
         },
         "mode": "Incremental",
         "parameters": {
-          "location": {
-            "value": "[parameters('location')]"
+          "storageAccountId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]"
           },
-          "tags": {
-            "value": "[variables('tags')]"
+          "keyVaultId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.keyVaultId.value]"
           },
-          "identityId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deployment-identity'), '2025-04-01').outputs.identityId.value]"
+          "apiPrincipalId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-api-deployment'), '2025-04-01').outputs.principalId.value]"
           },
-          "resourceGroupName": {
-            "value": "[resourceGroup().name]"
+          "schedulerPrincipalId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-scheduler-deployment'), '2025-04-01').outputs.principalId.value]"
           },
-          "roleAssignments": {
-            "value": [
-              {
-                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-api-deployment'), '2025-04-01').outputs.principalId.value]",
-                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.keyVaultId.value]",
-                "roleId": "[variables('keyVaultSecretsUserRoleId')]",
-                "description": "API - Key Vault Secrets User"
-              },
-              {
-                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-api-deployment'), '2025-04-01').outputs.principalId.value]",
-                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]",
-                "roleId": "[variables('storageBlobDataContributorRoleId')]",
-                "description": "API - Storage Blob Contributor"
-              },
-              {
-                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-api-deployment'), '2025-04-01').outputs.principalId.value]",
-                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]",
-                "roleId": "[variables('storageQueueDataContributorRoleId')]",
-                "description": "API - Storage Queue Contributor"
-              },
-              {
-                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-api-deployment'), '2025-04-01').outputs.principalId.value]",
-                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]",
-                "roleId": "[variables('storageTableDataContributorRoleId')]",
-                "description": "API - Storage Table Contributor"
-              },
-              {
-                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-scheduler-deployment'), '2025-04-01').outputs.principalId.value]",
-                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.keyVaultId.value]",
-                "roleId": "[variables('keyVaultSecretsUserRoleId')]",
-                "description": "Scheduler - Key Vault Secrets User"
-              },
-              {
-                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-scheduler-deployment'), '2025-04-01').outputs.principalId.value]",
-                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]",
-                "roleId": "[variables('storageBlobDataContributorRoleId')]",
-                "description": "Scheduler - Storage Blob Contributor"
-              },
-              {
-                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-scheduler-deployment'), '2025-04-01').outputs.principalId.value]",
-                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]",
-                "roleId": "[variables('storageQueueDataContributorRoleId')]",
-                "description": "Scheduler - Storage Queue Contributor"
-              },
-              {
-                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-scheduler-deployment'), '2025-04-01').outputs.principalId.value]",
-                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]",
-                "roleId": "[variables('storageTableDataContributorRoleId')]",
-                "description": "Scheduler - Storage Table Contributor"
-              },
-              {
-                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-processor-deployment'), '2025-04-01').outputs.principalId.value]",
-                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.keyVaultId.value]",
-                "roleId": "[variables('keyVaultSecretsUserRoleId')]",
-                "description": "Processor - Key Vault Secrets User"
-              },
-              {
-                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-processor-deployment'), '2025-04-01').outputs.principalId.value]",
-                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]",
-                "roleId": "[variables('storageBlobDataContributorRoleId')]",
-                "description": "Processor - Storage Blob Contributor"
-              },
-              {
-                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-processor-deployment'), '2025-04-01').outputs.principalId.value]",
-                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]",
-                "roleId": "[variables('storageQueueDataContributorRoleId')]",
-                "description": "Processor - Storage Queue Contributor"
-              },
-              {
-                "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-processor-deployment'), '2025-04-01').outputs.principalId.value]",
-                "scope": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountId.value]",
-                "roleId": "[variables('storageTableDataContributorRoleId')]",
-                "description": "Processor - Storage Table Contributor"
-              }
-            ]
+          "processorPrincipalId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-processor-deployment'), '2025-04-01').outputs.principalId.value]"
           }
         },
         "template": {
@@ -1980,92 +1911,194 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "16765930261850215111"
+              "templateHash": "2654094930860618107"
             }
           },
           "parameters": {
-            "location": {
+            "storageAccountId": {
               "type": "string",
               "metadata": {
-                "description": "Azure region"
+                "description": "Storage Account ID"
               }
             },
-            "tags": {
-              "type": "object",
-              "metadata": {
-                "description": "Tags to apply"
-              }
-            },
-            "identityId": {
+            "keyVaultId": {
               "type": "string",
               "metadata": {
-                "description": "User-assigned Managed Identity ID for running the script"
+                "description": "Key Vault ID"
               }
             },
-            "resourceGroupName": {
+            "apiPrincipalId": {
               "type": "string",
               "metadata": {
-                "description": "Resource group name"
+                "description": "API Function App Principal ID"
               }
             },
-            "roleAssignments": {
-              "type": "array",
+            "schedulerPrincipalId": {
+              "type": "string",
               "metadata": {
-                "description": "Array of role assignments to create"
+                "description": "Scheduler Function App Principal ID"
+              }
+            },
+            "processorPrincipalId": {
+              "type": "string",
+              "metadata": {
+                "description": "Processor Function App Principal ID"
               }
             }
           },
+          "variables": {
+            "keyVaultSecretsUserRoleId": "4633458b-17de-408a-b874-0445c86b69e6",
+            "storageBlobDataContributorRoleId": "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
+            "storageQueueDataContributorRoleId": "974c5e8b-45b9-4653-ba55-5f855dd0fb88",
+            "storageTableDataContributorRoleId": "0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3"
+          },
           "resources": [
             {
-              "type": "Microsoft.Resources/deploymentScripts",
-              "apiVersion": "2023-08-01",
-              "name": "create-role-assignments",
-              "location": "[parameters('location')]",
-              "tags": "[parameters('tags')]",
-              "kind": "AzureCLI",
-              "identity": {
-                "type": "UserAssigned",
-                "userAssignedIdentities": {
-                  "[format('{0}', parameters('identityId'))]": {}
-                }
-              },
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.KeyVault/vaults/{0}', last(split(parameters('keyVaultId'), '/')))]",
+              "name": "[guid(parameters('keyVaultId'), parameters('apiPrincipalId'), variables('keyVaultSecretsUserRoleId'))]",
               "properties": {
-                "azCliVersion": "2.50.0",
-                "timeout": "PT10M",
-                "retentionInterval": "PT1H",
-                "cleanupPreference": "OnSuccess",
-                "environmentVariables": [
-                  {
-                    "name": "ROLE_ASSIGNMENTS_JSON",
-                    "value": "[string(parameters('roleAssignments'))]"
-                  },
-                  {
-                    "name": "RESOURCE_GROUP",
-                    "value": "[parameters('resourceGroupName')]"
-                  }
-                ],
-                "scriptContent": "      #!/bin/bash\n\n      echo \"==========================================\"\n      echo \"Creating Role Assignments (Resilient)\"\n      echo \"==========================================\"\n\n      # Install jq for JSON parsing (Alpine-based container)\n      echo \"Installing jq...\"\n      apk add --no-cache jq > /dev/null 2>&1 || apt-get install -y jq > /dev/null 2>&1 || echo \"jq may already be installed\"\n\n      # Parse the JSON array of role assignments\n      ASSIGNMENTS=$(echo \"$ROLE_ASSIGNMENTS_JSON\" | tr -d '\\n')\n\n      SUCCESS_COUNT=0\n      SKIPPED_COUNT=0\n      FAILED_COUNT=0\n\n      # Process each role assignment\n      echo \"$ASSIGNMENTS\" | jq -c '.[]' | while read -r assignment; do\n        PRINCIPAL_ID=$(echo \"$assignment\" | jq -r '.principalId')\n        SCOPE=$(echo \"$assignment\" | jq -r '.scope')\n        ROLE_ID=$(echo \"$assignment\" | jq -r '.roleId')\n        DESCRIPTION=$(echo \"$assignment\" | jq -r '.description // \"Role assignment\"')\n\n        echo \"\"\n        echo \"Processing: $DESCRIPTION\"\n        echo \"  Principal: $PRINCIPAL_ID\"\n        echo \"  Role: $ROLE_ID\"\n        echo \"  Scope: $SCOPE\"\n\n        # Try to create the role assignment\n        OUTPUT=$(az role assignment create \\\n          --assignee-object-id \"$PRINCIPAL_ID\" \\\n          --assignee-principal-type ServicePrincipal \\\n          --role \"$ROLE_ID\" \\\n          --scope \"$SCOPE\" 2>&1) || true\n\n        # Check the result\n        if echo \"$OUTPUT\" | grep -q \"already exists\"; then\n          echo \"  ⏭️  SKIPPED - Already exists\"\n        elif echo \"$OUTPUT\" | grep -q \"roleAssignmentId\"; then\n          echo \"  ✅ CREATED\"\n        elif echo \"$OUTPUT\" | grep -q \"error\"; then\n          echo \"  ⚠️  WARNING: $OUTPUT\"\n          # Don't fail, just warn\n        else\n          echo \"  ✅ OK\"\n        fi\n      done\n\n      echo \"\"\n      echo \"==========================================\"\n      echo \"Role Assignments Complete\"\n      echo \"==========================================\"\n\n      # Always succeed - role assignments should not block deployment\n      echo '{\"status\": \"success\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n    "
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('keyVaultSecretsUserRoleId'))]",
+                "principalId": "[parameters('apiPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', last(split(parameters('storageAccountId'), '/')))]",
+              "name": "[guid(parameters('storageAccountId'), parameters('apiPrincipalId'), variables('storageBlobDataContributorRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageBlobDataContributorRoleId'))]",
+                "principalId": "[parameters('apiPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', last(split(parameters('storageAccountId'), '/')))]",
+              "name": "[guid(parameters('storageAccountId'), parameters('apiPrincipalId'), variables('storageQueueDataContributorRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageQueueDataContributorRoleId'))]",
+                "principalId": "[parameters('apiPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', last(split(parameters('storageAccountId'), '/')))]",
+              "name": "[guid(parameters('storageAccountId'), parameters('apiPrincipalId'), variables('storageTableDataContributorRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageTableDataContributorRoleId'))]",
+                "principalId": "[parameters('apiPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.KeyVault/vaults/{0}', last(split(parameters('keyVaultId'), '/')))]",
+              "name": "[guid(parameters('keyVaultId'), parameters('schedulerPrincipalId'), variables('keyVaultSecretsUserRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('keyVaultSecretsUserRoleId'))]",
+                "principalId": "[parameters('schedulerPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', last(split(parameters('storageAccountId'), '/')))]",
+              "name": "[guid(parameters('storageAccountId'), parameters('schedulerPrincipalId'), variables('storageBlobDataContributorRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageBlobDataContributorRoleId'))]",
+                "principalId": "[parameters('schedulerPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', last(split(parameters('storageAccountId'), '/')))]",
+              "name": "[guid(parameters('storageAccountId'), parameters('schedulerPrincipalId'), variables('storageQueueDataContributorRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageQueueDataContributorRoleId'))]",
+                "principalId": "[parameters('schedulerPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', last(split(parameters('storageAccountId'), '/')))]",
+              "name": "[guid(parameters('storageAccountId'), parameters('schedulerPrincipalId'), variables('storageTableDataContributorRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageTableDataContributorRoleId'))]",
+                "principalId": "[parameters('schedulerPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.KeyVault/vaults/{0}', last(split(parameters('keyVaultId'), '/')))]",
+              "name": "[guid(parameters('keyVaultId'), parameters('processorPrincipalId'), variables('keyVaultSecretsUserRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('keyVaultSecretsUserRoleId'))]",
+                "principalId": "[parameters('processorPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', last(split(parameters('storageAccountId'), '/')))]",
+              "name": "[guid(parameters('storageAccountId'), parameters('processorPrincipalId'), variables('storageBlobDataContributorRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageBlobDataContributorRoleId'))]",
+                "principalId": "[parameters('processorPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', last(split(parameters('storageAccountId'), '/')))]",
+              "name": "[guid(parameters('storageAccountId'), parameters('processorPrincipalId'), variables('storageQueueDataContributorRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageQueueDataContributorRoleId'))]",
+                "principalId": "[parameters('processorPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', last(split(parameters('storageAccountId'), '/')))]",
+              "name": "[guid(parameters('storageAccountId'), parameters('processorPrincipalId'), variables('storageTableDataContributorRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageTableDataContributorRoleId'))]",
+                "principalId": "[parameters('processorPrincipalId')]",
+                "principalType": "ServicePrincipal"
               }
             }
           ],
           "outputs": {
             "status": {
               "type": "string",
-              "metadata": {
-                "description": "Deployment script status"
-              },
-              "value": "[reference(resourceId('Microsoft.Resources/deploymentScripts', 'create-role-assignments'), '2023-08-01').provisioningState]"
+              "value": "Role assignments created"
             }
           }
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'deployment-identity')]",
         "[resourceId('Microsoft.Resources/deployments', 'functionapp-api-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'functionapp-processor-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'functionapp-scheduler-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'keyvault-deployment')]",
-        "[resourceId('Microsoft.Resources/deployments', 'rbac-deployment-contributor')]",
         "[resourceId('Microsoft.Resources/deployments', 'storage-deployment')]"
       ]
     },
@@ -2121,7 +2154,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "14450920828490016784"
+              "templateHash": "16134846737593915477"
             }
           },
           "parameters": {
@@ -2269,7 +2302,7 @@
                     "value": "[parameters('storageAccountName')]"
                   }
                 ],
-                "scriptContent": "#!/bin/bash\nset -e\n\necho \"==========================================\"\necho \"Deploying Dilux Database Backup\"\necho \"==========================================\"\n\n# Function to deploy with remote build (installs dependencies on Azure)\ndeploy_with_remote_build() {\n  local app_name=$1\n  local zip_file=$2\n  local max_attempts=5\n  local attempt=1\n  local wait_time=30\n\n  # Enable remote build settings\n  echo \"    Configuring remote build...\"\n  az functionapp config appsettings set \\\n    --name $app_name \\\n    --resource-group $RESOURCE_GROUP \\\n    --settings \"SCM_DO_BUILD_DURING_DEPLOYMENT=true\" \"ENABLE_ORYX_BUILD=true\" \\\n    -o none 2>&1 || true\n\n  while [ $attempt -le $max_attempts ]; do\n    echo \"    Attempt $attempt of $max_attempts (with remote build)...\"\n\n    # Use --build-remote true to install dependencies on Azure\n    if az functionapp deployment source config-zip \\\n      --resource-group $RESOURCE_GROUP \\\n      --name $app_name \\\n      --src $zip_file \\\n      --build-remote true \\\n      --timeout 600 2>&1; then\n      echo \"    Success! (dependencies installed via remote build)\"\n      return 0\n    fi\n\n    if [ $attempt -lt $max_attempts ]; then\n      echo \"    Failed. Waiting ${wait_time}s for RBAC propagation...\"\n      sleep $wait_time\n      wait_time=$((wait_time + 30))\n    fi\n\n    attempt=$((attempt + 1))\n  done\n\n  echo \"    ERROR: Failed after $max_attempts attempts\"\n  return 1\n}\n\n# Resolve \"latest\" to actual version tag using GitHub API\nif [ \"$VERSION\" == \"latest\" ]; then\n  echo \"Resolving latest release from GitHub...\"\n\n  RELEASE_INFO=$(curl -s \"https://api.github.com/repos/$GITHUB_REPO/releases/latest\")\n  RESOLVED_VERSION=$(echo \"$RELEASE_INFO\" | grep '\"tag_name\"' | head -1 | sed -E 's/.*\"tag_name\": *\"([^\"]+)\".*/\\1/')\n\n  if [ -z \"$RESOLVED_VERSION\" ] || [ \"$RESOLVED_VERSION\" == \"null\" ]; then\n    echo \"ERROR: Could not resolve latest release\"\n    echo \"Make sure the repository has at least one published release.\"\n    echo '{\"status\": \"failed\", \"error\": \"No releases found\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n    exit 1\n  fi\n\n  echo \"Resolved latest to: $RESOLVED_VERSION\"\n  VERSION=$RESOLVED_VERSION\nfi\n\necho \"Version: $VERSION\"\necho \"Repository: $GITHUB_REPO\"\necho \"==========================================\"\n\n# Base URL for release assets\nRELEASE_URL=\"https://github.com/$GITHUB_REPO/releases/download/$VERSION\"\n\necho \"\"\necho \"Downloading pre-built release assets from:\"\necho \"$RELEASE_URL\"\necho \"\"\n\n# Download all ZIPs (frontend + 3 Function Apps)\necho \"[1/4] Downloading frontend.zip...\"\nif ! curl -L -f -s -o frontend.zip \"$RELEASE_URL/frontend.zip\"; then\n  echo \"ERROR: Could not download frontend.zip\"\n  echo \"URL: $RELEASE_URL/frontend.zip\"\n  echo \"\"\n  echo \"Make sure:\"\n  echo \"1. The release $VERSION exists\"\n  echo \"2. The release has frontend.zip, api.zip, scheduler.zip, processor.zip assets\"\n  echo \"3. Run the Build Release Assets GitHub Action first\"\n  echo \"\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download frontend.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded frontend.zip\"\n\necho \"[2/4] Downloading api.zip...\"\nif ! curl -L -f -s -o api.zip \"$RELEASE_URL/api.zip\"; then\n  echo \"ERROR: Could not download api.zip\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download api.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded api.zip\"\n\necho \"[3/4] Downloading scheduler.zip...\"\nif ! curl -L -f -s -o scheduler.zip \"$RELEASE_URL/scheduler.zip\"; then\n  echo \"ERROR: Could not download scheduler.zip\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download scheduler.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded scheduler.zip\"\n\necho \"[4/4] Downloading processor.zip...\"\nif ! curl -L -f -s -o processor.zip \"$RELEASE_URL/processor.zip\"; then\n  echo \"ERROR: Could not download processor.zip\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download processor.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded processor.zip\"\n\necho \"\"\necho \"All assets downloaded successfully:\"\nls -lh *.zip\necho \"\"\n\n# ========================================\n# Wait for RBAC propagation\n# ========================================\necho \"==========================================\"\necho \"Waiting for RBAC permissions to propagate...\"\necho \"==========================================\"\necho \"(Azure AD role assignments can take up to 5 minutes to propagate)\"\nsleep 60\necho \"Waited 60 seconds. Starting deployment...\"\necho \"\"\n\n# ========================================\n# Deploy Frontend to Blob Storage Static Website\n# ========================================\necho \"==========================================\"\necho \"Deploying Frontend to Blob Storage Static Website...\"\necho \"==========================================\"\necho \"\"\n\n# Get storage account\nif [ -n \"$STORAGE_ACCOUNT_NAME\" ]; then\n  STORAGE_ACCOUNT=\"$STORAGE_ACCOUNT_NAME\"\nelse\n  STORAGE_ACCOUNT=$(az storage account list --resource-group $RESOURCE_GROUP --query \"[0].name\" -o tsv 2>/dev/null || echo \"\")\nfi\n\nif [ -z \"$STORAGE_ACCOUNT\" ]; then\n  echo \"ERROR: Could not find storage account\"\n  FRONTEND_DEPLOYED=false\n  FRONTEND_URL=\"\"\nelse\n  echo \"Storage Account: $STORAGE_ACCOUNT\"\n\n  # Get storage account key\n  echo \"Getting storage account key...\"\n  ACCOUNT_KEY=$(az storage account keys list --account-name $STORAGE_ACCOUNT --resource-group $RESOURCE_GROUP --query \"[0].value\" -o tsv 2>/dev/null)\n\n  if [ -z \"$ACCOUNT_KEY\" ]; then\n    echo \"ERROR: Could not get storage account key\"\n    FRONTEND_DEPLOYED=false\n    FRONTEND_URL=\"\"\n  else\n    # Enable static website on storage account\n    echo \"Enabling static website on storage account...\"\n    az storage blob service-properties update \\\n      --account-name $STORAGE_ACCOUNT \\\n      --account-key \"$ACCOUNT_KEY\" \\\n      --static-website \\\n      --index-document index.html \\\n      --404-document index.html \\\n      --only-show-errors\n\n    echo \"    Static website enabled\"\n\n    # Get the static website URL\n    FRONTEND_URL=$(az storage account show \\\n      --name $STORAGE_ACCOUNT \\\n      --resource-group $RESOURCE_GROUP \\\n      --query \"primaryEndpoints.web\" -o tsv 2>/dev/null | sed 's:/*$::')\n\n    echo \"    Static Website URL: $FRONTEND_URL\"\n\n    # Extract frontend.zip\n    echo \"Extracting frontend.zip...\"\n    mkdir -p frontend_dist\n    unzip -q frontend.zip -d frontend_dist\n\n    # Determine auth mode based on client ID availability\n    if [ -n \"$AZURE_AD_CLIENT_ID\" ] && [ \"$AZURE_AD_CLIENT_ID\" != \"\" ]; then\n      AUTH_MODE=\"azure\"\n\n      # Clean up mock users from Table Storage to allow real \"first run\"\n      # This prevents the dev-user from blocking real Azure AD users\n      echo \"    Cleaning up mock users from Table Storage...\"\n\n      # Delete mock dev user if exists (RowKey = dev-user-00000000-0000-0000-0000-000000000000)\n      az storage entity delete \\\n        --account-name $STORAGE_ACCOUNT \\\n        --account-key \"$ACCOUNT_KEY\" \\\n        --table-name users \\\n        --partition-key \"users\" \\\n        --row-key \"dev-user-00000000-0000-0000-0000-000000000000\" \\\n        2>/dev/null || true\n\n      echo \"    Mock users cleaned up (first login will be admin)\"\n    else\n      AUTH_MODE=\"mock\"\n    fi\n\n    # Generate config.json with runtime configuration\n    echo \"Generating config.json for runtime configuration...\"\n    cat > frontend_dist/config.json << CONFIGEOF\n{\n  \"apiUrl\": \"$API_BASE_URL\",\n  \"azureClientId\": \"$AZURE_AD_CLIENT_ID\",\n  \"azureTenantId\": \"$AZURE_AD_TENANT_ID\",\n  \"azureRedirectUri\": \"$FRONTEND_URL\",\n  \"authMode\": \"$AUTH_MODE\"\n}\nCONFIGEOF\n\n    echo \"    config.json created:\"\n    cat frontend_dist/config.json\n    echo \"\"\n\n    # Upload all files to $web container using batch upload\n    echo \"Uploading frontend files to \\$web container...\"\n\n    az storage blob upload-batch \\\n      --account-name $STORAGE_ACCOUNT \\\n      --account-key \"$ACCOUNT_KEY\" \\\n      --destination '$web' \\\n      --source frontend_dist \\\n      --overwrite \\\n      --only-show-errors 2>/dev/null\n\n    echo \"    Frontend files uploaded successfully!\"\n    FRONTEND_DEPLOYED=true\n  fi\nfi\n\necho \"\"\n\n# ========================================\n# Deploy Function Apps (with retry)\n# ========================================\necho \"==========================================\"\necho \"Deploying Function Apps...\"\necho \"==========================================\"\n\necho \"\"\necho \"[1/3] Deploying API Function App: $API_FUNCTION_APP_NAME\"\nif ! deploy_with_remote_build $API_FUNCTION_APP_NAME api.zip; then\n  echo '{\"status\": \"failed\", \"error\": \"Failed to deploy API Function App\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\n\necho \"\"\necho \"[2/3] Deploying Scheduler Function App: $SCHEDULER_FUNCTION_APP_NAME\"\nif ! deploy_with_remote_build $SCHEDULER_FUNCTION_APP_NAME scheduler.zip; then\n  echo '{\"status\": \"failed\", \"error\": \"Failed to deploy Scheduler Function App\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\n\necho \"\"\necho \"[3/3] Deploying Processor Function App: $PROCESSOR_FUNCTION_APP_NAME\"\nif ! deploy_with_remote_build $PROCESSOR_FUNCTION_APP_NAME processor.zip; then\n  echo '{\"status\": \"failed\", \"error\": \"Failed to deploy Processor Function App\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\n\n# Get API URL for output\nAPI_URL=$(az functionapp show \\\n  --name $API_FUNCTION_APP_NAME \\\n  --resource-group $RESOURCE_GROUP \\\n  --query \"defaultHostName\" -o tsv 2>/dev/null || echo \"\")\n\necho \"\"\necho \"==========================================\"\necho \"DEPLOYMENT COMPLETE\"\necho \"==========================================\"\necho \"\"\necho \"All components deployed successfully!\"\necho \"\"\necho \"URLs:\"\necho \"  Frontend: $FRONTEND_URL\"\necho \"  API:      https://$API_URL\"\necho \"\"\n\nif [ \"$FRONTEND_DEPLOYED\" != true ]; then\n  echo \"NOTE: Frontend deployment failed.\"\n  echo \"Check the storage account permissions and try again.\"\n  echo \"\"\nfi\n\n# Output results\ncat > $AZ_SCRIPTS_OUTPUT_PATH << EOF\n{\n  \"status\": \"success\",\n  \"version\": \"$VERSION\",\n  \"frontendDeployed\": $FRONTEND_DEPLOYED,\n  \"functionAppsDeployed\": true,\n  \"apiUrl\": \"https://$API_URL\",\n  \"frontendUrl\": \"$FRONTEND_URL\"\n}\nEOF\n    "
+                "scriptContent": "#!/bin/bash\nset -e\n\necho \"==========================================\"\necho \"Deploying Dilux Database Backup\"\necho \"==========================================\"\n\n# Function to deploy with remote build (installs dependencies on Azure)\ndeploy_with_remote_build() {\n  local app_name=$1\n  local zip_file=$2\n  local max_attempts=5\n  local attempt=1\n  local wait_time=30\n\n  # Enable remote build settings\n  echo \"    Configuring remote build...\"\n  az functionapp config appsettings set \\\n    --name $app_name \\\n    --resource-group $RESOURCE_GROUP \\\n    --settings \"SCM_DO_BUILD_DURING_DEPLOYMENT=true\" \"ENABLE_ORYX_BUILD=true\" \\\n    -o none 2>&1 || true\n\n  while [ $attempt -le $max_attempts ]; do\n    echo \"    Attempt $attempt of $max_attempts (with remote build)...\"\n\n    # Use --build-remote true to install dependencies on Azure\n    if az functionapp deployment source config-zip \\\n      --resource-group $RESOURCE_GROUP \\\n      --name $app_name \\\n      --src $zip_file \\\n      --build-remote true \\\n      --timeout 600 2>&1; then\n      echo \"    Success! (dependencies installed via remote build)\"\n      return 0\n    fi\n\n    if [ $attempt -lt $max_attempts ]; then\n      echo \"    Failed. Waiting ${wait_time}s for RBAC propagation...\"\n      sleep $wait_time\n      wait_time=$((wait_time + 30))\n    fi\n\n    attempt=$((attempt + 1))\n  done\n\n  echo \"    ERROR: Failed after $max_attempts attempts\"\n  return 1\n}\n\n# Resolve \"latest\" to actual version tag using GitHub API\nif [ \"$VERSION\" == \"latest\" ]; then\n  echo \"Resolving latest release from GitHub...\"\n\n  RELEASE_INFO=$(curl -s \"https://api.github.com/repos/$GITHUB_REPO/releases/latest\")\n  RESOLVED_VERSION=$(echo \"$RELEASE_INFO\" | grep '\"tag_name\"' | head -1 | sed -E 's/.*\"tag_name\": *\"([^\"]+)\".*/\\1/')\n\n  if [ -z \"$RESOLVED_VERSION\" ] || [ \"$RESOLVED_VERSION\" == \"null\" ]; then\n    echo \"ERROR: Could not resolve latest release\"\n    echo \"Make sure the repository has at least one published release.\"\n    echo '{\"status\": \"failed\", \"error\": \"No releases found\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n    exit 1\n  fi\n\n  echo \"Resolved latest to: $RESOLVED_VERSION\"\n  VERSION=$RESOLVED_VERSION\nfi\n\necho \"Version: $VERSION\"\necho \"Repository: $GITHUB_REPO\"\necho \"==========================================\"\n\n# Base URL for release assets\nRELEASE_URL=\"https://github.com/$GITHUB_REPO/releases/download/$VERSION\"\n\necho \"\"\necho \"Downloading pre-built release assets from:\"\necho \"$RELEASE_URL\"\necho \"\"\n\n# Download all ZIPs (frontend + 3 Function Apps)\necho \"[1/4] Downloading frontend.zip...\"\nif ! curl -L -f -s -o frontend.zip \"$RELEASE_URL/frontend.zip\"; then\n  echo \"ERROR: Could not download frontend.zip\"\n  echo \"URL: $RELEASE_URL/frontend.zip\"\n  echo \"\"\n  echo \"Make sure:\"\n  echo \"1. The release $VERSION exists\"\n  echo \"2. The release has frontend.zip, api.zip, scheduler.zip, processor.zip assets\"\n  echo \"3. Run the Build Release Assets GitHub Action first\"\n  echo \"\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download frontend.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded frontend.zip\"\n\necho \"[2/4] Downloading api.zip...\"\nif ! curl -L -f -s -o api.zip \"$RELEASE_URL/api.zip\"; then\n  echo \"ERROR: Could not download api.zip\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download api.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded api.zip\"\n\necho \"[3/4] Downloading scheduler.zip...\"\nif ! curl -L -f -s -o scheduler.zip \"$RELEASE_URL/scheduler.zip\"; then\n  echo \"ERROR: Could not download scheduler.zip\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download scheduler.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded scheduler.zip\"\n\necho \"[4/4] Downloading processor.zip...\"\nif ! curl -L -f -s -o processor.zip \"$RELEASE_URL/processor.zip\"; then\n  echo \"ERROR: Could not download processor.zip\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download processor.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded processor.zip\"\n\necho \"\"\necho \"All assets downloaded successfully:\"\nls -lh *.zip\necho \"\"\n\n# ========================================\n# Wait for RBAC propagation\n# ========================================\necho \"==========================================\"\necho \"Waiting for RBAC permissions to propagate...\"\necho \"==========================================\"\necho \"(Azure AD role assignments can take up to 5 minutes to propagate)\"\nsleep 60\necho \"Waited 60 seconds. Starting deployment...\"\necho \"\"\n\n# ========================================\n# Deploy Frontend to Blob Storage Static Website\n# ========================================\necho \"==========================================\"\necho \"Deploying Frontend to Blob Storage Static Website...\"\necho \"==========================================\"\necho \"\"\n\n# Get storage account\nif [ -n \"$STORAGE_ACCOUNT_NAME\" ]; then\n  STORAGE_ACCOUNT=\"$STORAGE_ACCOUNT_NAME\"\nelse\n  STORAGE_ACCOUNT=$(az storage account list --resource-group $RESOURCE_GROUP --query \"[0].name\" -o tsv 2>/dev/null || echo \"\")\nfi\n\nif [ -z \"$STORAGE_ACCOUNT\" ]; then\n  echo \"ERROR: Could not find storage account\"\n  FRONTEND_DEPLOYED=false\n  FRONTEND_URL=\"\"\nelse\n  echo \"Storage Account: $STORAGE_ACCOUNT\"\n\n  # Get storage account key\n  echo \"Getting storage account key...\"\n  ACCOUNT_KEY=$(az storage account keys list --account-name $STORAGE_ACCOUNT --resource-group $RESOURCE_GROUP --query \"[0].value\" -o tsv 2>/dev/null)\n\n  if [ -z \"$ACCOUNT_KEY\" ]; then\n    echo \"ERROR: Could not get storage account key\"\n    FRONTEND_DEPLOYED=false\n    FRONTEND_URL=\"\"\n  else\n    # Enable static website on storage account\n    echo \"Enabling static website on storage account...\"\n    az storage blob service-properties update \\\n      --account-name $STORAGE_ACCOUNT \\\n      --account-key \"$ACCOUNT_KEY\" \\\n      --static-website \\\n      --index-document index.html \\\n      --404-document index.html \\\n      --only-show-errors\n\n    echo \"    Static website enabled\"\n\n    # Get the static website URL\n    FRONTEND_URL=$(az storage account show \\\n      --name $STORAGE_ACCOUNT \\\n      --resource-group $RESOURCE_GROUP \\\n      --query \"primaryEndpoints.web\" -o tsv 2>/dev/null | sed 's:/*$::')\n\n    echo \"    Static Website URL: $FRONTEND_URL\"\n\n    # Extract frontend.zip\n    echo \"Extracting frontend.zip...\"\n    mkdir -p frontend_dist\n    unzip -q frontend.zip -d frontend_dist\n\n    # Determine auth mode based on client ID availability\n    if [ -n \"$AZURE_AD_CLIENT_ID\" ] && [ \"$AZURE_AD_CLIENT_ID\" != \"\" ]; then\n      AUTH_MODE=\"azure\"\n\n      # Clean up mock users from Table Storage to allow real \"first run\"\n      # This prevents the dev-user from blocking real Azure AD users\n      echo \"    Cleaning up mock users from Table Storage...\"\n\n      # Delete mock dev user if exists (RowKey = dev-user-00000000-0000-0000-0000-000000000000)\n      az storage entity delete \\\n        --account-name $STORAGE_ACCOUNT \\\n        --account-key \"$ACCOUNT_KEY\" \\\n        --table-name users \\\n        --partition-key \"users\" \\\n        --row-key \"dev-user-00000000-0000-0000-0000-000000000000\" \\\n        2>/dev/null || true\n\n      echo \"    Mock users cleaned up (first login will be admin)\"\n    else\n      AUTH_MODE=\"mock\"\n    fi\n\n    # Generate config.json with runtime configuration\n    echo \"Generating config.json for runtime configuration...\"\n    cat > frontend_dist/config.json << CONFIGEOF\n{\n  \"apiUrl\": \"$API_BASE_URL\",\n  \"azureClientId\": \"$AZURE_AD_CLIENT_ID\",\n  \"azureTenantId\": \"$AZURE_AD_TENANT_ID\",\n  \"azureRedirectUri\": \"$FRONTEND_URL\",\n  \"authMode\": \"$AUTH_MODE\"\n}\nCONFIGEOF\n\n    echo \"    config.json created:\"\n    cat frontend_dist/config.json\n    echo \"\"\n\n    # Upload all files to $web container using batch upload\n    echo \"Uploading frontend files to \\$web container...\"\n\n    az storage blob upload-batch \\\n      --account-name $STORAGE_ACCOUNT \\\n      --account-key \"$ACCOUNT_KEY\" \\\n      --destination '$web' \\\n      --source frontend_dist \\\n      --overwrite \\\n      --only-show-errors 2>/dev/null\n\n    echo \"    Frontend files uploaded successfully!\"\n    FRONTEND_DEPLOYED=true\n  fi\nfi\n\necho \"\"\n\n# ========================================\n# Deploy Function Apps (with retry)\n# ========================================\necho \"==========================================\"\necho \"Deploying Function Apps...\"\necho \"==========================================\"\n\necho \"\"\necho \"[1/3] Deploying API Function App: $API_FUNCTION_APP_NAME\"\nif ! deploy_with_remote_build $API_FUNCTION_APP_NAME api.zip; then\n  echo '{\"status\": \"failed\", \"error\": \"Failed to deploy API Function App\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\n\necho \"\"\necho \"[2/3] Deploying Scheduler Function App: $SCHEDULER_FUNCTION_APP_NAME\"\nif ! deploy_with_remote_build $SCHEDULER_FUNCTION_APP_NAME scheduler.zip; then\n  echo '{\"status\": \"failed\", \"error\": \"Failed to deploy Scheduler Function App\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\n\necho \"\"\necho \"[3/3] Deploying Processor Function App: $PROCESSOR_FUNCTION_APP_NAME\"\nif ! deploy_with_remote_build $PROCESSOR_FUNCTION_APP_NAME processor.zip; then\n  echo '{\"status\": \"failed\", \"error\": \"Failed to deploy Processor Function App\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\n\n# Get API URL for output\nAPI_URL=$(az functionapp show \\\n  --name $API_FUNCTION_APP_NAME \\\n  --resource-group $RESOURCE_GROUP \\\n  --query \"defaultHostName\" -o tsv 2>/dev/null || echo \"\")\n\n# ========================================\n# Configure CORS for API Function App\n# ========================================\nif [ -n \"$FRONTEND_URL\" ]; then\n  echo \"\"\n  echo \"==========================================\"\n  echo \"Configuring CORS...\"\n  echo \"==========================================\"\n\n  # Add specific frontend URL to CORS (required for credentials)\n  az functionapp cors add \\\n    --name $API_FUNCTION_APP_NAME \\\n    --resource-group $RESOURCE_GROUP \\\n    --allowed-origins \"$FRONTEND_URL\" \\\n    -o none 2>/dev/null && echo \"  ✅ CORS configured for $FRONTEND_URL\" || echo \"  ⚠️ CORS may already be configured\"\nfi\n\necho \"\"\necho \"==========================================\"\necho \"DEPLOYMENT COMPLETE\"\necho \"==========================================\"\necho \"\"\necho \"All components deployed successfully!\"\necho \"\"\necho \"URLs:\"\necho \"  Frontend: $FRONTEND_URL\"\necho \"  API:      https://$API_URL\"\necho \"\"\n\nif [ \"$FRONTEND_DEPLOYED\" != true ]; then\n  echo \"NOTE: Frontend deployment failed.\"\n  echo \"Check the storage account permissions and try again.\"\n  echo \"\"\nfi\n\n# Output results\ncat > $AZ_SCRIPTS_OUTPUT_PATH << EOF\n{\n  \"status\": \"success\",\n  \"version\": \"$VERSION\",\n  \"frontendDeployed\": $FRONTEND_DEPLOYED,\n  \"functionAppsDeployed\": true,\n  \"apiUrl\": \"https://$API_URL\",\n  \"frontendUrl\": \"$FRONTEND_URL\"\n}\nEOF\n    "
               }
             }
           ],

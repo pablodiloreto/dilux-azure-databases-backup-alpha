@@ -263,113 +263,19 @@ module functionAppProcessor 'modules/functionapp.bicep' = {
 }
 
 // ============================================================================
-// Step 5: RBAC for Function Apps (Resilient - won't fail on re-deploy)
+// Step 5: RBAC for Function Apps (Native Bicep - uses deployer's permissions)
 // ============================================================================
 
-// Role definition IDs
-var keyVaultSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
-var storageBlobDataContributorRoleId = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
-var storageQueueDataContributorRoleId = '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
-var storageTableDataContributorRoleId = '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
-var contributorRoleId = 'b24988ac-6180-42a0-ab88-20f7382dd24c'
-
-// All role assignments in one resilient module
-module rbacAssignments 'modules/rbac-resilient.bicep' = {
+// Role assignments using native Bicep (not deployment scripts)
+// This uses the deploying user's permissions to create role assignments
+module rbacAssignments 'modules/rbac-native.bicep' = {
   name: 'rbac-all-assignments'
-  dependsOn: [
-    functionAppApi
-    functionAppScheduler
-    functionAppProcessor
-    rbacDeploymentContributor  // Ensure Contributor role is assigned before this script runs
-  ]
   params: {
-    location: location
-    tags: tags
-    identityId: deploymentIdentity.outputs.identityId
-    resourceGroupName: resourceGroup().name
-    roleAssignments: [
-      // NOTE: Deployment Identity Contributor role is now assigned via native Bicep
-      // (see rbac-contributor.bicep) to ensure it exists BEFORE any scripts run
-
-      // API Function App - Key Vault
-      {
-        principalId: functionAppApi.outputs.principalId
-        scope: keyVault.outputs.keyVaultId
-        roleId: keyVaultSecretsUserRoleId
-        description: 'API - Key Vault Secrets User'
-      }
-      // API Function App - Storage
-      {
-        principalId: functionAppApi.outputs.principalId
-        scope: storage.outputs.storageAccountId
-        roleId: storageBlobDataContributorRoleId
-        description: 'API - Storage Blob Contributor'
-      }
-      {
-        principalId: functionAppApi.outputs.principalId
-        scope: storage.outputs.storageAccountId
-        roleId: storageQueueDataContributorRoleId
-        description: 'API - Storage Queue Contributor'
-      }
-      {
-        principalId: functionAppApi.outputs.principalId
-        scope: storage.outputs.storageAccountId
-        roleId: storageTableDataContributorRoleId
-        description: 'API - Storage Table Contributor'
-      }
-      // Scheduler Function App - Key Vault
-      {
-        principalId: functionAppScheduler.outputs.principalId
-        scope: keyVault.outputs.keyVaultId
-        roleId: keyVaultSecretsUserRoleId
-        description: 'Scheduler - Key Vault Secrets User'
-      }
-      // Scheduler Function App - Storage
-      {
-        principalId: functionAppScheduler.outputs.principalId
-        scope: storage.outputs.storageAccountId
-        roleId: storageBlobDataContributorRoleId
-        description: 'Scheduler - Storage Blob Contributor'
-      }
-      {
-        principalId: functionAppScheduler.outputs.principalId
-        scope: storage.outputs.storageAccountId
-        roleId: storageQueueDataContributorRoleId
-        description: 'Scheduler - Storage Queue Contributor'
-      }
-      {
-        principalId: functionAppScheduler.outputs.principalId
-        scope: storage.outputs.storageAccountId
-        roleId: storageTableDataContributorRoleId
-        description: 'Scheduler - Storage Table Contributor'
-      }
-      // Processor Function App - Key Vault
-      {
-        principalId: functionAppProcessor.outputs.principalId
-        scope: keyVault.outputs.keyVaultId
-        roleId: keyVaultSecretsUserRoleId
-        description: 'Processor - Key Vault Secrets User'
-      }
-      // Processor Function App - Storage
-      {
-        principalId: functionAppProcessor.outputs.principalId
-        scope: storage.outputs.storageAccountId
-        roleId: storageBlobDataContributorRoleId
-        description: 'Processor - Storage Blob Contributor'
-      }
-      {
-        principalId: functionAppProcessor.outputs.principalId
-        scope: storage.outputs.storageAccountId
-        roleId: storageQueueDataContributorRoleId
-        description: 'Processor - Storage Queue Contributor'
-      }
-      {
-        principalId: functionAppProcessor.outputs.principalId
-        scope: storage.outputs.storageAccountId
-        roleId: storageTableDataContributorRoleId
-        description: 'Processor - Storage Table Contributor'
-      }
-    ]
+    storageAccountId: storage.outputs.storageAccountId
+    keyVaultId: keyVault.outputs.keyVaultId
+    apiPrincipalId: functionAppApi.outputs.principalId
+    schedulerPrincipalId: functionAppScheduler.outputs.principalId
+    processorPrincipalId: functionAppProcessor.outputs.principalId
   }
 }
 

@@ -52,9 +52,24 @@ param keyVaultName string
 @description('Additional app settings')
 param additionalAppSettings object = {}
 
+@description('Frontend URL for CORS (specific origin required for credentials)')
+param frontendUrl string = ''
+
 // ============================================================================
 // Variables
 // ============================================================================
+
+// CORS allowed origins - include specific frontend URL if provided
+var corsOrigins = empty(frontendUrl) ? [
+  'https://portal.azure.com'
+  'http://localhost:3000'
+  'http://localhost:5173'
+] : [
+  'https://portal.azure.com'
+  'http://localhost:3000'
+  'http://localhost:5173'
+  frontendUrl
+]
 
 // Determine if using Consumption plan (requires connection string)
 var isConsumptionPlan = sku == 'Y1'
@@ -126,12 +141,7 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       cors: {
-        allowedOrigins: [
-          'https://portal.azure.com'
-          'https://*.web.core.windows.net'  // Azure Blob Storage Static Website
-          'http://localhost:3000'
-          'http://localhost:5173'
-        ]
+        allowedOrigins: corsOrigins
         supportCredentials: true
       }
       appSettings: [for setting in items(appSettings): {
