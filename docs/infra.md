@@ -361,7 +361,7 @@ bash .devcontainer/scripts/post-start.sh
 | Databases | Docker containers | Azure SQL, Managed MySQL/PostgreSQL |
 | Auth | None/optional | Azure AD |
 | Functions | Local Core Tools | Azure Function Apps (Flex Consumption) |
-| Frontend | Vite dev server | Azure Static Web Apps |
+| Frontend | Vite dev server | Azure Blob Storage Static Website |
 | Secrets | `.env` file | Azure Key Vault |
 
 ---
@@ -430,7 +430,7 @@ This section documents the Azure infrastructure deployment process.
 │         │  - Deploys code to resources                              │
 │         ▼                                                            │
 │  6. Application Running                                              │
-│         - Static Web App (frontend)                                 │
+│         - Blob Storage Static Website (frontend)                    │
 │         - 3 Function Apps (api, scheduler, processor)               │
 │         - Storage, Key Vault, App Insights                          │
 │                                                                      │
@@ -653,7 +653,7 @@ With default settings (Y1 Consumption SKU):
 | Resource | Estimated Monthly Cost |
 |----------|----------------------|
 | Function Apps (Y1) | ~$0-5 (pay per execution) |
-| Static Web App (Free) | $0 |
+| Blob Storage Static Website | $0 (included in Storage) |
 | Storage Account | ~$1-5 |
 | Key Vault | ~$0.03/10k operations |
 | App Insights | ~$2-5 |

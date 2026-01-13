@@ -22,7 +22,6 @@ src/frontend/
 ├── package.json            # Dependencies and scripts
 ├── vite.config.ts          # Vite configuration
 ├── tsconfig.json           # TypeScript config
-├── staticwebapp.config.json # Azure Static Web Apps config
 ├── .env.example            # Environment variables template
 │
 └── src/
@@ -832,24 +831,19 @@ See `docs/AUTH_SETUP.md` for complete Azure AD configuration instructions.
 
 ---
 
-## Azure Static Web Apps
+## Production Hosting
 
-`staticwebapp.config.json` configures:
+In production, the frontend is deployed to **Azure Blob Storage Static Website**:
 
-- **Route rules** - Protect `/api/*` with authentication
-- **Fallback** - SPA routing (all routes → `index.html`)
-- **Security headers** - CSP, X-Frame-Options, etc.
+- Build artifacts are uploaded to the `$web` container
+- Storage Account provides static file hosting with a public URL
+- The URL follows the pattern: `https://{storageaccount}.z{N}.web.core.windows.net`
+- SPA routing is handled by setting `index.html` as both index and error document
 
-```json
-{
-  "routes": [
-    { "route": "/api/*", "allowedRoles": ["authenticated"] }
-  ],
-  "navigationFallback": {
-    "rewrite": "/index.html"
-  }
-}
-```
+The deployment script (`infra/modules/code-deployment.bicep`) automatically:
+1. Downloads the pre-built frontend ZIP from GitHub Releases
+2. Extracts and uploads files to the storage account's `$web` container
+3. Configures CORS on the API Function App to allow the frontend URL
 
 ---
 
