@@ -1,9 +1,9 @@
-# Estado del Proyecto - 13 Enero 2026 (Actualizado 03:15 UTC)
+# Estado del Proyecto - 13 Enero 2026 (Actualizado 04:00 UTC)
 
 ## Resumen Ejecutivo
 
 **Release actual**: v1.0.12 (pendiente tag)
-**Estado**: ✅ **SCRIPT DE INSTALACIÓN CREADO - LISTO PARA PROBAR**
+**Estado**: ✅ **SCRIPT DE INSTALACIÓN CON PROGRESO EN TIEMPO REAL**
 **Resource Groups eliminados**: dilux10-test-rg, dilux11-test-rg
 
 ### Resumen de Cambios Esta Sesión:
@@ -12,10 +12,36 @@
 3. ✅ **Automatización** → deployment ahora limpia usuarios mock cuando AUTH_MODE=azure
 4. ✅ **Script de instalación** → `scripts/deploy.sh` crea App Registration automáticamente
 5. ✅ **README actualizado** → Script como opción principal de instalación
+6. ✅ **Progreso en tiempo real** → El script ahora muestra el progreso del deployment dinámicamente
 
 ---
 
-## ✅ NUEVO: Script de Instalación Automático
+## ✅ NUEVO: Progreso en Tiempo Real (04:00 UTC - 13 Enero)
+
+### Mejora Implementada
+El script `deploy.sh` ahora muestra progreso del deployment en tiempo real:
+
+```
+───────────────────────────────────────────────────────────────
+  Progreso del deployment (actualización cada 10 segundos)
+───────────────────────────────────────────────────────────────
+
+  ✅ dilux-backup-deploy-identity (userAssignedIdentities)
+  ✅ dilux-backup-kv-abc123 (vaults)
+  ✅ dilux-backup-stabc123xyz (storageAccounts)
+  ⏳ Estado: Running | Completados: 3/12 | Tiempo: 2m 30s
+```
+
+### Características:
+- Muestra recursos completados con checkmark ✅
+- Actualiza cada 10 segundos
+- Muestra contador de progreso (completados/total)
+- Muestra tiempo transcurrido
+- En caso de error, muestra detalles del fallo
+
+---
+
+## ✅ Script de Instalación Automático
 
 ### El Problema Resuelto
 El Managed Identity del deployment no puede crear App Registrations porque requiere permisos de Microsoft Graph API que solo un Global Admin puede otorgar.
