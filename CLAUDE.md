@@ -80,14 +80,17 @@ gh release view v1.0.x
 ### Deployment a Azure
 
 ```bash
-# Recompilar ARM después de cambios en Bicep
+# Opción 1: Script automático (recomendado)
+curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/deploy.sh | bash
+
+# Opción 2: Recompilar ARM después de cambios en Bicep
 cd infra && az bicep build --file main.bicep --outfile azuredeploy.json
 
 # Deploy via CLI
 az deployment group create \
   --resource-group mi-rg \
   --template-file infra/main.bicep \
-  --parameters appName=miapp adminEmail=admin@email.com
+  --parameters appName=miapp adminEmail=admin@email.com azureAdClientId=xxx
 ```
 
 ## Convención de Nombres Azure
@@ -97,7 +100,7 @@ Los recursos globalmente únicos usan sufijo hash:
 | Recurso | Patrón | Ejemplo |
 |---------|--------|---------|
 | Function Apps | `{appName}-{6chars}-{type}` | `dilux-abc123-api` |
-| Static Web App | `{appName}-{6chars}-web` | `dilux-abc123-web` |
+| Static Website | `{storageAccount}.z*.web.core.windows.net` | `diluxstabc123.z13.web.core.windows.net` |
 | Storage Account | `{appName}st{13chars}` | `diluxstabc123xyz456` |
 | Key Vault | `{appName}-kv-{8chars}` | `dilux-kv-abc123xy` |
 

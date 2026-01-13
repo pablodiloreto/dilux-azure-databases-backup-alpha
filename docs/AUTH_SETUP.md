@@ -2,6 +2,30 @@
 
 This guide explains how to configure Azure AD authentication for Dilux Database Backup.
 
+## Automatic Setup (Recommended)
+
+The easiest way to configure authentication is using the deployment script:
+
+```bash
+curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/deploy.sh | bash
+```
+
+This script automatically:
+1. Creates the App Registration in Azure AD
+2. Configures redirect URIs
+3. Deploys the infrastructure with correct settings
+4. First user to login becomes Admin
+
+**Requirements:**
+- Azure CLI installed
+- Global Admin or Application Administrator role in Azure AD
+
+---
+
+## Manual Setup
+
+Only follow these steps if you need to configure authentication manually (e.g., when using "Deploy to Azure" button).
+
 ## Architecture
 
 ```

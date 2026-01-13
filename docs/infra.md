@@ -454,7 +454,7 @@ shortSuffix = take(uniqueSuffix, 6)                       → "abc123"
 | Function App (API) | `{appName}-{6chars}-api` | `dilux-abc123-api` | ✅ Yes |
 | Function App (Scheduler) | `{appName}-{6chars}-scheduler` | `dilux-abc123-scheduler` | ✅ Yes |
 | Function App (Processor) | `{appName}-{6chars}-processor` | `dilux-abc123-processor` | ✅ Yes |
-| Static Web App | `{appName}-{6chars}-web` | `dilux-abc123-web` | ✅ Yes |
+| Static Website | `{storageAccount}.z*.web.core.windows.net` | `diluxstabc123.z13.web.core.windows.net` | ✅ Yes |
 | App Service Plan | `{appName}-plan` | `dilux-plan` | ❌ No (RG scoped) |
 | App Insights | `{appName}-insights` | `dilux-insights` | ❌ No (RG scoped) |
 | Managed Identity | `{appName}-deploy-identity` | `dilux-deploy-identity` | ❌ No (RG scoped) |
@@ -471,34 +471,26 @@ infra/
 ├── azuredeploy.json              # Compiled ARM template (for Deploy button)
 ├── parameters.json               # Parameter template
 └── modules/
-    ├── storage.bicep             # Storage Account (blobs, queues, 7 tables)
+    ├── storage.bicep             # Storage Account (blobs, queues, tables, static website)
     ├── keyvault.bicep            # Key Vault with RBAC enabled
     ├── appinsights.bicep         # Application Insights + Log Analytics
     ├── appserviceplan.bicep      # App Service Plan (Y1/EP1-EP3)
     ├── functionapp.bicep         # Reusable Function App template
-    ├── staticwebapp.bicep        # Static Web App for React frontend
     ├── identity.bicep            # User Assigned Managed Identity
     ├── appregistration.bicep     # Azure AD App Registration (via script)
-    ├── rbac-resilient.bicep      # Resilient RBAC assignments (won't fail on re-deploy)
-    ├── rbac-keyvault.bicep       # Key Vault Secrets User role
-    ├── rbac-keyvault-officer.bicep # Key Vault Secrets Officer role
-    ├── rbac-storage.bicep        # Storage data roles (Blob, Queue, Table)
-    └── code-deployment.bicep     # Downloads and deploys pre-built assets
+    ├── rbac-native.bicep         # Native Bicep RBAC assignments (Key Vault + Storage)
+    ├── rbac-contributor.bicep    # Contributor role for deployment identity
+    └── code-deployment.bicep     # Downloads and deploys pre-built assets + configures CORS
 ```
 
-### Resilient RBAC Module
+### Native RBAC Module
 
-The `rbac-resilient.bicep` module creates all role assignments using a deployment script with error handling. This prevents the common `RoleAssignmentUpdateNotPermitted` error on re-deployments.
+The `rbac-native.bicep` module creates all role assignments using native Bicep resources. This uses the deploying user's permissions (not the deployment identity) to create role assignments.
 
-**How it works:**
-```bash
-# For each role assignment:
-az role assignment create ... 2>&1 || true
-
-# If role exists → SKIP (no error)
-# If role doesn't exist → CREATE
-# Never fails, never blocks deployment
-```
+**Why native Bicep instead of deployment scripts:**
+- Deployment scripts use a Managed Identity with Contributor role
+- Contributor role cannot create role assignments (requires Owner or User Access Administrator)
+- Native Bicep uses the deploying user's credentials, which typically have the necessary permissions
 
 **Role assignments created:**
 | Principal | Resource | Role |
@@ -598,31 +590,24 @@ az deployment group create \
   --parameters appName=diluxbackup adminEmail=admin@example.com appVersion=v1.0.2
 ```
 
-### Frontend Deployment (Post-Infrastructure)
+### Frontend Deployment
 
-Starting from v1.0.4, the frontend must be deployed separately after the infrastructure deployment completes.
+The frontend is deployed automatically to Azure Blob Storage Static Website by the `code-deployment.bicep` module.
 
-**Why?** The Azure CLI container used by deployment scripts runs CBL-Mariner Linux, which doesn't have Node.js/npm available. The SWA CLI requires Node.js.
+**How it works:**
+1. Downloads `frontend.zip` from GitHub Release
+2. Enables static website on Storage Account
+3. Extracts and uploads files to `$web` container
+4. Generates `config.json` with runtime configuration (API URL, Azure AD settings)
+5. Configures CORS on API Function App with the specific frontend URL
 
-**How to deploy the frontend:**
-
-```bash
-# 1. Install SWA CLI (requires Node.js locally)
-npm install -g @azure/static-web-apps-cli
-
-# 2. Download the pre-built frontend from the release
-curl -L -o frontend.zip https://github.com/pablodiloreto/dilux-azure-databases-backup-alpha/releases/latest/download/frontend.zip
-unzip frontend.zip -d frontend-dist
-
-# 3. Get deployment token from Azure Portal
-#    Go to: Static Web App → Settings → Manage deployment token → Copy
-
-# 4. Deploy
-swa deploy ./frontend-dist --deployment-token "<YOUR_TOKEN>"
+**Frontend URL format:**
 ```
+https://{storageAccountName}.z{N}.web.core.windows.net
+```
+Where `N` is the zone number assigned by Azure based on region.
 
-**Alternative: GitHub Actions workflow** (recommended for automation)
-You can configure the Static Web App to deploy from a GitHub Actions workflow. See the Azure Portal for setup instructions.
+**No manual deployment required** - everything is handled automatically by the deployment script.
 
 ### Creating a New Release
 
@@ -649,7 +634,7 @@ After deployment, verify:
 
 1. **Frontend accessible:**
    ```
-   https://{appName}-{suffix}-web.azurestaticapps.net
+   https://{storageAccountName}.z{N}.web.core.windows.net
    ```
 
 2. **API health check:**
@@ -657,10 +642,9 @@ After deployment, verify:
    https://{appName}-{suffix}-api.azurewebsites.net/api/health
    ```
 
-3. **Version endpoint:**
-   ```
-   https://{appName}-{suffix}-api.azurewebsites.net/api/version
-   ```
+3. **Login works:**
+   - First user to login becomes Admin automatically
+   - Azure AD authentication should redirect correctly
 
 ### Cost Estimation
 
@@ -685,58 +669,10 @@ The Function App name is globally unique. Solutions:
 - Delete the existing apps if from a failed deployment
 - Deploy to the same resource group to update existing apps
 
-#### Error: "RoleAssignmentUpdateNotPermitted"
-This was fixed in v1.0.1 with the resilient RBAC module. If you still see this:
-- You're using an older version of the template
-- Pull the latest `main` branch and rebuild `azuredeploy.json`
-
-#### Frontend shows "Congratulations on your new site"
-Starting from v1.0.4, the frontend deployment is separate from the Bicep deployment.
-You need to deploy the frontend manually:
-
-```bash
-# Option 1: Using SWA CLI
-npm install -g @azure/static-web-apps-cli
-
-# Get deployment token from Azure Portal:
-# Static Web App → Manage deployment token → Copy
-
-# Deploy
-swa deploy ./frontend-dist --deployment-token <YOUR_TOKEN>
-```
-
-```bash
-# Option 2: Download and deploy from release
-curl -L -o frontend.zip https://github.com/pablodiloreto/dilux-azure-databases-backup-alpha/releases/latest/download/frontend.zip
-unzip frontend.zip -d frontend-dist
-swa deploy ./frontend-dist --deployment-token <YOUR_TOKEN>
-```
-
 #### Deployment times out
 - Deployment should take ~10-15 minutes
 - If it takes longer, check the deployment script logs in Azure Portal
 - Ensure GitHub releases are accessible (public repo)
-
-#### Error: "Internal server error" in deployment script
-This error can have multiple causes:
-
-**v1.0.3 issue:** The Azure CLI container didn't have `jq` installed.
-- Fixed in v1.0.3 by adding `apk add jq`
-
-**v1.0.3 issue:** The script used `apk` (Alpine package manager) but Azure CLI container uses CBL-Mariner (not Alpine).
-- Fixed in v1.0.4 by removing Node.js installation from script
-- Frontend deployment is now manual (see above)
-
-#### Error: "AuthorizationFailed" / "does not have authorization to perform action"
-This occurs when the deployment script runs before Azure AD has propagated the RBAC role assignments.
-
-**Root cause:** Azure AD role assignments can take up to 5 minutes to propagate internally. The script executes before the Managed Identity's Contributor role is recognized.
-
-**Fixed in v1.0.5:**
-- Added 60 second initial wait after RBAC assignments
-- Added retry logic (5 attempts with 30s, 60s, 90s, 120s delays)
-
-If you still see this error, try re-running the deployment - it should work on retry.
 
 #### How to view deployment script logs
 ```bash
@@ -744,13 +680,9 @@ If you still see this error, try re-running the deployment - it should work on r
 az deployment-scripts show-log \
   --resource-group <your-rg> \
   --name deploy-application-code
-
-az deployment-scripts show-log \
-  --resource-group <your-rg> \
-  --name create-role-assignments
 ```
 
 Or in Azure Portal:
 1. Go to Resource Group
-2. Find "deploy-application-code" or "create-role-assignments" resource
+2. Find "deploy-application-code" resource
 3. Click on it → Logs

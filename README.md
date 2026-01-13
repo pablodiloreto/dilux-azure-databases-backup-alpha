@@ -72,7 +72,7 @@ Solo necesario si usas el botón "Deploy to Azure" sin el script:
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                              Frontend                                    │
 │                    React + TypeScript + Material UI                      │
-│                      Azure Static Web Apps                               │
+│                   Azure Blob Storage Static Website                      │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -289,8 +289,8 @@ curl -X POST http://localhost:7071/api/databases/{id}/backup
 **Infraestructura:**
 - Docker Compose
 - Azurite (Azure Storage Emulator)
-- Azure Static Web Apps
-- Azure Functions (Flex Consumption)
+- Azure Blob Storage Static Website
+- Azure Functions (Consumption/Premium)
 
 ## Known Issues / TODO
 
