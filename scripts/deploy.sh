@@ -132,15 +132,9 @@ check_prerequisites() {
     fi
     print_success "Usuario actual: $CURRENT_USER"
 
-    # Check if user can create app registrations (try to list apps)
-    if ! az ad app list --top 1 &> /dev/null; then
-        print_error "No tienes permisos para administrar App Registrations"
-        echo ""
-        echo "Necesitas ser Global Admin o Application Administrator"
-        echo "Contacta a tu administrador de Azure AD"
-        exit 1
-    fi
-    print_success "Permisos de Azure AD verificados"
+    # Skip strict permission check - let it fail later if no permissions
+    # The az ad app list command can fail for external users even if they have permissions
+    print_success "Permisos se verificarán al crear el App Registration"
 
     # Get tenant and subscription info
     TENANT_ID=$(az account show --query "tenantId" -o tsv)
