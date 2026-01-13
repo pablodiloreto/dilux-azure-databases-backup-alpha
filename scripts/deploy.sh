@@ -132,9 +132,34 @@ check_prerequisites() {
     fi
     print_success "Usuario actual: $CURRENT_USER"
 
-    # Skip strict permission check - let it fail later if no permissions
-    # The az ad app list command can fail for external users even if they have permissions
-    print_success "Permisos se verificarán al crear el App Registration"
+    # Check if user has required Azure AD roles (Global Admin or Application Admin)
+    echo "Verificando roles de Azure AD..."
+    USER_ROLES=$(az rest --method GET --uri "https://graph.microsoft.com/v1.0/me/memberOf" \
+        --query "value[].displayName" -o tsv 2>/dev/null || echo "")
+
+    HAS_PERMISSION=false
+    if echo "$USER_ROLES" | grep -qi "Global Administrator"; then
+        print_success "Rol: Global Administrator"
+        HAS_PERMISSION=true
+    fi
+    if echo "$USER_ROLES" | grep -qi "Application Administrator"; then
+        print_success "Rol: Application Administrator"
+        HAS_PERMISSION=true
+    fi
+
+    if [ "$HAS_PERMISSION" = false ]; then
+        print_error "No tienes los roles necesarios para crear App Registrations"
+        echo ""
+        echo "Roles requeridos (al menos uno):"
+        echo "  - Global Administrator"
+        echo "  - Application Administrator"
+        echo ""
+        echo "Tus roles actuales:"
+        echo "$USER_ROLES" | grep -i "administrator" || echo "  (ningún rol de administrador encontrado)"
+        echo ""
+        echo "Contacta a tu administrador de Azure AD para obtener permisos."
+        exit 1
+    fi
 
     # Get tenant and subscription info
     TENANT_ID=$(az account show --query "tenantId" -o tsv)
