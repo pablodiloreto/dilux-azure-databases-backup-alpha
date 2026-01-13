@@ -72,10 +72,12 @@ prompt_with_default() {
     local var_name="$3"
 
     if [ -n "$default" ]; then
-        read -p "$(echo -e "${BOLD}$prompt${NC} [${default}]: ")" value
+        echo -en "${BOLD}$prompt${NC} [${default}]: "
+        read value < /dev/tty
         value="${value:-$default}"
     else
-        read -p "$(echo -e "${BOLD}$prompt${NC}: ")" value
+        echo -en "${BOLD}$prompt${NC}: "
+        read value < /dev/tty
     fi
 
     eval "$var_name='$value'"
@@ -87,7 +89,8 @@ prompt_required() {
     local value=""
 
     while [ -z "$value" ]; do
-        read -p "$(echo -e "${BOLD}$prompt${NC}: ")" value
+        echo -en "${BOLD}$prompt${NC}: "
+        read value < /dev/tty
         if [ -z "$value" ]; then
             print_error "Este campo es requerido"
         fi
@@ -224,7 +227,8 @@ get_configuration() {
     echo -e "  Versión:       ${BOLD}$APP_VERSION${NC}"
     echo ""
 
-    read -p "$(echo -e "${BOLD}¿Continuar con estos valores? (S/n):${NC} ")" CONFIRM
+    echo -en "${BOLD}¿Continuar con estos valores? (S/n):${NC} "
+    read CONFIRM < /dev/tty
     CONFIRM="${CONFIRM:-S}"
 
     if [[ ! "$CONFIRM" =~ ^[SsYy]$ ]]; then
@@ -292,7 +296,8 @@ create_resource_group() {
     # Check if resource group exists
     if az group show --name "$RESOURCE_GROUP" &> /dev/null; then
         print_warning "Resource Group '$RESOURCE_GROUP' ya existe"
-        read -p "$(echo -e "${BOLD}¿Usar el existente? (S/n):${NC} ")" USE_EXISTING
+        echo -en "${BOLD}¿Usar el existente? (S/n):${NC} "
+        read USE_EXISTING < /dev/tty
         USE_EXISTING="${USE_EXISTING:-S}"
 
         if [[ ! "$USE_EXISTING" =~ ^[SsYy]$ ]]; then
