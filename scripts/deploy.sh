@@ -359,7 +359,12 @@ deploy_infrastructure() {
     echo ""
 
     # Run deployment (this takes 10-15 minutes)
-    DEPLOY_OUTPUT=$(az deployment group create \
+    echo "Ejecutando: az deployment group create..."
+    echo "(Esto puede tardar 10-15 minutos, por favor espera...)"
+    echo ""
+
+    # Run deployment and show progress (not capturing output to avoid stdin issues with curl|bash)
+    az deployment group create \
         --resource-group "$RESOURCE_GROUP" \
         --template-uri "$TEMPLATE_URL" \
         --parameters \
@@ -367,16 +372,12 @@ deploy_infrastructure() {
             adminEmail="$ADMIN_EMAIL" \
             appVersion="$APP_VERSION" \
             azureAdClientId="$CLIENT_ID" \
-        --query "properties.outputs" \
-        -o json 2>&1)
+        --output none
 
     DEPLOY_EXIT_CODE=$?
 
     if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
         print_error "Error en el deployment"
-        echo ""
-        echo "Detalles del error:"
-        echo "$DEPLOY_OUTPUT" | head -50
         echo ""
         echo "Para más detalles, revisa en Azure Portal:"
         echo "  https://portal.azure.com/#@/resource/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/deployments"
@@ -385,8 +386,8 @@ deploy_infrastructure() {
 
     print_success "Infraestructura desplegada"
 
-    # Extract outputs
-    STORAGE_ACCOUNT=$(echo "$DEPLOY_OUTPUT" | jq -r '.storageAccountName.value // empty')
+    # Get storage account name from resource group
+    STORAGE_ACCOUNT=$(az storage account list --resource-group "$RESOURCE_GROUP" --query "[0].name" -o tsv 2>/dev/null || echo "")
 }
 
 # ============================================================================
