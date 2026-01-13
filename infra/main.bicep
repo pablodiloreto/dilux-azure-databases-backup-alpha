@@ -36,6 +36,9 @@ param appVersion string = 'latest'
 @description('Skip App Registration creation (for manual setup)')
 param skipAppRegistration bool = false
 
+@description('Existing Azure AD Client ID (if provided, skips App Registration creation)')
+param azureAdClientId string = ''
+
 // ============================================================================
 // Variables
 // ============================================================================
@@ -172,13 +175,13 @@ module appRegistration 'modules/appregistration.bicep' = if (!skipAppRegistratio
 // Step 4: Function Apps (depend on App Registration)
 // ============================================================================
 
-// Get client ID from App Registration or use empty string if skipped
-var clientId = skipAppRegistration ? '' : (appRegistration.outputs.success ? appRegistration.outputs.clientId : '')
+// Get client ID: use provided azureAdClientId, or from App Registration, or empty if skipped
+var clientId = !empty(azureAdClientId) ? azureAdClientId : (skipAppRegistration ? '' : (appRegistration.outputs.success ? appRegistration.outputs.clientId : ''))
 
 // Function App: API
 module functionAppApi 'modules/functionapp.bicep' = {
   name: 'functionapp-api-deployment'
-  dependsOn: skipAppRegistration ? [] : [appRegistration]
+  dependsOn: (skipAppRegistration || !empty(azureAdClientId)) ? [] : [appRegistration]
   params: {
     functionAppName: functionAppApiName
     location: location
@@ -208,7 +211,7 @@ module functionAppApi 'modules/functionapp.bicep' = {
 // Function App: Scheduler
 module functionAppScheduler 'modules/functionapp.bicep' = {
   name: 'functionapp-scheduler-deployment'
-  dependsOn: skipAppRegistration ? [] : [appRegistration]
+  dependsOn: (skipAppRegistration || !empty(azureAdClientId)) ? [] : [appRegistration]
   params: {
     functionAppName: functionAppSchedulerName
     location: location
@@ -235,7 +238,7 @@ module functionAppScheduler 'modules/functionapp.bicep' = {
 // Function App: Processor
 module functionAppProcessor 'modules/functionapp.bicep' = {
   name: 'functionapp-processor-deployment'
-  dependsOn: skipAppRegistration ? [] : [appRegistration]
+  dependsOn: (skipAppRegistration || !empty(azureAdClientId)) ? [] : [appRegistration]
   params: {
     functionAppName: functionAppProcessorName
     location: location
