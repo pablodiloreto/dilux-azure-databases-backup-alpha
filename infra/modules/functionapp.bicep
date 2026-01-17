@@ -5,6 +5,7 @@
 // - Python 3.10 runtime
 // - System-assigned Managed Identity
 // - Conditional auth based on SKU:
+//   - FC1 (Flex Consumption): Managed Identity + scaleAndConcurrency config
 //   - Y1 (Consumption): Connection String for runtime
 //   - EP1/EP2/EP3 (Premium): Managed Identity for runtime
 // ============================================================================
@@ -21,8 +22,18 @@ param tags object
 @description('App Service Plan resource ID')
 param appServicePlanId string
 
-@description('App Service Plan SKU (Y1, EP1, EP2, EP3)')
+@description('App Service Plan SKU (FC1, Y1, EP1, EP2, EP3)')
 param sku string
+
+@description('Is Flex Consumption plan')
+param isFlexConsumption bool = false
+
+@description('Maximum instance count for Flex Consumption')
+param maximumInstanceCount int = 100
+
+@description('Instance memory in MB for Flex Consumption (2048 or 4096)')
+@allowed([2048, 4096])
+param instanceMemoryMB int = 2048
 
 @description('Storage Account name')
 param storageAccountName string
@@ -71,14 +82,19 @@ var corsOrigins = empty(frontendUrl) ? [
   frontendUrl
 ]
 
-// Determine if using Consumption plan (requires connection string)
-var isConsumptionPlan = sku == 'Y1'
+// Determine if using legacy Consumption plan (Y1 - requires connection string)
+var isLegacyConsumptionPlan = sku == 'Y1'
 
-// Storage settings for Consumption plan (Y1) - uses connection string
+// Storage settings for legacy Consumption plan (Y1) - uses connection string
 var consumptionStorageSettings = {
   AzureWebJobsStorage: storageConnectionString
   WEBSITE_CONTENTAZUREFILECONNECTIONSTRING: storageConnectionString
   WEBSITE_CONTENTSHARE: toLower(functionAppName)
+}
+
+// Storage settings for Flex Consumption (FC1) - uses Managed Identity with credential
+var flexConsumptionStorageSettings = {
+  AzureWebJobsStorage__accountName: storageAccountName
 }
 
 // Storage settings for Premium plan (EP1/EP2/EP3) - uses Managed Identity
@@ -90,7 +106,7 @@ var premiumStorageSettings = {
 }
 
 // Select storage settings based on plan
-var runtimeStorageSettings = isConsumptionPlan ? consumptionStorageSettings : premiumStorageSettings
+var runtimeStorageSettings = isFlexConsumption ? flexConsumptionStorageSettings : (isLegacyConsumptionPlan ? consumptionStorageSettings : premiumStorageSettings)
 
 // Base app settings (common to all plans)
 var baseAppSettings = {
@@ -121,10 +137,10 @@ var appInsightsSettings = !empty(appInsightsConnectionString) ? {
 var appSettings = union(runtimeStorageSettings, baseAppSettings, appInsightsSettings, additionalAppSettings)
 
 // ============================================================================
-// Function App
+// Function App - Standard (Y1, EP1, EP2, EP3)
 // ============================================================================
 
-resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
+resource functionAppStandard 'Microsoft.Web/sites@2023-01-01' = if (!isFlexConsumption) {
   name: functionAppName
   location: location
   tags: tags
@@ -153,20 +169,73 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
 }
 
 // ============================================================================
+// Function App - Flex Consumption (FC1)
+// ============================================================================
+
+resource functionAppFlex 'Microsoft.Web/sites@2024-04-01' = if (isFlexConsumption) {
+  name: functionAppName
+  location: location
+  tags: tags
+  kind: 'functionapp,linux'
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    serverFarmId: appServicePlanId
+    httpsOnly: true
+    reserved: true // Required for Linux
+    functionAppConfig: {
+      deployment: {
+        storage: {
+          type: 'blobContainer'
+          value: '${storageBlobEndpoint}deployments'
+          authentication: {
+            type: 'SystemAssignedIdentity'
+          }
+        }
+      }
+      scaleAndConcurrency: {
+        maximumInstanceCount: maximumInstanceCount
+        instanceMemoryMB: instanceMemoryMB
+      }
+      runtime: {
+        name: 'python'
+        version: '3.10'
+      }
+    }
+    siteConfig: {
+      ftpsState: 'Disabled'
+      minTlsVersion: '1.2'
+      cors: {
+        allowedOrigins: corsOrigins
+        supportCredentials: true
+      }
+      appSettings: [for setting in items(appSettings): {
+        name: setting.key
+        value: string(setting.value)
+      }]
+    }
+  }
+}
+
+// ============================================================================
 // Outputs
 // ============================================================================
 
 @description('Function App name')
-output functionAppName string = functionApp.name
+output functionAppName string = isFlexConsumption ? functionAppFlex.name : functionAppStandard.name
 
 @description('Function App default hostname')
-output defaultHostname string = functionApp.properties.defaultHostName
+output defaultHostname string = isFlexConsumption ? functionAppFlex.properties.defaultHostName : functionAppStandard.properties.defaultHostName
 
 @description('Function App principal ID (Managed Identity)')
-output principalId string = functionApp.identity.principalId
+output principalId string = isFlexConsumption ? functionAppFlex.identity.principalId : functionAppStandard.identity.principalId
 
 @description('Function App resource ID')
-output resourceId string = functionApp.id
+output resourceId string = isFlexConsumption ? functionAppFlex.id : functionAppStandard.id
 
-@description('Is using Consumption plan')
-output isConsumptionPlan bool = isConsumptionPlan
+@description('Is using legacy Consumption plan (Y1)')
+output isLegacyConsumptionPlan bool = isLegacyConsumptionPlan
+
+@description('Is using Flex Consumption plan (FC1)')
+output isFlexConsumptionPlan bool = isFlexConsumption

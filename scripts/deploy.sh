@@ -214,18 +214,80 @@ get_configuration() {
     echo ""
     prompt_with_default "Versión a instalar" "latest" APP_VERSION
 
+    # Function App Plan Selection
+    echo ""
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}Selecciona el plan de hosting para las Function Apps:${NC}"
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "${GREEN}1) FC1 - Flex Consumption (RECOMENDADO)${NC}"
+    echo "   ✅ Serverless (pago por ejecución)"
+    echo "   ✅ VNet Integration (conexión a redes privadas)"
+    echo "   ✅ Cold starts rápidos"
+    echo "   💰 Costo: ~\$0-10/mes"
+    echo ""
+    echo -e "${YELLOW}2) Y1 - Consumption (Legacy)${NC}"
+    echo "   ✅ Serverless (pago por ejecución)"
+    echo "   ❌ SIN VNet Integration"
+    echo "   ⚠️  EOL: Septiembre 2028"
+    echo "   💰 Costo: ~\$0-5/mes"
+    echo ""
+    echo -e "${BLUE}3) EP1 - Premium${NC}"
+    echo "   ✅ Instancias reservadas (sin cold starts)"
+    echo "   ✅ VNet Integration"
+    echo "   ✅ Mejor rendimiento"
+    echo "   💰 Costo: ~\$150/mes"
+    echo ""
+    echo -e "${BLUE}4) EP2 - Premium (Alto rendimiento)${NC}"
+    echo "   ✅ Todo lo de EP1 + más CPU/memoria"
+    echo "   💰 Costo: ~\$300/mes"
+    echo ""
+    echo -e "${BLUE}5) EP3 - Premium (Máximo rendimiento)${NC}"
+    echo "   ✅ Todo lo de EP2 + máximos recursos"
+    echo "   💰 Costo: ~\$600/mes"
+    echo ""
+    echo -e "${CYAN}───────────────────────────────────────────────────────────────${NC}"
+    echo -e "${YELLOW}IMPORTANTE:${NC} Si necesitas conectarte a bases de datos en"
+    echo "Azure Virtual Networks (Private Endpoints, VMs en VNet),"
+    echo -e "debes usar ${GREEN}FC1${NC} o ${BLUE}EP1/EP2/EP3${NC}. El plan Y1 NO soporta VNet."
+    echo -e "${CYAN}───────────────────────────────────────────────────────────────${NC}"
+    echo ""
+    echo -en "${BOLD}Selecciona una opción [1-5] (default: 1):${NC} "
+    read PLAN_CHOICE < /dev/tty
+    PLAN_CHOICE="${PLAN_CHOICE:-1}"
+
+    case $PLAN_CHOICE in
+        1) FUNCTION_SKU="FC1" ;;
+        2) FUNCTION_SKU="Y1" ;;
+        3) FUNCTION_SKU="EP1" ;;
+        4) FUNCTION_SKU="EP2" ;;
+        5) FUNCTION_SKU="EP3" ;;
+        *)
+            print_warning "Opción inválida, usando FC1 (recomendado)"
+            FUNCTION_SKU="FC1"
+            ;;
+    esac
+
+    print_success "Plan seleccionado: $FUNCTION_SKU"
+
     # Summary
     echo ""
     echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
     echo -e "${BOLD}Resumen de configuración:${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "  Nombre:        ${BOLD}$APP_NAME${NC}"
+    echo -e "  Nombre:         ${BOLD}$APP_NAME${NC}"
     echo -e "  Resource Group: ${BOLD}$RESOURCE_GROUP${NC}"
-    echo -e "  Región:        ${BOLD}$LOCATION${NC}"
-    echo -e "  Admin Email:   ${BOLD}$ADMIN_EMAIL${NC}"
-    echo -e "  Versión:       ${BOLD}$APP_VERSION${NC}"
+    echo -e "  Región:         ${BOLD}$LOCATION${NC}"
+    echo -e "  Admin Email:    ${BOLD}$ADMIN_EMAIL${NC}"
+    echo -e "  Versión:        ${BOLD}$APP_VERSION${NC}"
+    echo -e "  Plan Functions: ${BOLD}$FUNCTION_SKU${NC}"
     echo ""
+
+    # Show VNet warning if Y1 selected
+    if [ "$FUNCTION_SKU" == "Y1" ]; then
+        print_warning "Has seleccionado Y1 (sin VNet). No podrás conectarte a DBs en redes privadas."
+    fi
 
     echo -en "${BOLD}¿Continuar con estos valores? (S/n):${NC} "
     read CONFIRM < /dev/tty
@@ -376,6 +438,7 @@ deploy_infrastructure() {
             adminEmail="$ADMIN_EMAIL" \
             appVersion="$APP_VERSION" \
             azureAdClientId="$CLIENT_ID" \
+            functionAppSku="$FUNCTION_SKU" \
         --no-wait \
         --output none 2>/dev/null
 
@@ -551,6 +614,7 @@ print_summary() {
     echo -e "  📦 Resource Group: ${CYAN}${RESOURCE_GROUP}${NC}"
     echo -e "  🔑 Client ID:      ${CYAN}${CLIENT_ID}${NC}"
     echo -e "  👤 Admin:          ${CYAN}${ADMIN_EMAIL}${NC}"
+    echo -e "  ⚙️  Plan Functions: ${CYAN}${FUNCTION_SKU}${NC}"
 
     echo ""
     echo -e "${BOLD}Primer login:${NC}"

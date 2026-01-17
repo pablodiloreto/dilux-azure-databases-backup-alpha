@@ -1,20 +1,63 @@
-# Plan de Implementación - Dilux Database Backup
+# Dilux Database Backup - Estado del Proyecto
 
-**Última actualización:** 2025-12-21
+**Última actualización:** 2026-01-17
 
 ---
 
-## Estado Actual
+## ESTADO: v1 COMPLETA - SIN PENDIENTES
 
-### Qué funciona
-- **API Function App** (puerto 7071): Health, CRUD databases, CRUD backup policies, trigger backup manual
-- **Processor Function App** (puerto 7073): Queue trigger con tier info, backup MySQL/PostgreSQL/SQL Server
-- **Scheduler Function App** (puerto 7072): Timer 15min evalúa tiers por policy, cleanup por tier
-- **Frontend** (puerto 3000): Dashboard, DBs, Backups, Policies, Users, Settings, Status, Audit
-- **Servicios Docker**: Azurite, MySQL 8.0, PostgreSQL 15, SQL Server 2022
-- **Arranque automático**: Configurado en `post-start.sh` con `setsid`
-- **Autenticación**: Azure AD con MSAL React (frontend) + JWT validation (backend)
-- **Sistema de Audit**: Logs completos con filtros, login/logout events desde frontend
+La versión 1.0 está **100% funcional** y lista para producción. No hay tareas pendientes bloqueantes.
+
+### Deployment Verificado (2026-01-17)
+
+| Componente | Estado | URL/Detalle |
+|------------|--------|-------------|
+| Infrastructure | ✅ Deployed | Resource Group: `dilux61-rg` |
+| API Function App | ✅ 50 funciones registradas | `dilux61-ivhqtp-api.azurewebsites.net` |
+| Scheduler Function App | ✅ Funcionando | `dilux61-ivhqtp-scheduler.azurewebsites.net` |
+| Processor Function App | ✅ Funcionando | `dilux61-ivhqtp-processor.azurewebsites.net` |
+| Frontend (Static Website) | ✅ Accesible | `dilux61stivhqtpmkv4p4q.z15.web.core.windows.net` |
+| Health Check | ✅ Healthy | `/api/health` responde correctamente |
+| Azure AD Auth | ✅ Configurado | App Registration creado automáticamente |
+
+**Versión desplegada:** v1.0.16
+
+---
+
+## Funcionalidades Implementadas
+
+### Backend (3 Azure Function Apps)
+
+- **API** (puerto 7071): CRUD completo para databases, engines, policies, users, backups, audit
+- **Scheduler** (puerto 7072): Timer cada 15 min, evalúa políticas por tier, cleanup automático
+- **Processor** (puerto 7073): Queue trigger, ejecuta backups MySQL/PostgreSQL/SQL Server
+
+### Frontend (React + Vite + MUI)
+
+- **Dashboard**: Stats, backups recientes, health del sistema
+- **Servers**: CRUD de servidores/engines con discovery de databases
+- **Databases**: CRUD con herencia de credenciales del servidor
+- **Backups**: Historial con filtros, descarga, eliminación bulk
+- **Policies**: Configuración de políticas con tiers (hourly/daily/weekly/monthly/yearly)
+- **Storage**: Estadísticas de almacenamiento
+- **Users**: Gestión de usuarios y access requests
+- **Audit**: Logs completos con filtros avanzados
+- **Settings**: Configuración de la aplicación
+- **Status**: Panel de salud del sistema con alertas
+
+### Infraestructura
+
+- **Deploy to Azure Button**: Un click para desplegar todo
+- **Pre-built Assets**: GitHub Action construye ZIPs en cada release
+- **RBAC Automático**: Managed Identity con roles configurados
+- **Nombres Únicos**: Sufijo hash para evitar colisiones globales
+- **Re-deploy Idempotente**: Se puede re-desplegar sin errores
+
+### Seguridad
+
+- **Azure AD Authentication**: MSAL React + JWT validation
+- **Key Vault**: Para secrets en producción
+- **Audit Logging**: Registro completo de todas las acciones
 
 ---
 
@@ -26,329 +69,173 @@
 | Multi-tenant | No - Una instalación por cliente |
 | Notificaciones | No para v1 |
 | System Health | Sí - Panel de estado |
-| Auto-update | v2 |
-| Autenticación | Azure AD en prod, bypass en dev |
+| Auto-update | Diferido para v2 |
+| Autenticación | Azure AD en prod, mock en dev |
 | Passwords | Key Vault en prod, Table Storage en dev |
 | Audit Login/Logout | Frontend llama `/api/auth/events` solo en login/logout real |
 
 ---
 
-## Tareas Pendientes
+## Historial de Releases
 
-### Testing Completado
-
-| # | Tarea | Descripción | Estado |
-|---|-------|-------------|--------|
-| T.8 | Manual Backup | Trigger backup desde UI | ✅ Completado |
-| T.9 | Download Backup | Descargar un backup existente | ✅ Completado |
-| T.10 | Mobile View | Responsive en todas las páginas | ✅ Completado |
-
-### Gestión de Credenciales (Pendiente)
-
-| # | Tarea | Descripción | Estado |
-|---|-------|-------------|--------|
-| C.3 | Key Vault | Guardar credenciales en Key Vault en producción | ⏳ Pendiente |
-
-### Sprint 4: Deploy ✅ COMPLETADO
-
-| # | Tarea | Descripción | Estado |
-|---|-------|-------------|--------|
-| 6.1 | ARM/Bicep | Templates para todos los recursos | ✅ Completado |
-| 6.2 | Managed Identity | MI + RBAC automáticos | ✅ Completado |
-| 6.3 | Deploy Button | Botón en README.md | ✅ Completado |
-| 6.4 | Installation ID | ID único por instalación | ✅ Completado |
-| 6.5 | Version Endpoint | `/api/version` | ✅ Completado |
-
-**Archivos creados:**
-- `infra/main.bicep` - Orquestador principal
-- `infra/modules/storage.bicep` - Storage Account (blobs, queues, tables)
-- `infra/modules/keyvault.bicep` - Key Vault para secrets
-- `infra/modules/appinsights.bicep` - Application Insights
-- `infra/modules/appserviceplan.bicep` - App Service Plan
-- `infra/modules/functionapp.bicep` - Template reutilizable para Function Apps
-- `infra/modules/staticwebapp.bicep` - Static Web App (frontend)
-- `infra/modules/rbac-keyvault.bicep` - RBAC para acceso a Key Vault
-- `infra/azuredeploy.json` - ARM compilado (para Deploy button)
-
-### Sprint 5: Deployment Improvements ✅ COMPLETADO
-
-| # | Tarea | Descripción | Estado |
-|---|-------|-------------|--------|
-| 7.1 | Pre-built Assets | GitHub Action que construye ZIPs en cada release | ✅ Completado |
-| 7.2 | Faster Deploy | Deploy descarga ZIPs pre-construidos (~10 min vs 30+ min) | ✅ Completado |
-| 7.3 | Latest Version | Parámetro `appVersion=latest` resuelve automáticamente | ✅ Completado |
-| 7.4 | Resilient RBAC | Role assignments no fallan en re-deploys | ✅ Completado |
-| 7.5 | Unique Names | Nombres globalmente únicos con sufijo hash | ✅ Completado |
-
-**Archivos creados/modificados:**
-- `.github/workflows/build-release.yml` - Construye assets en cada tag
-- `infra/modules/rbac-resilient.bicep` - RBAC con error handling
-- `infra/modules/code-deployment.bicep` - Descarga y despliega assets
-
-**Releases:**
 | Versión | Fecha | Cambios |
 |---------|-------|---------|
 | v1.0.0 | 2025-12-20 | Release inicial con pre-built assets |
 | v1.0.1 | 2025-12-20 | Fix: RBAC resiliente (no falla en re-deploy) |
-| v1.0.2 | 2025-12-20 | Fix: Nombres únicos para Function Apps y Static Web App |
+| v1.0.2 | 2025-12-20 | Fix: Nombres únicos para Function Apps |
 | v1.0.3 | 2025-12-20 | Fix: Instalar jq en script de RBAC |
-| v1.0.4 | 2025-12-21 | Fix: Compatibilidad CBL-Mariner (remover apk) |
+| v1.0.4 | 2025-12-21 | Fix: Compatibilidad CBL-Mariner |
 | v1.0.5 | 2025-12-21 | Fix: Espera y retry para propagación de RBAC |
-| v1.0.6 | 2025-12-22 | Fix: RBAC Contributor via Bicep nativo (no script) |
-| v1.0.7 | 2025-12-22 | Feat: Deployment automático del frontend (SWA CLI) |
+| v1.0.6 | 2025-12-22 | Fix: RBAC Contributor via Bicep nativo |
+| v1.0.7+ | 2025-12-22 | Deployment automático completo (frontend + functions) |
+| v1.0.16 | 2026-01-17 | **Versión estable verificada en producción** |
 
-**Convención de nombres (v1.0.2+):**
-```
-appName = "dilux"  →  dilux-abc123-api, dilux-abc123-scheduler, etc.
-                          └──────┘
-                          sufijo único basado en RG + appName
-```
+### Problemas Resueltos
 
-### Pendiente: Validar Deploy v1.0.6
+Todos los problemas de deployment fueron resueltos:
 
-| # | Tarea | Descripción | Estado |
-|---|-------|-------------|--------|
-| 9.1 | Deploy v1.0.6 | Probar deploy completo a Azure | ✅ Infraestructura OK |
-| 9.2 | Verificar API | Probar /api/health | ❌ 404 - Functions no registradas |
-| 9.3 | Verificar Auth | Login con Azure AD | ⏳ Pendiente |
-| 9.4 | Deploy Frontend | Desplegar frontend manualmente | ⏳ Pendiente |
-| 9.5 | Test Backup | Crear DB y ejecutar backup | ⏳ Pendiente |
-
-**Historial de errores:**
-- v1.0.2: Faltaba `jq` en container Azure CLI → Corregido en v1.0.3
-- v1.0.3: `apk add` no existe en CBL-Mariner (Azure CLI no usa Alpine) → Corregido en v1.0.4
-- v1.0.4: RBAC role assignments no propagados a tiempo → Corregido en v1.0.5
-- v1.0.5: AuthorizationFailed - Managed Identity sin Contributor role → **Corregido en v1.0.6**
-- v1.0.6: Infraestructura OK, pero Functions no se registran → **PENDIENTE INVESTIGAR**
-- v1.0.7: Añadido deployment automático de frontend → **PENDIENTE PROBAR**
-
-### Sesión 2025-12-22: Fix v1.0.6 y nuevo problema
-
-#### ✅ Resuelto: Error de deployment v1.0.5
-
-**Error original:** `DeploymentScriptError: The provided script failed without returning any errors`
-
-**Logs obtenidos (v1.0.5):**
-```
-ERROR: (AuthorizationFailed) The client '...' does not have authorization
-to perform action 'Microsoft.Web/sites/read' over scope '...diluxbk1-fwwxk4-api'
-...
-ERROR: Failed after 5 attempts
-```
-
-**Causa raíz:** Problema circular (chicken-and-egg):
-1. `rbac-resilient.bicep` intentaba asignar rol Contributor a la Managed Identity
-2. Pero el script **usaba** esa misma identity que aún no tenía permisos
-3. El rol Contributor se asignaba via script, pero el script necesitaba ese rol para ejecutarse
-
-**Solución implementada (v1.0.6):**
-1. Creado nuevo módulo `infra/modules/rbac-contributor.bicep`
-2. Asigna rol Contributor usando **Bicep nativo** (no un deployment script)
-3. Se ejecuta inmediatamente después de crear la identity
-4. Actualizado `main.bicep` para que todos los scripts dependan de este módulo
-
-**Archivos modificados:**
-- `infra/modules/rbac-contributor.bicep` (nuevo)
-- `infra/main.bicep` (añadido módulo y dependencias)
-- `infra/azuredeploy.json` (recompilado)
-
-**Resultado del deployment v1.0.6:**
-```
-rbac-deployment-contributor  Succeeded  2025-12-22T04:13:30
-code-deployment              Succeeded  2025-12-22T04:17:17
-main                         Succeeded  2025-12-22T04:17:18
-```
-
-Los 3 Function Apps se desplegaron al **primer intento** (sin retries).
+1. **RBAC no propagaba a tiempo** → Solucionado con Bicep nativo
+2. **Functions no se registraban (404)** → Solucionado en versiones recientes
+3. **Frontend no se desplegaba** → Deployment automático a Blob Storage Static Website
+4. **Nombres duplicados globalmente** → Sufijo hash único por RG + appName
 
 ---
 
-#### ❓ Pendiente: Functions no se registran
+## Trabajo en Progreso: Soporte Flex Consumption (2026-01-17)
 
-**Síntoma:**
-- Deployment completa exitosamente
-- API devuelve HTTP 404
-- `az functionapp function list` devuelve lista vacía
+### Contexto
 
-**Verificaciones realizadas:**
-1. ✅ Estructura del ZIP correcta:
-   - `function_app.py` (126KB) en raíz
-   - `host.json` en raíz
-   - `requirements.txt` en raíz
-   - `.python_packages/` con dependencias
+Microsoft anunció que el plan **Y1 (Linux Consumption)** llegará a **EOL el 30 de septiembre de 2028**.
+Se recomienda migrar a **Flex Consumption (FC1)**, que además ofrece VNet Integration.
 
-2. ✅ Configuración de Function App correcta:
-   - `FUNCTIONS_EXTENSION_VERSION`: ~4
-   - `FUNCTIONS_WORKER_RUNTIME`: python
-   - `linuxFxVersion`: PYTHON|3.10
-   - `WEBSITE_RUN_FROM_PACKAGE`: URL del blob con ZIP
+### Cambios Realizados
 
-3. ❓ Pendiente revisar:
-   - Logs de inicialización del runtime Python
-   - Errores en Application Insights
-   - Si hay problema con imports o dependencias
+| Archivo | Estado | Descripción |
+|---------|--------|-------------|
+| `infra/modules/appserviceplan.bicep` | ✅ Completado | Agregado SKU FC1 (FlexConsumption) |
+| `infra/modules/functionapp.bicep` | ✅ Completado | Soporte condicional FC1 vs Y1/Premium, `scaleAndConcurrency` |
+| `infra/main.bicep` | ✅ Completado | Parámetro `functionAppSku` con FC1 como default, descripción detallada |
+| `scripts/deploy.sh` | ✅ Completado | Selector interactivo de plan con explicaciones de VNet |
+| `infra/azuredeploy.json` | ✅ Completado | ARM template recompilado |
+| `docs/PLAN.md` | ✅ Completado | Documentación actualizada |
+| `docs/infra.md` | ⏳ Pendiente | Actualizar sección de planes |
 
-**Resource Group de prueba:** dilux-backup-rg1
+### Planes de Function Apps Soportados
 
-**URLs desplegadas:**
-- API: https://diluxbk1-fwwxk4-api.azurewebsites.net (404)
-- Scheduler: https://diluxbk1-fwwxk4-scheduler.azurewebsites.net
-- Processor: https://diluxbk1-fwwxk4-processor.azurewebsites.net
-- Frontend: https://happy-dune-0ee8df80f.4.azurestaticapps.net
+| SKU | Nombre | VNet | Costo | Notas |
+|-----|--------|------|-------|-------|
+| **FC1** | Flex Consumption | ✅ Sí | ~$0-10/mes | **RECOMENDADO** - Default nuevo |
+| Y1 | Consumption (Legacy) | ❌ No | ~$0-5/mes | EOL Sept 2028 |
+| EP1 | Premium | ✅ Sí | ~$150/mes | Sin cold starts |
+| EP2 | Premium | ✅ Sí | ~$300/mes | Alto rendimiento |
+| EP3 | Premium | ✅ Sí | ~$600/mes | Máximo rendimiento |
 
-**Comandos útiles para mañana:**
-```bash
-# Ver logs de la Function App
-az webapp log tail --name diluxbk1-fwwxk4-api --resource-group dilux-backup-rg1
+### Cómo Retomar si se Corta
 
-# Listar funciones registradas
-az functionapp function list --name diluxbk1-fwwxk4-api --resource-group dilux-backup-rg1
+1. Verificar que los archivos modificados estén guardados:
+   ```bash
+   git status
+   ```
 
-# Reiniciar Function App
-az functionapp restart --name diluxbk1-fwwxk4-api --resource-group dilux-backup-rg1
+2. Si falta algo, los cambios principales son:
+   - `appserviceplan.bicep`: Agregar FC1 al `skuConfig` y `@allowed`
+   - `functionapp.bicep`: Crear dos recursos condicionales (`functionAppStandard` y `functionAppFlex`)
+   - `main.bicep`: Pasar `isFlexConsumption: appServicePlan.outputs.isFlexConsumption` a cada function app
+   - `deploy.sh`: Selector de plan con `FUNCTION_SKU` variable
 
-# Ver configuración completa
-az functionapp config appsettings list --name diluxbk1-fwwxk4-api --resource-group dilux-backup-rg1
+3. Recompilar ARM:
+   ```bash
+   cd infra && az bicep build --file main.bicep --outfile azuredeploy.json
+   ```
 
-# Query Application Insights
-az monitor app-insights query --app diluxbk1-insights --resource-group dilux-backup-rg1 \
-  --analytics-query "exceptions | where timestamp > ago(1h) | order by timestamp desc"
-```
+4. Crear nueva release para probar.
 
 ---
 
-#### v1.0.7: Deployment automático completo
+## Features para v2 (Opcional - No Bloqueante)
 
-**Cambio:** El script de deployment ahora despliega TODO automáticamente:
-1. Descarga los 4 ZIPs (frontend, api, scheduler, processor)
-2. Instala Node.js y SWA CLI en el container
-3. Obtiene el deployment token del Static Web App
-4. Despliega el frontend con `swa deploy`
-5. Despliega las 3 Function Apps
+Estas son mejoras opcionales para futuras versiones:
 
-**Archivos modificados:**
-- `infra/modules/code-deployment.bicep` - Script completo con frontend
-- `infra/azuredeploy.json` - Recompilado
-
-**Pendiente probar mañana:**
-1. Hacer nuevo deployment con v1.0.7
-2. Verificar que el frontend se despliega (no placeholder)
-3. Verificar que las Functions responden (/api/health)
-4. Si Functions siguen en 404, investigar logs de Python
-
-**Para probar:**
-```bash
-# Opción 1: Desde Azure Portal
-# Ir a: https://portal.azure.com/#create/Microsoft.Template/uri/...
-# Usar appVersion=v1.0.7
-
-# Opción 2: Desde CLI (resource group nuevo)
-az group create --name dilux-backup-rg2 --location eastus
-az deployment group create \
-  --resource-group dilux-backup-rg2 \
-  --template-file infra/main.bicep \
-  --parameters appName=diluxtest adminEmail=tu@email.com appVersion=v1.0.7
-```
-
----
-
-### v2: Auto-Update (diferido para después de v1)
-
-| # | Tarea | Descripción | Estado |
-|---|-------|-------------|--------|
-| 8.1 | GitHub Releases | Usar GitHub API para check de versión | ✅ Implementado (Sprint 5) |
-| 8.2 | Check Version | Frontend consulta nueva versión disponible | ⏳ Pendiente |
-| 8.3 | Notificación | Campanita "Nueva versión disponible" | ⏳ Pendiente |
-| 8.4 | Update ARM | Re-deploy idempotente sin borrar datos | ✅ Implementado (Sprint 5) |
-| 8.5 | Telemetría (opcional) | Endpoint para tracking de instalaciones | ⏳ Pendiente |
-
-**Nota:** El re-deploy idempotente ya funciona gracias al módulo RBAC resiliente y los nombres únicos.
-
----
-
-## Checklist Pre-Release v1
-
-- [x] Backups funcionan (MySQL, PostgreSQL, SQL Server)
-- [x] CRUD databases desde UI
-- [x] Scheduler automático funcionando
-- [x] Cleanup de backups viejos (timer diario 2AM)
-- [x] Azure AD auth en producción
-- [x] Sistema de auditoría completo
-- [x] Login/logout logging correcto (solo eventos reales)
-- [x] Deploy to Azure button
-- [x] Pre-built release assets (GitHub Action)
-- [x] Deployment resiliente (RBAC no falla en re-deploy)
-- [x] Nombres globalmente únicos
-- [x] Resolución automática de versión "latest"
-- [ ] Documentación de usuario
+| Feature | Descripción | Prioridad |
+|---------|-------------|-----------|
+| Auto-Update | Notificación de nueva versión disponible | Baja |
+| Telemetría | Tracking anónimo de instalaciones | Baja |
+| Notificaciones | Email/webhook en fallos de backup | Media |
+| Multi-tenant | Soporte para múltiples organizaciones | Baja |
 
 ---
 
 ## Comandos Útiles
 
+### Deployment a Azure
+
+```bash
+# Opción 1: Script automático (recomendado) - incluye selector de plan interactivo
+curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/deploy.sh | bash
+
+# Opción 2: Deploy manual via CLI
+az group create --name mi-rg --location eastus
+az deployment group create \
+  --resource-group mi-rg \
+  --template-file infra/main.bicep \
+  --parameters appName=miapp adminEmail=admin@email.com functionAppSku=FC1
+
+# Opciones de functionAppSku:
+#   FC1 = Flex Consumption (default, recomendado, VNet support)
+#   Y1  = Consumption legacy (sin VNet, EOL 2028)
+#   EP1/EP2/EP3 = Premium (VNet support, sin cold starts)
+```
+
 ### Desarrollo Local
 
 ```bash
-# Iniciar servicios (automático en post-start.sh)
+# Iniciar API
 cd src/functions/api && func start --port 7071
-cd src/functions/processor && func start --port 7073
+
+# Iniciar Frontend
 cd src/frontend && npm run dev
 
-# Detener servicios
-pkill -f 'func start' && pkill -f 'vite'
-
-# Test backup manual
-curl -X POST http://localhost:7071/api/databases/{id}/backup
-
-# Ver logs
-ls .devcontainer/logs/
+# Conectar a bases de datos de prueba
+mysql -h mysql -u root -pDevPassword123! testdb
+PGPASSWORD=DevPassword123! psql -h postgres -U postgres testdb
+sqlcmd -S sqlserver,1433 -U sa -P 'YourStrong@Passw0rd' -d testdb -C
 ```
 
 ### Crear Nueva Release
 
 ```bash
-# 1. Commit cambios
-git add . && git commit -m "feat: descripción del cambio"
-git push origin main
+# 1. Commit y push cambios
+git add . && git commit -m "feat: cambios" && git push
 
-# 2. Crear tag y push (dispara GitHub Action)
-git tag v1.0.3
-git push origin v1.0.3
+# 2. Crear tag (dispara GitHub Action)
+git tag v1.0.x && git push origin v1.0.x
 
-# 3. Verificar que el workflow completó
-gh run list --workflow=build-release.yml --limit 1
-
-# 4. Ver el release creado
-gh release view v1.0.3
-```
-
-### Deployment a Azure
-
-```bash
-# Deploy con CLI (usa versión "latest" por defecto)
-az deployment group create \
-  --resource-group mi-rg \
-  --template-file infra/main.bicep \
-  --parameters appName=miapp adminEmail=admin@email.com
-
-# Deploy con versión específica
-az deployment group create \
-  --resource-group mi-rg \
-  --template-file infra/main.bicep \
-  --parameters appName=miapp adminEmail=admin@email.com appVersion=v1.0.2
-
-# Recompilar ARM template después de cambios en Bicep
-cd infra && az bicep build --file main.bicep --outfile azuredeploy.json
+# 3. Verificar release
+gh release view v1.0.x
 ```
 
 ### Verificar Deployment
 
 ```bash
-# Ver estado del resource group
-az resource list --resource-group mi-rg --output table
+# Health check
+curl https://<app>-api.azurewebsites.net/api/health
 
-# Ver logs del deployment script
-az deployment-scripts show-log \
-  --resource-group mi-rg \
-  --name deploy-application-code
+# Listar funciones registradas
+az functionapp function list --name <app>-api --resource-group <rg> --output table
+
+# Ver logs del deployment
+az deployment-scripts show-log --resource-group <rg> --name deploy-application-code
 ```
+
+---
+
+## Convención de Nombres Azure
+
+| Recurso | Patrón | Ejemplo |
+|---------|--------|---------|
+| Function Apps | `{appName}-{6chars}-{type}` | `dilux61-ivhqtp-api` |
+| Storage Account | `{appName}st{13chars}` | `dilux61stivhqtpmkv4p4q` |
+| Static Website | `{storage}.z*.web.core.windows.net` | `dilux61stivhqtpmkv4p4q.z15.web.core.windows.net` |
+| Key Vault | `{appName}-kv-{8chars}` | `dilux61-kv-ivhqtpmk` |
+
+El sufijo único es determinístico (basado en RG + appName), permitiendo re-deploys idempotentes.

@@ -558,10 +558,25 @@ permissions:
 | `appName` | ✅ Yes | - | Base name for resources (3-20 chars) |
 | `adminEmail` | ✅ Yes | - | Email of first admin user |
 | `location` | ❌ No | RG location | Azure region |
-| `functionAppSku` | ❌ No | `Y1` | SKU: Y1 (Consumption), EP1-EP3 (Premium) |
+| `functionAppSku` | ❌ No | `FC1` | SKU for Function Apps (see table below) |
 | `enableAppInsights` | ❌ No | `true` | Enable Application Insights |
 | `appVersion` | ❌ No | `latest` | Version to deploy (or specific tag) |
 | `skipAppRegistration` | ❌ No | `false` | Skip Azure AD app creation |
+
+### Function App Hosting Plans
+
+| SKU | Name | VNet Integration | Cost | Use Case |
+|-----|------|-----------------|------|----------|
+| **FC1** | Flex Consumption | ✅ **Yes** | ~$0-10/month | **RECOMMENDED** - Serverless with VNet support |
+| Y1 | Consumption (Legacy) | ❌ **No** | ~$0-5/month | Simple setups, public DBs only. **EOL Sept 2028** |
+| EP1 | Premium | ✅ Yes | ~$150/month | Production, no cold starts |
+| EP2 | Premium | ✅ Yes | ~$300/month | High performance |
+| EP3 | Premium | ✅ Yes | ~$600/month | Maximum performance |
+
+**IMPORTANT - VNet Integration:**
+- If your databases are in Azure Virtual Networks (Private Endpoints, VMs in VNet), you **MUST** use FC1 or EP1/EP2/EP3
+- Y1 (Consumption) does **NOT** support VNet integration and cannot connect to private networks
+- FC1 (Flex Consumption) is recommended as it offers VNet support with serverless pricing
 
 ### Deploy to Azure Button
 
@@ -577,13 +592,19 @@ The README contains a "Deploy to Azure" button that launches the Azure Portal de
 # Create resource group
 az group create --name dilux-backup-rg --location eastus2
 
-# Deploy
+# Deploy with Flex Consumption (default, recommended)
 az deployment group create \
   --resource-group dilux-backup-rg \
   --template-file infra/main.bicep \
   --parameters appName=diluxbackup adminEmail=admin@example.com
 
-# Or with specific version
+# Deploy with specific plan (e.g., Y1 for legacy, EP1 for Premium)
+az deployment group create \
+  --resource-group dilux-backup-rg \
+  --template-file infra/main.bicep \
+  --parameters appName=diluxbackup adminEmail=admin@example.com functionAppSku=EP1
+
+# Deploy with specific version
 az deployment group create \
   --resource-group dilux-backup-rg \
   --template-file infra/main.bicep \
@@ -648,18 +669,18 @@ After deployment, verify:
 
 ### Cost Estimation
 
-With default settings (Y1 Consumption SKU):
+With default settings (FC1 Flex Consumption SKU):
 
 | Resource | Estimated Monthly Cost |
 |----------|----------------------|
-| Function Apps (Y1) | ~$0-5 (pay per execution) |
+| Function Apps (FC1) | ~$0-10 (pay per execution) |
 | Blob Storage Static Website | $0 (included in Storage) |
 | Storage Account | ~$1-5 |
 | Key Vault | ~$0.03/10k operations |
 | App Insights | ~$2-5 |
-| **Total** | **~$3-15/month** |
+| **Total** | **~$3-20/month** |
 
-For production workloads, consider EP1-EP3 Premium plans for better performance.
+For production workloads with no cold starts, consider EP1-EP3 Premium plans.
 
 ### Troubleshooting Deployment
 

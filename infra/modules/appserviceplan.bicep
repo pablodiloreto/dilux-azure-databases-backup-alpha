@@ -2,7 +2,11 @@
 // App Service Plan Module
 // ============================================================================
 // Creates an App Service Plan for hosting Function Apps.
-// Supports Consumption (Y1) and Premium (EP1-EP3) SKUs.
+//
+// Supported SKUs:
+// - FC1: Flex Consumption (RECOMMENDED) - Serverless, VNet support, fast cold starts
+// - Y1:  Consumption (Legacy) - Serverless, NO VNet support, EOL Sept 2028
+// - EP1/EP2/EP3: Premium - Reserved instances, VNet support, no cold starts
 // ============================================================================
 
 @description('Name of the App Service Plan')
@@ -15,14 +19,18 @@ param location string
 param tags object
 
 @description('SKU for the plan')
-@allowed(['Y1', 'EP1', 'EP2', 'EP3'])
-param sku string = 'Y1'
+@allowed(['FC1', 'Y1', 'EP1', 'EP2', 'EP3'])
+param sku string = 'FC1'
 
 // ============================================================================
 // SKU Configuration
 // ============================================================================
 
 var skuConfig = {
+  FC1: {
+    name: 'FC1'
+    tier: 'FlexConsumption'
+  }
   Y1: {
     name: 'Y1'
     tier: 'Dynamic'
@@ -40,6 +48,9 @@ var skuConfig = {
     tier: 'ElasticPremium'
   }
 }
+
+// Flex Consumption doesn't use traditional App Service Plan
+var isFlexConsumption = sku == 'FC1'
 
 // ============================================================================
 // App Service Plan
@@ -67,3 +78,9 @@ output planId string = appServicePlan.id
 
 @description('App Service Plan name')
 output planName string = appServicePlan.name
+
+@description('Is Flex Consumption plan')
+output isFlexConsumption bool = isFlexConsumption
+
+@description('SKU tier')
+output skuTier string = skuConfig[sku].tier

@@ -23,9 +23,21 @@ param location string = resourceGroup().location
 @description('Email of the first admin user.')
 param adminEmail string
 
-@description('SKU for the App Service Plan.')
-@allowed(['Y1', 'EP1', 'EP2', 'EP3'])
-param functionAppSku string = 'Y1'
+@description('''
+SKU for the Function Apps hosting plan.
+
+Available options:
+- FC1: Flex Consumption (RECOMMENDED) - Serverless, VNet integration, fast cold starts, ~$0-10/month
+- Y1:  Consumption (Legacy) - Serverless, NO VNet support, EOL September 2028, ~$0-5/month
+- EP1: Premium - Reserved instances, VNet support, no cold starts, ~$150/month
+- EP2: Premium - Higher performance, VNet support, ~$300/month
+- EP3: Premium - Maximum performance, VNet support, ~$600/month
+
+IMPORTANT: If you need to connect to databases in Azure Virtual Networks (Private Endpoints),
+you MUST use FC1 (Flex Consumption) or EP1/EP2/EP3 (Premium). Y1 does NOT support VNet integration.
+''')
+@allowed(['FC1', 'Y1', 'EP1', 'EP2', 'EP3'])
+param functionAppSku string = 'FC1'
 
 @description('Enable Application Insights.')
 param enableAppInsights bool = true
@@ -188,6 +200,7 @@ module functionAppApi 'modules/functionapp.bicep' = {
     tags: tags
     appServicePlanId: appServicePlan.outputs.planId
     sku: functionAppSku
+    isFlexConsumption: appServicePlan.outputs.isFlexConsumption
     storageAccountName: storage.outputs.storageAccountName
     storageConnectionString: storage.outputs.connectionString
     storageBlobEndpoint: storage.outputs.blobEndpoint
@@ -218,6 +231,7 @@ module functionAppScheduler 'modules/functionapp.bicep' = {
     tags: tags
     appServicePlanId: appServicePlan.outputs.planId
     sku: functionAppSku
+    isFlexConsumption: appServicePlan.outputs.isFlexConsumption
     storageAccountName: storage.outputs.storageAccountName
     storageConnectionString: storage.outputs.connectionString
     storageBlobEndpoint: storage.outputs.blobEndpoint
@@ -245,6 +259,7 @@ module functionAppProcessor 'modules/functionapp.bicep' = {
     tags: tags
     appServicePlanId: appServicePlan.outputs.planId
     sku: functionAppSku
+    isFlexConsumption: appServicePlan.outputs.isFlexConsumption
     storageAccountName: storage.outputs.storageAccountName
     storageConnectionString: storage.outputs.connectionString
     storageBlobEndpoint: storage.outputs.blobEndpoint

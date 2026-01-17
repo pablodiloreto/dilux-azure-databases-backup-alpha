@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "9994366624517509852"
+      "templateHash": "15752117447274448650"
     }
   },
   "parameters": {
@@ -32,15 +32,16 @@
     },
     "functionAppSku": {
       "type": "string",
-      "defaultValue": "Y1",
+      "defaultValue": "FC1",
       "allowedValues": [
+        "FC1",
         "Y1",
         "EP1",
         "EP2",
         "EP3"
       ],
       "metadata": {
-        "description": "SKU for the App Service Plan."
+        "description": "SKU for the Function Apps hosting plan.\n\nAvailable options:\n- FC1: Flex Consumption (RECOMMENDED) - Serverless, VNet integration, fast cold starts, ~$0-10/month\n- Y1:  Consumption (Legacy) - Serverless, NO VNet support, EOL September 2028, ~$0-5/month\n- EP1: Premium - Reserved instances, VNet support, no cold starts, ~$150/month\n- EP2: Premium - Higher performance, VNet support, ~$300/month\n- EP3: Premium - Maximum performance, VNet support, ~$600/month\n\nIMPORTANT: If you need to connect to databases in Azure Virtual Networks (Private Endpoints),\nyou MUST use FC1 (Flex Consumption) or EP1/EP2/EP3 (Premium). Y1 does NOT support VNet integration.\n"
       }
     },
     "enableAppInsights": {
@@ -580,7 +581,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "6635559551537838525"
+              "templateHash": "12452722508131605079"
             }
           },
           "parameters": {
@@ -604,8 +605,9 @@
             },
             "sku": {
               "type": "string",
-              "defaultValue": "Y1",
+              "defaultValue": "FC1",
               "allowedValues": [
+                "FC1",
                 "Y1",
                 "EP1",
                 "EP2",
@@ -618,6 +620,10 @@
           },
           "variables": {
             "skuConfig": {
+              "FC1": {
+                "name": "FC1",
+                "tier": "FlexConsumption"
+              },
               "Y1": {
                 "name": "Y1",
                 "tier": "Dynamic"
@@ -634,7 +640,8 @@
                 "name": "EP3",
                 "tier": "ElasticPremium"
               }
-            }
+            },
+            "isFlexConsumption": "[equals(parameters('sku'), 'FC1')]"
           },
           "resources": [
             {
@@ -666,6 +673,20 @@
                 "description": "App Service Plan name"
               },
               "value": "[parameters('planName')]"
+            },
+            "isFlexConsumption": {
+              "type": "bool",
+              "metadata": {
+                "description": "Is Flex Consumption plan"
+              },
+              "value": "[variables('isFlexConsumption')]"
+            },
+            "skuTier": {
+              "type": "string",
+              "metadata": {
+                "description": "SKU tier"
+              },
+              "value": "[variables('skuConfig')[parameters('sku')].tier]"
             }
           }
         }
@@ -1084,6 +1105,9 @@
           "sku": {
             "value": "[parameters('functionAppSku')]"
           },
+          "isFlexConsumption": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appserviceplan-deployment'), '2025-04-01').outputs.isFlexConsumption.value]"
+          },
           "storageAccountName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
           },
@@ -1123,7 +1147,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "11263305518152052649"
+              "templateHash": "10363270765201383808"
             }
           },
           "parameters": {
@@ -1154,7 +1178,32 @@
             "sku": {
               "type": "string",
               "metadata": {
-                "description": "App Service Plan SKU (Y1, EP1, EP2, EP3)"
+                "description": "App Service Plan SKU (FC1, Y1, EP1, EP2, EP3)"
+              }
+            },
+            "isFlexConsumption": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Is Flex Consumption plan"
+              }
+            },
+            "maximumInstanceCount": {
+              "type": "int",
+              "defaultValue": 100,
+              "metadata": {
+                "description": "Maximum instance count for Flex Consumption"
+              }
+            },
+            "instanceMemoryMB": {
+              "type": "int",
+              "defaultValue": 2048,
+              "allowedValues": [
+                2048,
+                4096
+              ],
+              "metadata": {
+                "description": "Instance memory in MB for Flex Consumption (2048 or 4096)"
               }
             },
             "storageAccountName": {
@@ -1224,11 +1273,14 @@
           },
           "variables": {
             "corsOrigins": "[if(empty(parameters('frontendUrl')), createArray('https://portal.azure.com', 'http://localhost:3000', 'http://localhost:5173'), createArray('https://portal.azure.com', 'http://localhost:3000', 'http://localhost:5173', parameters('frontendUrl')))]",
-            "isConsumptionPlan": "[equals(parameters('sku'), 'Y1')]",
+            "isLegacyConsumptionPlan": "[equals(parameters('sku'), 'Y1')]",
             "consumptionStorageSettings": {
               "AzureWebJobsStorage": "[parameters('storageConnectionString')]",
               "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING": "[parameters('storageConnectionString')]",
               "WEBSITE_CONTENTSHARE": "[toLower(parameters('functionAppName'))]"
+            },
+            "flexConsumptionStorageSettings": {
+              "AzureWebJobsStorage__accountName": "[parameters('storageAccountName')]"
             },
             "premiumStorageSettings": {
               "AzureWebJobsStorage__accountName": "[parameters('storageAccountName')]",
@@ -1236,7 +1288,7 @@
               "AzureWebJobsStorage__queueServiceUri": "[parameters('storageQueueEndpoint')]",
               "AzureWebJobsStorage__tableServiceUri": "[parameters('storageTableEndpoint')]"
             },
-            "runtimeStorageSettings": "[if(variables('isConsumptionPlan'), variables('consumptionStorageSettings'), variables('premiumStorageSettings'))]",
+            "runtimeStorageSettings": "[if(parameters('isFlexConsumption'), variables('flexConsumptionStorageSettings'), if(variables('isLegacyConsumptionPlan'), variables('consumptionStorageSettings'), variables('premiumStorageSettings')))]",
             "baseAppSettings": {
               "FUNCTIONS_EXTENSION_VERSION": "~4",
               "FUNCTIONS_WORKER_RUNTIME": "python",
@@ -1252,6 +1304,7 @@
           },
           "resources": [
             {
+              "condition": "[not(parameters('isFlexConsumption'))]",
               "type": "Microsoft.Web/sites",
               "apiVersion": "2023-01-01",
               "name": "[parameters('functionAppName')]",
@@ -1285,6 +1338,60 @@
                   }
                 }
               }
+            },
+            {
+              "condition": "[parameters('isFlexConsumption')]",
+              "type": "Microsoft.Web/sites",
+              "apiVersion": "2024-04-01",
+              "name": "[parameters('functionAppName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "kind": "functionapp,linux",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "serverFarmId": "[parameters('appServicePlanId')]",
+                "httpsOnly": true,
+                "reserved": true,
+                "functionAppConfig": {
+                  "deployment": {
+                    "storage": {
+                      "type": "blobContainer",
+                      "value": "[format('{0}deployments', parameters('storageBlobEndpoint'))]",
+                      "authentication": {
+                        "type": "SystemAssignedIdentity"
+                      }
+                    }
+                  },
+                  "scaleAndConcurrency": {
+                    "maximumInstanceCount": "[parameters('maximumInstanceCount')]",
+                    "instanceMemoryMB": "[parameters('instanceMemoryMB')]"
+                  },
+                  "runtime": {
+                    "name": "python",
+                    "version": "3.10"
+                  }
+                },
+                "siteConfig": {
+                  "copy": [
+                    {
+                      "name": "appSettings",
+                      "count": "[length(items(variables('appSettings')))]",
+                      "input": {
+                        "name": "[items(variables('appSettings'))[copyIndex('appSettings')].key]",
+                        "value": "[string(items(variables('appSettings'))[copyIndex('appSettings')].value)]"
+                      }
+                    }
+                  ],
+                  "ftpsState": "Disabled",
+                  "minTlsVersion": "1.2",
+                  "cors": {
+                    "allowedOrigins": "[variables('corsOrigins')]",
+                    "supportCredentials": true
+                  }
+                }
+              }
             }
           ],
           "outputs": {
@@ -1293,35 +1400,42 @@
               "metadata": {
                 "description": "Function App name"
               },
-              "value": "[parameters('functionAppName')]"
+              "value": "[if(parameters('isFlexConsumption'), parameters('functionAppName'), parameters('functionAppName'))]"
             },
             "defaultHostname": {
               "type": "string",
               "metadata": {
                 "description": "Function App default hostname"
               },
-              "value": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01').defaultHostName]"
+              "value": "[if(parameters('isFlexConsumption'), reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01').defaultHostName, reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01').defaultHostName)]"
             },
             "principalId": {
               "type": "string",
               "metadata": {
                 "description": "Function App principal ID (Managed Identity)"
               },
-              "value": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01', 'full').identity.principalId]"
+              "value": "[if(parameters('isFlexConsumption'), reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01', 'full').identity.principalId, reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01', 'full').identity.principalId)]"
             },
             "resourceId": {
               "type": "string",
               "metadata": {
                 "description": "Function App resource ID"
               },
-              "value": "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]"
+              "value": "[if(parameters('isFlexConsumption'), resourceId('Microsoft.Web/sites', parameters('functionAppName')), resourceId('Microsoft.Web/sites', parameters('functionAppName')))]"
             },
-            "isConsumptionPlan": {
+            "isLegacyConsumptionPlan": {
               "type": "bool",
               "metadata": {
-                "description": "Is using Consumption plan"
+                "description": "Is using legacy Consumption plan (Y1)"
               },
-              "value": "[variables('isConsumptionPlan')]"
+              "value": "[variables('isLegacyConsumptionPlan')]"
+            },
+            "isFlexConsumptionPlan": {
+              "type": "bool",
+              "metadata": {
+                "description": "Is using Flex Consumption plan (FC1)"
+              },
+              "value": "[parameters('isFlexConsumption')]"
             }
           }
         }
@@ -1359,6 +1473,9 @@
           "sku": {
             "value": "[parameters('functionAppSku')]"
           },
+          "isFlexConsumption": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appserviceplan-deployment'), '2025-04-01').outputs.isFlexConsumption.value]"
+          },
           "storageAccountName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
           },
@@ -1395,7 +1512,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "11263305518152052649"
+              "templateHash": "10363270765201383808"
             }
           },
           "parameters": {
@@ -1426,7 +1543,32 @@
             "sku": {
               "type": "string",
               "metadata": {
-                "description": "App Service Plan SKU (Y1, EP1, EP2, EP3)"
+                "description": "App Service Plan SKU (FC1, Y1, EP1, EP2, EP3)"
+              }
+            },
+            "isFlexConsumption": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Is Flex Consumption plan"
+              }
+            },
+            "maximumInstanceCount": {
+              "type": "int",
+              "defaultValue": 100,
+              "metadata": {
+                "description": "Maximum instance count for Flex Consumption"
+              }
+            },
+            "instanceMemoryMB": {
+              "type": "int",
+              "defaultValue": 2048,
+              "allowedValues": [
+                2048,
+                4096
+              ],
+              "metadata": {
+                "description": "Instance memory in MB for Flex Consumption (2048 or 4096)"
               }
             },
             "storageAccountName": {
@@ -1496,11 +1638,14 @@
           },
           "variables": {
             "corsOrigins": "[if(empty(parameters('frontendUrl')), createArray('https://portal.azure.com', 'http://localhost:3000', 'http://localhost:5173'), createArray('https://portal.azure.com', 'http://localhost:3000', 'http://localhost:5173', parameters('frontendUrl')))]",
-            "isConsumptionPlan": "[equals(parameters('sku'), 'Y1')]",
+            "isLegacyConsumptionPlan": "[equals(parameters('sku'), 'Y1')]",
             "consumptionStorageSettings": {
               "AzureWebJobsStorage": "[parameters('storageConnectionString')]",
               "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING": "[parameters('storageConnectionString')]",
               "WEBSITE_CONTENTSHARE": "[toLower(parameters('functionAppName'))]"
+            },
+            "flexConsumptionStorageSettings": {
+              "AzureWebJobsStorage__accountName": "[parameters('storageAccountName')]"
             },
             "premiumStorageSettings": {
               "AzureWebJobsStorage__accountName": "[parameters('storageAccountName')]",
@@ -1508,7 +1653,7 @@
               "AzureWebJobsStorage__queueServiceUri": "[parameters('storageQueueEndpoint')]",
               "AzureWebJobsStorage__tableServiceUri": "[parameters('storageTableEndpoint')]"
             },
-            "runtimeStorageSettings": "[if(variables('isConsumptionPlan'), variables('consumptionStorageSettings'), variables('premiumStorageSettings'))]",
+            "runtimeStorageSettings": "[if(parameters('isFlexConsumption'), variables('flexConsumptionStorageSettings'), if(variables('isLegacyConsumptionPlan'), variables('consumptionStorageSettings'), variables('premiumStorageSettings')))]",
             "baseAppSettings": {
               "FUNCTIONS_EXTENSION_VERSION": "~4",
               "FUNCTIONS_WORKER_RUNTIME": "python",
@@ -1524,6 +1669,7 @@
           },
           "resources": [
             {
+              "condition": "[not(parameters('isFlexConsumption'))]",
               "type": "Microsoft.Web/sites",
               "apiVersion": "2023-01-01",
               "name": "[parameters('functionAppName')]",
@@ -1557,6 +1703,60 @@
                   }
                 }
               }
+            },
+            {
+              "condition": "[parameters('isFlexConsumption')]",
+              "type": "Microsoft.Web/sites",
+              "apiVersion": "2024-04-01",
+              "name": "[parameters('functionAppName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "kind": "functionapp,linux",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "serverFarmId": "[parameters('appServicePlanId')]",
+                "httpsOnly": true,
+                "reserved": true,
+                "functionAppConfig": {
+                  "deployment": {
+                    "storage": {
+                      "type": "blobContainer",
+                      "value": "[format('{0}deployments', parameters('storageBlobEndpoint'))]",
+                      "authentication": {
+                        "type": "SystemAssignedIdentity"
+                      }
+                    }
+                  },
+                  "scaleAndConcurrency": {
+                    "maximumInstanceCount": "[parameters('maximumInstanceCount')]",
+                    "instanceMemoryMB": "[parameters('instanceMemoryMB')]"
+                  },
+                  "runtime": {
+                    "name": "python",
+                    "version": "3.10"
+                  }
+                },
+                "siteConfig": {
+                  "copy": [
+                    {
+                      "name": "appSettings",
+                      "count": "[length(items(variables('appSettings')))]",
+                      "input": {
+                        "name": "[items(variables('appSettings'))[copyIndex('appSettings')].key]",
+                        "value": "[string(items(variables('appSettings'))[copyIndex('appSettings')].value)]"
+                      }
+                    }
+                  ],
+                  "ftpsState": "Disabled",
+                  "minTlsVersion": "1.2",
+                  "cors": {
+                    "allowedOrigins": "[variables('corsOrigins')]",
+                    "supportCredentials": true
+                  }
+                }
+              }
             }
           ],
           "outputs": {
@@ -1565,35 +1765,42 @@
               "metadata": {
                 "description": "Function App name"
               },
-              "value": "[parameters('functionAppName')]"
+              "value": "[if(parameters('isFlexConsumption'), parameters('functionAppName'), parameters('functionAppName'))]"
             },
             "defaultHostname": {
               "type": "string",
               "metadata": {
                 "description": "Function App default hostname"
               },
-              "value": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01').defaultHostName]"
+              "value": "[if(parameters('isFlexConsumption'), reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01').defaultHostName, reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01').defaultHostName)]"
             },
             "principalId": {
               "type": "string",
               "metadata": {
                 "description": "Function App principal ID (Managed Identity)"
               },
-              "value": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01', 'full').identity.principalId]"
+              "value": "[if(parameters('isFlexConsumption'), reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01', 'full').identity.principalId, reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01', 'full').identity.principalId)]"
             },
             "resourceId": {
               "type": "string",
               "metadata": {
                 "description": "Function App resource ID"
               },
-              "value": "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]"
+              "value": "[if(parameters('isFlexConsumption'), resourceId('Microsoft.Web/sites', parameters('functionAppName')), resourceId('Microsoft.Web/sites', parameters('functionAppName')))]"
             },
-            "isConsumptionPlan": {
+            "isLegacyConsumptionPlan": {
               "type": "bool",
               "metadata": {
-                "description": "Is using Consumption plan"
+                "description": "Is using legacy Consumption plan (Y1)"
               },
-              "value": "[variables('isConsumptionPlan')]"
+              "value": "[variables('isLegacyConsumptionPlan')]"
+            },
+            "isFlexConsumptionPlan": {
+              "type": "bool",
+              "metadata": {
+                "description": "Is using Flex Consumption plan (FC1)"
+              },
+              "value": "[parameters('isFlexConsumption')]"
             }
           }
         }
@@ -1631,6 +1838,9 @@
           "sku": {
             "value": "[parameters('functionAppSku')]"
           },
+          "isFlexConsumption": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appserviceplan-deployment'), '2025-04-01').outputs.isFlexConsumption.value]"
+          },
           "storageAccountName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
           },
@@ -1667,7 +1877,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "11263305518152052649"
+              "templateHash": "10363270765201383808"
             }
           },
           "parameters": {
@@ -1698,7 +1908,32 @@
             "sku": {
               "type": "string",
               "metadata": {
-                "description": "App Service Plan SKU (Y1, EP1, EP2, EP3)"
+                "description": "App Service Plan SKU (FC1, Y1, EP1, EP2, EP3)"
+              }
+            },
+            "isFlexConsumption": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Is Flex Consumption plan"
+              }
+            },
+            "maximumInstanceCount": {
+              "type": "int",
+              "defaultValue": 100,
+              "metadata": {
+                "description": "Maximum instance count for Flex Consumption"
+              }
+            },
+            "instanceMemoryMB": {
+              "type": "int",
+              "defaultValue": 2048,
+              "allowedValues": [
+                2048,
+                4096
+              ],
+              "metadata": {
+                "description": "Instance memory in MB for Flex Consumption (2048 or 4096)"
               }
             },
             "storageAccountName": {
@@ -1768,11 +2003,14 @@
           },
           "variables": {
             "corsOrigins": "[if(empty(parameters('frontendUrl')), createArray('https://portal.azure.com', 'http://localhost:3000', 'http://localhost:5173'), createArray('https://portal.azure.com', 'http://localhost:3000', 'http://localhost:5173', parameters('frontendUrl')))]",
-            "isConsumptionPlan": "[equals(parameters('sku'), 'Y1')]",
+            "isLegacyConsumptionPlan": "[equals(parameters('sku'), 'Y1')]",
             "consumptionStorageSettings": {
               "AzureWebJobsStorage": "[parameters('storageConnectionString')]",
               "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING": "[parameters('storageConnectionString')]",
               "WEBSITE_CONTENTSHARE": "[toLower(parameters('functionAppName'))]"
+            },
+            "flexConsumptionStorageSettings": {
+              "AzureWebJobsStorage__accountName": "[parameters('storageAccountName')]"
             },
             "premiumStorageSettings": {
               "AzureWebJobsStorage__accountName": "[parameters('storageAccountName')]",
@@ -1780,7 +2018,7 @@
               "AzureWebJobsStorage__queueServiceUri": "[parameters('storageQueueEndpoint')]",
               "AzureWebJobsStorage__tableServiceUri": "[parameters('storageTableEndpoint')]"
             },
-            "runtimeStorageSettings": "[if(variables('isConsumptionPlan'), variables('consumptionStorageSettings'), variables('premiumStorageSettings'))]",
+            "runtimeStorageSettings": "[if(parameters('isFlexConsumption'), variables('flexConsumptionStorageSettings'), if(variables('isLegacyConsumptionPlan'), variables('consumptionStorageSettings'), variables('premiumStorageSettings')))]",
             "baseAppSettings": {
               "FUNCTIONS_EXTENSION_VERSION": "~4",
               "FUNCTIONS_WORKER_RUNTIME": "python",
@@ -1796,6 +2034,7 @@
           },
           "resources": [
             {
+              "condition": "[not(parameters('isFlexConsumption'))]",
               "type": "Microsoft.Web/sites",
               "apiVersion": "2023-01-01",
               "name": "[parameters('functionAppName')]",
@@ -1829,6 +2068,60 @@
                   }
                 }
               }
+            },
+            {
+              "condition": "[parameters('isFlexConsumption')]",
+              "type": "Microsoft.Web/sites",
+              "apiVersion": "2024-04-01",
+              "name": "[parameters('functionAppName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "kind": "functionapp,linux",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "serverFarmId": "[parameters('appServicePlanId')]",
+                "httpsOnly": true,
+                "reserved": true,
+                "functionAppConfig": {
+                  "deployment": {
+                    "storage": {
+                      "type": "blobContainer",
+                      "value": "[format('{0}deployments', parameters('storageBlobEndpoint'))]",
+                      "authentication": {
+                        "type": "SystemAssignedIdentity"
+                      }
+                    }
+                  },
+                  "scaleAndConcurrency": {
+                    "maximumInstanceCount": "[parameters('maximumInstanceCount')]",
+                    "instanceMemoryMB": "[parameters('instanceMemoryMB')]"
+                  },
+                  "runtime": {
+                    "name": "python",
+                    "version": "3.10"
+                  }
+                },
+                "siteConfig": {
+                  "copy": [
+                    {
+                      "name": "appSettings",
+                      "count": "[length(items(variables('appSettings')))]",
+                      "input": {
+                        "name": "[items(variables('appSettings'))[copyIndex('appSettings')].key]",
+                        "value": "[string(items(variables('appSettings'))[copyIndex('appSettings')].value)]"
+                      }
+                    }
+                  ],
+                  "ftpsState": "Disabled",
+                  "minTlsVersion": "1.2",
+                  "cors": {
+                    "allowedOrigins": "[variables('corsOrigins')]",
+                    "supportCredentials": true
+                  }
+                }
+              }
             }
           ],
           "outputs": {
@@ -1837,35 +2130,42 @@
               "metadata": {
                 "description": "Function App name"
               },
-              "value": "[parameters('functionAppName')]"
+              "value": "[if(parameters('isFlexConsumption'), parameters('functionAppName'), parameters('functionAppName'))]"
             },
             "defaultHostname": {
               "type": "string",
               "metadata": {
                 "description": "Function App default hostname"
               },
-              "value": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01').defaultHostName]"
+              "value": "[if(parameters('isFlexConsumption'), reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01').defaultHostName, reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01').defaultHostName)]"
             },
             "principalId": {
               "type": "string",
               "metadata": {
                 "description": "Function App principal ID (Managed Identity)"
               },
-              "value": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01', 'full').identity.principalId]"
+              "value": "[if(parameters('isFlexConsumption'), reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01', 'full').identity.principalId, reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01', 'full').identity.principalId)]"
             },
             "resourceId": {
               "type": "string",
               "metadata": {
                 "description": "Function App resource ID"
               },
-              "value": "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]"
+              "value": "[if(parameters('isFlexConsumption'), resourceId('Microsoft.Web/sites', parameters('functionAppName')), resourceId('Microsoft.Web/sites', parameters('functionAppName')))]"
             },
-            "isConsumptionPlan": {
+            "isLegacyConsumptionPlan": {
               "type": "bool",
               "metadata": {
-                "description": "Is using Consumption plan"
+                "description": "Is using legacy Consumption plan (Y1)"
               },
-              "value": "[variables('isConsumptionPlan')]"
+              "value": "[variables('isLegacyConsumptionPlan')]"
+            },
+            "isFlexConsumptionPlan": {
+              "type": "bool",
+              "metadata": {
+                "description": "Is using Flex Consumption plan (FC1)"
+              },
+              "value": "[parameters('isFlexConsumption')]"
             }
           }
         }
