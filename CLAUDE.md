@@ -93,6 +93,13 @@ az deployment group create \
   --parameters appName=miapp adminEmail=admin@email.com azureAdClientId=xxx
 ```
 
+### Configurar Autenticación (si Deploy to Azure no creó el App Registration)
+
+```bash
+# Script wizard interactivo para configurar Azure AD post-deployment
+curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/configure-auth.sh | bash
+```
+
 ## Convención de Nombres Azure
 
 Los recursos globalmente únicos usan sufijo hash:

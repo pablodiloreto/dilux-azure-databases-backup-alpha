@@ -1,6 +1,6 @@
 # Dilux Database Backup - Estado del Proyecto
 
-**Última actualización:** 2026-01-17
+**Última actualización:** 2026-01-29
 
 ---
 
@@ -48,6 +48,7 @@ La versión 1.0 está **100% funcional** y lista para producción. No hay tareas
 ### Infraestructura
 
 - **Deploy to Azure Button**: Un click para desplegar todo
+- **Script configure-auth.sh**: Wizard interactivo para configurar Azure AD post-deployment
 - **Pre-built Assets**: GitHub Action construye ZIPs en cada release
 - **RBAC Automático**: Managed Identity con roles configurados
 - **Nombres Únicos**: Sufijo hash para evitar colisiones globales
@@ -101,7 +102,7 @@ Todos los problemas de deployment fueron resueltos:
 
 ---
 
-## Trabajo en Progreso: Soporte Flex Consumption (2026-01-17)
+## ✅ Completado: Soporte Flex Consumption (2026-01-17)
 
 ### Contexto
 
@@ -118,7 +119,7 @@ Se recomienda migrar a **Flex Consumption (FC1)**, que además ofrece VNet Integ
 | `scripts/deploy.sh` | ✅ Completado | Selector interactivo de plan con explicaciones de VNet |
 | `infra/azuredeploy.json` | ✅ Completado | ARM template recompilado |
 | `docs/PLAN.md` | ✅ Completado | Documentación actualizada |
-| `docs/infra.md` | ⏳ Pendiente | Actualizar sección de planes |
+| `docs/infra.md` | ✅ Completado | Actualizar sección de planes |
 
 ### Planes de Function Apps Soportados
 
@@ -129,26 +130,6 @@ Se recomienda migrar a **Flex Consumption (FC1)**, que además ofrece VNet Integ
 | EP1 | Premium | ✅ Sí | ~$150/mes | Sin cold starts |
 | EP2 | Premium | ✅ Sí | ~$300/mes | Alto rendimiento |
 | EP3 | Premium | ✅ Sí | ~$600/mes | Máximo rendimiento |
-
-### Cómo Retomar si se Corta
-
-1. Verificar que los archivos modificados estén guardados:
-   ```bash
-   git status
-   ```
-
-2. Si falta algo, los cambios principales son:
-   - `appserviceplan.bicep`: Agregar FC1 al `skuConfig` y `@allowed`
-   - `functionapp.bicep`: Crear dos recursos condicionales (`functionAppStandard` y `functionAppFlex`)
-   - `main.bicep`: Pasar `isFlexConsumption: appServicePlan.outputs.isFlexConsumption` a cada function app
-   - `deploy.sh`: Selector de plan con `FUNCTION_SKU` variable
-
-3. Recompilar ARM:
-   ```bash
-   cd infra && az bicep build --file main.bicep --outfile azuredeploy.json
-   ```
-
-4. Crear nueva release para probar.
 
 ---
 
@@ -185,6 +166,22 @@ az deployment group create \
 #   Y1  = Consumption legacy (sin VNet, EOL 2028)
 #   EP1/EP2/EP3 = Premium (VNet support, sin cold starts)
 ```
+
+### Configurar Autenticación Post-Deployment
+
+Si el App Registration no se creó automáticamente durante el deployment (porque el Managed Identity no tiene permisos de Microsoft Graph), la app quedará en modo `mock` sin autenticación real.
+
+Para configurar Azure AD authentication, ejecuta el wizard interactivo:
+
+```bash
+curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/configure-auth.sh | bash
+```
+
+El script te guiará para:
+1. Seleccionar la instalación de Dilux (Resource Group)
+2. Crear o usar un App Registration existente
+3. Configurar las Function Apps con el Client ID
+4. Actualizar el frontend con la configuración de Azure AD
 
 ### Desarrollo Local
 

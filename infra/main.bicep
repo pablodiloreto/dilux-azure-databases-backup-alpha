@@ -364,7 +364,7 @@ output azureAdTenantId string = tenantId
 output appRegistrationSuccess bool = skipAppRegistration ? false : appRegistration.outputs.success
 
 @description('Next steps message')
-output nextSteps string = (skipAppRegistration || !appRegistration.outputs.success) ? 'App Registration requires manual setup. Check deployment logs for instructions.' : 'Deployment complete! Check deployment logs for frontend URL.'
+output nextSteps string = (skipAppRegistration || !appRegistration.outputs.success) ? 'Auth not configured. Run: curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/configure-auth.sh | bash' : 'Deployment complete! Frontend URL in outputs.'
 
 @description('Code deployment status')
 output codeDeploymentStatus string = codeDeployment.outputs.status
