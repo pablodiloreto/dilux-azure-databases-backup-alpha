@@ -349,6 +349,8 @@ module codeDeployment 'modules/code-deployment.bicep' = {
     azureAdTenantId: tenantId
     azureAdClientId: clientId
     storageAccountName: storage.outputs.storageAccountName
+    storageBlobEndpoint: storage.outputs.blobEndpoint
+    isFlexConsumption: isFlexConsumption
   }
 }
 

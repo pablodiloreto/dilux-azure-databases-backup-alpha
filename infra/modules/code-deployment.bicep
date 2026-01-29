@@ -56,6 +56,12 @@ param azureAdClientId string = ''
 @description('Storage Account name for uploading frontend ZIP')
 param storageAccountName string = ''
 
+@description('Storage Account blob endpoint')
+param storageBlobEndpoint string = ''
+
+@description('Is Flex Consumption plan (requires different deployment method)')
+param isFlexConsumption bool = false
+
 // ============================================================================
 // Deployment Script - Downloads and deploys pre-built Function App assets
 // ============================================================================
@@ -87,6 +93,8 @@ resource deploymentScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
       { name: 'AZURE_AD_TENANT_ID', value: azureAdTenantId }
       { name: 'AZURE_AD_CLIENT_ID', value: azureAdClientId }
       { name: 'STORAGE_ACCOUNT_NAME', value: storageAccountName }
+      { name: 'STORAGE_BLOB_ENDPOINT', value: storageBlobEndpoint }
+      { name: 'IS_FLEX_CONSUMPTION', value: string(isFlexConsumption) }
     ]
     scriptContent: '''
 #!/bin/bash
@@ -96,7 +104,79 @@ echo "=========================================="
 echo "Deploying Dilux Database Backup"
 echo "=========================================="
 
-# Function to deploy with remote build (installs dependencies on Azure)
+# Function to deploy to Flex Consumption (via Blob Storage)
+deploy_flex_consumption() {
+  local app_name=$1
+  local zip_file=$2
+  local max_attempts=5
+  local attempt=1
+  local wait_time=30
+
+  echo "    Deploying to Flex Consumption via Blob Storage..."
+
+  # Get storage account key
+  local account_key=$(az storage account keys list \
+    --account-name $STORAGE_ACCOUNT_NAME \
+    --resource-group $RESOURCE_GROUP \
+    --query "[0].value" -o tsv 2>/dev/null)
+
+  if [ -z "$account_key" ]; then
+    echo "    ERROR: Could not get storage account key"
+    return 1
+  fi
+
+  # Create deployments container if not exists
+  az storage container create \
+    --name "deployments" \
+    --account-name $STORAGE_ACCOUNT_NAME \
+    --account-key "$account_key" \
+    --only-show-errors 2>/dev/null || true
+
+  # Upload ZIP to deployments container with unique name
+  local blob_name="${app_name}/$(date +%Y%m%d%H%M%S).zip"
+
+  while [ $attempt -le $max_attempts ]; do
+    echo "    Attempt $attempt of $max_attempts..."
+
+    # Upload ZIP to blob storage
+    if az storage blob upload \
+      --account-name $STORAGE_ACCOUNT_NAME \
+      --account-key "$account_key" \
+      --container-name "deployments" \
+      --name "$blob_name" \
+      --file "$zip_file" \
+      --overwrite \
+      --only-show-errors 2>/dev/null; then
+
+      echo "    ZIP uploaded to deployments/$blob_name"
+
+      # Trigger deployment using az functionapp deploy
+      if az functionapp deploy \
+        --resource-group $RESOURCE_GROUP \
+        --name $app_name \
+        --src-url "${STORAGE_BLOB_ENDPOINT}deployments/$blob_name" \
+        --type zip \
+        --async true \
+        --only-show-errors 2>&1; then
+        echo "    Success! Deployment triggered."
+        return 0
+      fi
+    fi
+
+    if [ $attempt -lt $max_attempts ]; then
+      echo "    Failed. Waiting ${wait_time}s for RBAC propagation..."
+      sleep $wait_time
+      wait_time=$((wait_time + 30))
+    fi
+
+    attempt=$((attempt + 1))
+  done
+
+  echo "    ERROR: Failed after $max_attempts attempts"
+  return 1
+}
+
+# Function to deploy with remote build (for Y1/EP* plans)
 deploy_with_remote_build() {
   local app_name=$1
   local zip_file=$2
@@ -137,6 +217,18 @@ deploy_with_remote_build() {
 
   echo "    ERROR: Failed after $max_attempts attempts"
   return 1
+}
+
+# Function to deploy Function App (auto-detects plan type)
+deploy_function_app() {
+  local app_name=$1
+  local zip_file=$2
+
+  if [ "$IS_FLEX_CONSUMPTION" == "true" ]; then
+    deploy_flex_consumption $app_name $zip_file
+  else
+    deploy_with_remote_build $app_name $zip_file
+  fi
 }
 
 # Resolve "latest" to actual version tag using GitHub API
@@ -345,22 +437,25 @@ echo "Deploying Function Apps..."
 echo "=========================================="
 
 echo ""
+echo "Deployment mode: $([ "$IS_FLEX_CONSUMPTION" == "true" ] && echo "Flex Consumption (Blob Storage)" || echo "Standard (SCM/Kudu)")"
+echo ""
+
 echo "[1/3] Deploying API Function App: $API_FUNCTION_APP_NAME"
-if ! deploy_with_remote_build $API_FUNCTION_APP_NAME api.zip; then
+if ! deploy_function_app $API_FUNCTION_APP_NAME api.zip; then
   echo '{"status": "failed", "error": "Failed to deploy API Function App"}' > $AZ_SCRIPTS_OUTPUT_PATH
   exit 1
 fi
 
 echo ""
 echo "[2/3] Deploying Scheduler Function App: $SCHEDULER_FUNCTION_APP_NAME"
-if ! deploy_with_remote_build $SCHEDULER_FUNCTION_APP_NAME scheduler.zip; then
+if ! deploy_function_app $SCHEDULER_FUNCTION_APP_NAME scheduler.zip; then
   echo '{"status": "failed", "error": "Failed to deploy Scheduler Function App"}' > $AZ_SCRIPTS_OUTPUT_PATH
   exit 1
 fi
 
 echo ""
 echo "[3/3] Deploying Processor Function App: $PROCESSOR_FUNCTION_APP_NAME"
-if ! deploy_with_remote_build $PROCESSOR_FUNCTION_APP_NAME processor.zip; then
+if ! deploy_function_app $PROCESSOR_FUNCTION_APP_NAME processor.zip; then
   echo '{"status": "failed", "error": "Failed to deploy Processor Function App"}' > $AZ_SCRIPTS_OUTPUT_PATH
   exit 1
 fi
