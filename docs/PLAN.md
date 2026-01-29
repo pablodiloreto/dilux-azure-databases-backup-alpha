@@ -177,7 +177,20 @@ Para desplegar código a las Function Apps:
 | v1.0.18 | 2026-01-29 | feat: configure-auth.sh wizard |
 | v1.0.19 | 2026-01-29 | fix: remover FUNCTIONS_WORKER_RUNTIME de appSettings para FC1 |
 | v1.0.20 | 2026-01-29 | fix: crear 3 App Service Plans separados para FC1 |
-| v1.0.21 | 2026-01-29 | fix: deployment via Blob Storage para FC1 (en testing) |
+| v1.0.21 | 2026-01-29 | fix: deployment via Blob Storage para FC1 (descartado) |
+| v1.0.22 | 2026-01-29 | fix: simplificar a `az functionapp deploy --src-path` |
+
+### 🧪 Testing en Progreso
+
+**Deployment:** `Microsoft.Template-20260129004802`
+**Versión:** v1.0.22
+**Plan:** FC1 (Flex Consumption)
+**Estado:** ⏳ Esperando resultados...
+
+Para ver logs si falla:
+```bash
+az deployment-scripts show-log --resource-group <rg> --name deploy-application-code
+```
 
 ---
 
