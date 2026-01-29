@@ -190,7 +190,10 @@ deploy_function_app() {
   local app_name=$1
   local zip_file=$2
 
-  if [ "$IS_FLEX_CONSUMPTION" == "true" ]; then
+  # Bicep string(true) returns "True" (capital T), so compare case-insensitive
+  local is_flex=$(echo "$IS_FLEX_CONSUMPTION" | tr '[:upper:]' '[:lower:]')
+
+  if [ "$is_flex" == "true" ]; then
     deploy_flex_consumption $app_name $zip_file
   else
     deploy_with_remote_build $app_name $zip_file
@@ -403,7 +406,8 @@ echo "Deploying Function Apps..."
 echo "=========================================="
 
 echo ""
-echo "Deployment mode: $([ "$IS_FLEX_CONSUMPTION" == "true" ] && echo "Flex Consumption (Blob Storage)" || echo "Standard (SCM/Kudu)")"
+IS_FLEX_LOWER=$(echo "$IS_FLEX_CONSUMPTION" | tr '[:upper:]' '[:lower:]')
+echo "Deployment mode: $([ "$IS_FLEX_LOWER" == "true" ] && echo "Flex Consumption (az functionapp deploy)" || echo "Standard (SCM/Kudu)")"
 echo ""
 
 echo "[1/3] Deploying API Function App: $API_FUNCTION_APP_NAME"

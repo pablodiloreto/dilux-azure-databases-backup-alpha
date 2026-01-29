@@ -125,7 +125,8 @@
       "Bash(TEMPLATE_URL=\"https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/infra/azuredeploy.json\")",
       "Bash(gh release create:*)",
       "Bash(git restore:*)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(az deployment operation group list:*)"
     ],
     "deny": [],
     "ask": []
