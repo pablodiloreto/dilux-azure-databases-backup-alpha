@@ -108,12 +108,14 @@ var premiumStorageSettings = {
 // Select storage settings based on plan
 var runtimeStorageSettings = isFlexConsumption ? flexConsumptionStorageSettings : (isLegacyConsumptionPlan ? consumptionStorageSettings : premiumStorageSettings)
 
-// Base app settings (common to all plans)
-var baseAppSettings = {
-  // Functions runtime settings
+// Runtime settings - NOT used for Flex Consumption (configured in functionAppConfig.runtime)
+var runtimeSettings = isFlexConsumption ? {} : {
   FUNCTIONS_EXTENSION_VERSION: '~4'
   FUNCTIONS_WORKER_RUNTIME: 'python'
+}
 
+// Base app settings (common to all plans)
+var baseAppSettings = {
   // App settings for our code (always uses Managed Identity via DefaultAzureCredential)
   STORAGE_ACCOUNT_NAME: storageAccountName
   STORAGE_BLOB_ENDPOINT: storageBlobEndpoint
@@ -134,7 +136,7 @@ var appInsightsSettings = !empty(appInsightsConnectionString) ? {
 } : {}
 
 // Merge all settings
-var appSettings = union(runtimeStorageSettings, baseAppSettings, appInsightsSettings, additionalAppSettings)
+var appSettings = union(runtimeStorageSettings, runtimeSettings, baseAppSettings, appInsightsSettings, additionalAppSettings)
 
 // ============================================================================
 // Function App - Standard (Y1, EP1, EP2, EP3)

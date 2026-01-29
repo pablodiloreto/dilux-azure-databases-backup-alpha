@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "2860998540684123998"
+      "templateHash": "2488671107207064176"
     }
   },
   "parameters": {
@@ -1147,7 +1147,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "10363270765201383808"
+              "templateHash": "5458448374704653700"
             }
           },
           "parameters": {
@@ -1289,9 +1289,8 @@
               "AzureWebJobsStorage__tableServiceUri": "[parameters('storageTableEndpoint')]"
             },
             "runtimeStorageSettings": "[if(parameters('isFlexConsumption'), variables('flexConsumptionStorageSettings'), if(variables('isLegacyConsumptionPlan'), variables('consumptionStorageSettings'), variables('premiumStorageSettings')))]",
+            "runtimeSettings": "[if(parameters('isFlexConsumption'), createObject(), createObject('FUNCTIONS_EXTENSION_VERSION', '~4', 'FUNCTIONS_WORKER_RUNTIME', 'python'))]",
             "baseAppSettings": {
-              "FUNCTIONS_EXTENSION_VERSION": "~4",
-              "FUNCTIONS_WORKER_RUNTIME": "python",
               "STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
               "STORAGE_BLOB_ENDPOINT": "[parameters('storageBlobEndpoint')]",
               "STORAGE_QUEUE_ENDPOINT": "[parameters('storageQueueEndpoint')]",
@@ -1300,7 +1299,7 @@
               "ENVIRONMENT": "production"
             },
             "appInsightsSettings": "[if(not(empty(parameters('appInsightsConnectionString'))), createObject('APPLICATIONINSIGHTS_CONNECTION_STRING', parameters('appInsightsConnectionString'), 'APPINSIGHTS_INSTRUMENTATIONKEY', parameters('appInsightsInstrumentationKey')), createObject())]",
-            "appSettings": "[union(variables('runtimeStorageSettings'), variables('baseAppSettings'), variables('appInsightsSettings'), parameters('additionalAppSettings'))]"
+            "appSettings": "[union(variables('runtimeStorageSettings'), variables('runtimeSettings'), variables('baseAppSettings'), variables('appInsightsSettings'), parameters('additionalAppSettings'))]"
           },
           "resources": [
             {
@@ -1512,7 +1511,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "10363270765201383808"
+              "templateHash": "5458448374704653700"
             }
           },
           "parameters": {
@@ -1654,9 +1653,8 @@
               "AzureWebJobsStorage__tableServiceUri": "[parameters('storageTableEndpoint')]"
             },
             "runtimeStorageSettings": "[if(parameters('isFlexConsumption'), variables('flexConsumptionStorageSettings'), if(variables('isLegacyConsumptionPlan'), variables('consumptionStorageSettings'), variables('premiumStorageSettings')))]",
+            "runtimeSettings": "[if(parameters('isFlexConsumption'), createObject(), createObject('FUNCTIONS_EXTENSION_VERSION', '~4', 'FUNCTIONS_WORKER_RUNTIME', 'python'))]",
             "baseAppSettings": {
-              "FUNCTIONS_EXTENSION_VERSION": "~4",
-              "FUNCTIONS_WORKER_RUNTIME": "python",
               "STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
               "STORAGE_BLOB_ENDPOINT": "[parameters('storageBlobEndpoint')]",
               "STORAGE_QUEUE_ENDPOINT": "[parameters('storageQueueEndpoint')]",
@@ -1665,7 +1663,7 @@
               "ENVIRONMENT": "production"
             },
             "appInsightsSettings": "[if(not(empty(parameters('appInsightsConnectionString'))), createObject('APPLICATIONINSIGHTS_CONNECTION_STRING', parameters('appInsightsConnectionString'), 'APPINSIGHTS_INSTRUMENTATIONKEY', parameters('appInsightsInstrumentationKey')), createObject())]",
-            "appSettings": "[union(variables('runtimeStorageSettings'), variables('baseAppSettings'), variables('appInsightsSettings'), parameters('additionalAppSettings'))]"
+            "appSettings": "[union(variables('runtimeStorageSettings'), variables('runtimeSettings'), variables('baseAppSettings'), variables('appInsightsSettings'), parameters('additionalAppSettings'))]"
           },
           "resources": [
             {
@@ -1877,7 +1875,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "10363270765201383808"
+              "templateHash": "5458448374704653700"
             }
           },
           "parameters": {
@@ -2019,9 +2017,8 @@
               "AzureWebJobsStorage__tableServiceUri": "[parameters('storageTableEndpoint')]"
             },
             "runtimeStorageSettings": "[if(parameters('isFlexConsumption'), variables('flexConsumptionStorageSettings'), if(variables('isLegacyConsumptionPlan'), variables('consumptionStorageSettings'), variables('premiumStorageSettings')))]",
+            "runtimeSettings": "[if(parameters('isFlexConsumption'), createObject(), createObject('FUNCTIONS_EXTENSION_VERSION', '~4', 'FUNCTIONS_WORKER_RUNTIME', 'python'))]",
             "baseAppSettings": {
-              "FUNCTIONS_EXTENSION_VERSION": "~4",
-              "FUNCTIONS_WORKER_RUNTIME": "python",
               "STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
               "STORAGE_BLOB_ENDPOINT": "[parameters('storageBlobEndpoint')]",
               "STORAGE_QUEUE_ENDPOINT": "[parameters('storageQueueEndpoint')]",
@@ -2030,7 +2027,7 @@
               "ENVIRONMENT": "production"
             },
             "appInsightsSettings": "[if(not(empty(parameters('appInsightsConnectionString'))), createObject('APPLICATIONINSIGHTS_CONNECTION_STRING', parameters('appInsightsConnectionString'), 'APPINSIGHTS_INSTRUMENTATIONKEY', parameters('appInsightsInstrumentationKey')), createObject())]",
-            "appSettings": "[union(variables('runtimeStorageSettings'), variables('baseAppSettings'), variables('appInsightsSettings'), parameters('additionalAppSettings'))]"
+            "appSettings": "[union(variables('runtimeStorageSettings'), variables('runtimeSettings'), variables('baseAppSettings'), variables('appInsightsSettings'), parameters('additionalAppSettings'))]"
           },
           "resources": [
             {
