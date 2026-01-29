@@ -181,19 +181,60 @@ Para desplegar código a las Function Apps:
 | v1.0.22 | 2026-01-29 | fix: simplificar a `az functionapp deploy --src-path` |
 | v1.0.23 | 2026-01-29 | fix: comparación case-insensitive para IS_FLEX_CONSUMPTION |
 
-### 🧪 Testing en Progreso
+### 🧪 Historial de Tests FC1
 
-**Último test (v1.0.22):** FALLÓ - detectaba "Standard" en lugar de "Flex Consumption"
-- Causa: Bicep `string(true)` → `"True"`, bash comparaba con `"true"`
-- Fix en v1.0.23: `tr '[:upper:]' '[:lower:]'` antes de comparar
+| Versión | Resultado | Problema |
+|---------|-----------|----------|
+| v1.0.19 | ❌ | `FUNCTIONS_WORKER_RUNTIME` en appSettings no permitido |
+| v1.0.20 | ❌ | FC1 solo permite 1 app por plan |
+| v1.0.21 | ❌ | Usaba método blob pero `IS_FLEX_CONSUMPTION` no se detectaba |
+| v1.0.22 | ❌ | Simplificado a `--src-path` pero `IS_FLEX_CONSUMPTION` = "True" vs "true" |
+| v1.0.23 | ❌ | Fix case-insensitive OK, pero `--src-path` retorna **HTTP 415** |
 
-**Próximo test:** v1.0.23
-**Plan:** FC1 (Flex Consumption)
+### Análisis del Error v1.0.23
 
-Para ver logs si falla:
-```bash
-az deployment-scripts show-log --resource-group <rg> --name deploy-application-code
 ```
+Deployment mode: Flex Consumption (az functionapp deploy)  ✅ Detecta bien ahora
+ERROR: Status Code: 415, Details: Failed.
+```
+
+**HTTP 415 = Unsupported Media Type**
+
+El comando `az functionapp deploy --src-path` no funciona con Flex Consumption.
+
+### ⏸️ PAUSADO - Pendiente de Investigación
+
+**Fecha:** 2026-01-29
+**Última versión:** v1.0.23
+**Estado:** Esperando prueba con deploy.sh
+
+**Pregunta abierta:** ¿deploy.sh funciona diferente a Deploy to Azure para FC1?
+
+Ambos usan el mismo deployment script (`code-deployment.bicep`) que corre dentro de Azure.
+Si deploy.sh también falla con FC1, el problema es el método de deployment para Flex Consumption.
+
+**Próximo paso:** Probar deploy.sh con FC1 para comparar:
+```bash
+# Opción 1: Desde internet
+curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/deploy.sh | bash
+
+# Opción 2: Desde repo local
+./scripts/deploy.sh
+```
+
+**Logs del último error (dilux66):**
+```bash
+az deployment-scripts show-log --resource-group dilux66 --name deploy-application-code
+```
+
+### Archivos Clave para Continuar
+
+| Archivo | Descripción |
+|---------|-------------|
+| `infra/modules/code-deployment.bicep` | Script que despliega código (líneas ~100-180 tienen la lógica FC1) |
+| `infra/modules/functionapp.bicep` | Definición del Function App para FC1 |
+| `infra/main.bicep` | Orquestador, pasa `isFlexConsumption` a los módulos |
+| `scripts/deploy.sh` | Script interactivo de deployment |
 
 ---
 
