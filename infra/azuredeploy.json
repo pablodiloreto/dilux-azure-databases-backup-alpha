@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "2488671107207064176"
+      "templateHash": "7230963671576340216"
     }
   },
   "parameters": {
@@ -91,7 +91,8 @@
       "Environment": "Production",
       "ManagedBy": "Bicep",
       "Version": "[parameters('appVersion')]"
-    }
+    },
+    "isFlexConsumption": "[equals(parameters('functionAppSku'), 'FC1')]"
   },
   "resources": [
     {
@@ -554,7 +555,147 @@
     {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
-      "name": "appserviceplan-deployment",
+      "name": "appserviceplan-api-deployment",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "planName": "[if(variables('isFlexConsumption'), createObject('value', format('{0}-api', variables('appServicePlanName'))), createObject('value', variables('appServicePlanName')))]",
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          },
+          "sku": {
+            "value": "[parameters('functionAppSku')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "12452722508131605079"
+            }
+          },
+          "parameters": {
+            "planName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the App Service Plan"
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Tags to apply"
+              }
+            },
+            "sku": {
+              "type": "string",
+              "defaultValue": "FC1",
+              "allowedValues": [
+                "FC1",
+                "Y1",
+                "EP1",
+                "EP2",
+                "EP3"
+              ],
+              "metadata": {
+                "description": "SKU for the plan"
+              }
+            }
+          },
+          "variables": {
+            "skuConfig": {
+              "FC1": {
+                "name": "FC1",
+                "tier": "FlexConsumption"
+              },
+              "Y1": {
+                "name": "Y1",
+                "tier": "Dynamic"
+              },
+              "EP1": {
+                "name": "EP1",
+                "tier": "ElasticPremium"
+              },
+              "EP2": {
+                "name": "EP2",
+                "tier": "ElasticPremium"
+              },
+              "EP3": {
+                "name": "EP3",
+                "tier": "ElasticPremium"
+              }
+            },
+            "isFlexConsumption": "[equals(parameters('sku'), 'FC1')]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Web/serverfarms",
+              "apiVersion": "2023-01-01",
+              "name": "[parameters('planName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "[variables('skuConfig')[parameters('sku')].name]",
+                "tier": "[variables('skuConfig')[parameters('sku')].tier]"
+              },
+              "properties": {
+                "reserved": true
+              }
+            }
+          ],
+          "outputs": {
+            "planId": {
+              "type": "string",
+              "metadata": {
+                "description": "App Service Plan resource ID"
+              },
+              "value": "[resourceId('Microsoft.Web/serverfarms', parameters('planName'))]"
+            },
+            "planName": {
+              "type": "string",
+              "metadata": {
+                "description": "App Service Plan name"
+              },
+              "value": "[parameters('planName')]"
+            },
+            "isFlexConsumption": {
+              "type": "bool",
+              "metadata": {
+                "description": "Is Flex Consumption plan"
+              },
+              "value": "[variables('isFlexConsumption')]"
+            },
+            "skuTier": {
+              "type": "string",
+              "metadata": {
+                "description": "SKU tier"
+              },
+              "value": "[variables('skuConfig')[parameters('sku')].tier]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "condition": "[variables('isFlexConsumption')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "appserviceplan-scheduler-deployment",
       "properties": {
         "expressionEvaluationOptions": {
           "scope": "inner"
@@ -562,7 +703,149 @@
         "mode": "Incremental",
         "parameters": {
           "planName": {
-            "value": "[variables('appServicePlanName')]"
+            "value": "[format('{0}-scheduler', variables('appServicePlanName'))]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          },
+          "sku": {
+            "value": "[parameters('functionAppSku')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "12452722508131605079"
+            }
+          },
+          "parameters": {
+            "planName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the App Service Plan"
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Tags to apply"
+              }
+            },
+            "sku": {
+              "type": "string",
+              "defaultValue": "FC1",
+              "allowedValues": [
+                "FC1",
+                "Y1",
+                "EP1",
+                "EP2",
+                "EP3"
+              ],
+              "metadata": {
+                "description": "SKU for the plan"
+              }
+            }
+          },
+          "variables": {
+            "skuConfig": {
+              "FC1": {
+                "name": "FC1",
+                "tier": "FlexConsumption"
+              },
+              "Y1": {
+                "name": "Y1",
+                "tier": "Dynamic"
+              },
+              "EP1": {
+                "name": "EP1",
+                "tier": "ElasticPremium"
+              },
+              "EP2": {
+                "name": "EP2",
+                "tier": "ElasticPremium"
+              },
+              "EP3": {
+                "name": "EP3",
+                "tier": "ElasticPremium"
+              }
+            },
+            "isFlexConsumption": "[equals(parameters('sku'), 'FC1')]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Web/serverfarms",
+              "apiVersion": "2023-01-01",
+              "name": "[parameters('planName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "[variables('skuConfig')[parameters('sku')].name]",
+                "tier": "[variables('skuConfig')[parameters('sku')].tier]"
+              },
+              "properties": {
+                "reserved": true
+              }
+            }
+          ],
+          "outputs": {
+            "planId": {
+              "type": "string",
+              "metadata": {
+                "description": "App Service Plan resource ID"
+              },
+              "value": "[resourceId('Microsoft.Web/serverfarms', parameters('planName'))]"
+            },
+            "planName": {
+              "type": "string",
+              "metadata": {
+                "description": "App Service Plan name"
+              },
+              "value": "[parameters('planName')]"
+            },
+            "isFlexConsumption": {
+              "type": "bool",
+              "metadata": {
+                "description": "Is Flex Consumption plan"
+              },
+              "value": "[variables('isFlexConsumption')]"
+            },
+            "skuTier": {
+              "type": "string",
+              "metadata": {
+                "description": "SKU tier"
+              },
+              "value": "[variables('skuConfig')[parameters('sku')].tier]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "condition": "[variables('isFlexConsumption')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "appserviceplan-processor-deployment",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "planName": {
+            "value": "[format('{0}-processor', variables('appServicePlanName'))]"
           },
           "location": {
             "value": "[parameters('location')]"
@@ -1100,13 +1383,13 @@
             "value": "[variables('tags')]"
           },
           "appServicePlanId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appserviceplan-deployment'), '2025-04-01').outputs.planId.value]"
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appserviceplan-api-deployment'), '2025-04-01').outputs.planId.value]"
           },
           "sku": {
             "value": "[parameters('functionAppSku')]"
           },
           "isFlexConsumption": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appserviceplan-deployment'), '2025-04-01').outputs.isFlexConsumption.value]"
+            "value": "[variables('isFlexConsumption')]"
           },
           "storageAccountName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
@@ -1442,7 +1725,7 @@
       "dependsOn": [
         "[resourceId('Microsoft.Resources/deployments', 'appinsights-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'appregistration-deployment')]",
-        "[resourceId('Microsoft.Resources/deployments', 'appserviceplan-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'appserviceplan-api-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'keyvault-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'storage-deployment')]"
       ]
@@ -1466,14 +1749,12 @@
           "tags": {
             "value": "[variables('tags')]"
           },
-          "appServicePlanId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appserviceplan-deployment'), '2025-04-01').outputs.planId.value]"
-          },
+          "appServicePlanId": "[if(variables('isFlexConsumption'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'appserviceplan-scheduler-deployment'), '2025-04-01').outputs.planId.value), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'appserviceplan-api-deployment'), '2025-04-01').outputs.planId.value))]",
           "sku": {
             "value": "[parameters('functionAppSku')]"
           },
           "isFlexConsumption": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appserviceplan-deployment'), '2025-04-01').outputs.isFlexConsumption.value]"
+            "value": "[variables('isFlexConsumption')]"
           },
           "storageAccountName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
@@ -1806,7 +2087,8 @@
       "dependsOn": [
         "[resourceId('Microsoft.Resources/deployments', 'appinsights-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'appregistration-deployment')]",
-        "[resourceId('Microsoft.Resources/deployments', 'appserviceplan-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'appserviceplan-api-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'appserviceplan-scheduler-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'keyvault-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'storage-deployment')]"
       ]
@@ -1830,14 +2112,12 @@
           "tags": {
             "value": "[variables('tags')]"
           },
-          "appServicePlanId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appserviceplan-deployment'), '2025-04-01').outputs.planId.value]"
-          },
+          "appServicePlanId": "[if(variables('isFlexConsumption'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'appserviceplan-processor-deployment'), '2025-04-01').outputs.planId.value), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'appserviceplan-api-deployment'), '2025-04-01').outputs.planId.value))]",
           "sku": {
             "value": "[parameters('functionAppSku')]"
           },
           "isFlexConsumption": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appserviceplan-deployment'), '2025-04-01').outputs.isFlexConsumption.value]"
+            "value": "[variables('isFlexConsumption')]"
           },
           "storageAccountName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
@@ -2170,7 +2450,8 @@
       "dependsOn": [
         "[resourceId('Microsoft.Resources/deployments', 'appinsights-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'appregistration-deployment')]",
-        "[resourceId('Microsoft.Resources/deployments', 'appserviceplan-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'appserviceplan-api-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'appserviceplan-processor-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'keyvault-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'storage-deployment')]"
       ]

@@ -119,11 +119,37 @@ module appInsights 'modules/appinsights.bicep' = if (enableAppInsights) {
   }
 }
 
-// App Service Plan (shared by all Function Apps)
-module appServicePlan 'modules/appserviceplan.bicep' = {
-  name: 'appserviceplan-deployment'
+// Determine if Flex Consumption (requires separate plan per Function App)
+var isFlexConsumption = functionAppSku == 'FC1'
+
+// App Service Plan - shared for Y1/EP* or separate for FC1
+// For Flex Consumption: one plan per Function App (Azure limitation)
+// For other SKUs: one shared plan
+
+module appServicePlanApi 'modules/appserviceplan.bicep' = {
+  name: 'appserviceplan-api-deployment'
   params: {
-    planName: appServicePlanName
+    planName: isFlexConsumption ? '${appServicePlanName}-api' : appServicePlanName
+    location: location
+    tags: tags
+    sku: functionAppSku
+  }
+}
+
+module appServicePlanScheduler 'modules/appserviceplan.bicep' = if (isFlexConsumption) {
+  name: 'appserviceplan-scheduler-deployment'
+  params: {
+    planName: '${appServicePlanName}-scheduler'
+    location: location
+    tags: tags
+    sku: functionAppSku
+  }
+}
+
+module appServicePlanProcessor 'modules/appserviceplan.bicep' = if (isFlexConsumption) {
+  name: 'appserviceplan-processor-deployment'
+  params: {
+    planName: '${appServicePlanName}-processor'
     location: location
     tags: tags
     sku: functionAppSku
@@ -198,9 +224,9 @@ module functionAppApi 'modules/functionapp.bicep' = {
     functionAppName: functionAppApiName
     location: location
     tags: tags
-    appServicePlanId: appServicePlan.outputs.planId
+    appServicePlanId: appServicePlanApi.outputs.planId
     sku: functionAppSku
-    isFlexConsumption: appServicePlan.outputs.isFlexConsumption
+    isFlexConsumption: isFlexConsumption
     storageAccountName: storage.outputs.storageAccountName
     storageConnectionString: storage.outputs.connectionString
     storageBlobEndpoint: storage.outputs.blobEndpoint
@@ -229,9 +255,9 @@ module functionAppScheduler 'modules/functionapp.bicep' = {
     functionAppName: functionAppSchedulerName
     location: location
     tags: tags
-    appServicePlanId: appServicePlan.outputs.planId
+    appServicePlanId: isFlexConsumption ? appServicePlanScheduler.outputs.planId : appServicePlanApi.outputs.planId
     sku: functionAppSku
-    isFlexConsumption: appServicePlan.outputs.isFlexConsumption
+    isFlexConsumption: isFlexConsumption
     storageAccountName: storage.outputs.storageAccountName
     storageConnectionString: storage.outputs.connectionString
     storageBlobEndpoint: storage.outputs.blobEndpoint
@@ -257,9 +283,9 @@ module functionAppProcessor 'modules/functionapp.bicep' = {
     functionAppName: functionAppProcessorName
     location: location
     tags: tags
-    appServicePlanId: appServicePlan.outputs.planId
+    appServicePlanId: isFlexConsumption ? appServicePlanProcessor.outputs.planId : appServicePlanApi.outputs.planId
     sku: functionAppSku
-    isFlexConsumption: appServicePlan.outputs.isFlexConsumption
+    isFlexConsumption: isFlexConsumption
     storageAccountName: storage.outputs.storageAccountName
     storageConnectionString: storage.outputs.connectionString
     storageBlobEndpoint: storage.outputs.blobEndpoint
