@@ -179,13 +179,16 @@ Para desplegar código a las Function Apps:
 | v1.0.20 | 2026-01-29 | fix: crear 3 App Service Plans separados para FC1 |
 | v1.0.21 | 2026-01-29 | fix: deployment via Blob Storage para FC1 (descartado) |
 | v1.0.22 | 2026-01-29 | fix: simplificar a `az functionapp deploy --src-path` |
+| v1.0.23 | 2026-01-29 | fix: comparación case-insensitive para IS_FLEX_CONSUMPTION |
 
 ### 🧪 Testing en Progreso
 
-**Deployment:** `Microsoft.Template-20260129004802`
-**Versión:** v1.0.22
+**Último test (v1.0.22):** FALLÓ - detectaba "Standard" en lugar de "Flex Consumption"
+- Causa: Bicep `string(true)` → `"True"`, bash comparaba con `"true"`
+- Fix en v1.0.23: `tr '[:upper:]' '[:lower:]'` antes de comparar
+
+**Próximo test:** v1.0.23
 **Plan:** FC1 (Flex Consumption)
-**Estado:** ⏳ Esperando resultados...
 
 Para ver logs si falla:
 ```bash
