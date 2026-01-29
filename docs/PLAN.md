@@ -102,34 +102,82 @@ Todos los problemas de deployment fueron resueltos:
 
 ---
 
-## ✅ Completado: Soporte Flex Consumption (2026-01-17)
+## ⚠️ EN PROGRESO: Soporte Flex Consumption (2026-01-29)
 
 ### Contexto
 
 Microsoft anunció que el plan **Y1 (Linux Consumption)** llegará a **EOL el 30 de septiembre de 2028**.
 Se recomienda migrar a **Flex Consumption (FC1)**, que además ofrece VNet Integration.
 
-### Cambios Realizados
+### Problemas Encontrados con FC1
 
-| Archivo | Estado | Descripción |
-|---------|--------|-------------|
-| `infra/modules/appserviceplan.bicep` | ✅ Completado | Agregado SKU FC1 (FlexConsumption) |
-| `infra/modules/functionapp.bicep` | ✅ Completado | Soporte condicional FC1 vs Y1/Premium, `scaleAndConcurrency` |
-| `infra/main.bicep` | ✅ Completado | Parámetro `functionAppSku` con FC1 como default, descripción detallada |
-| `scripts/deploy.sh` | ✅ Completado | Selector interactivo de plan con explicaciones de VNet |
-| `infra/azuredeploy.json` | ✅ Completado | ARM template recompilado |
-| `docs/PLAN.md` | ✅ Completado | Documentación actualizada |
-| `docs/infra.md` | ✅ Completado | Actualizar sección de planes |
+Flex Consumption tiene diferencias importantes vs Y1/Premium:
+
+| Problema | Descripción | Estado |
+|----------|-------------|--------|
+| `FUNCTIONS_WORKER_RUNTIME` | FC1 configura runtime en `functionAppConfig.runtime`, NO en appSettings | ✅ Fix en v1.0.19 |
+| 1 App por Plan | FC1 solo permite 1 Function App por App Service Plan | ✅ Fix en v1.0.20 (3 planes) |
+| No hay SCM/Kudu | `az functionapp deployment source config-zip` falla con 404 | ⏳ En progreso v1.0.21 |
+
+### El Problema Actual (v1.0.21)
+
+El deployment script (`code-deployment.bicep`) se ejecuta **dentro de Azure** como un container.
+Para desplegar código a las Function Apps:
+
+- **Y1/EP***: Usa `az functionapp deployment source config-zip` → Funciona (tiene SCM/Kudu)
+- **FC1**: El mismo comando falla con **404** porque FC1 no tiene SCM/Kudu
+
+**Opciones para FC1:**
+1. `az functionapp deploy --src-path <zip>` - Debería funcionar con archivo local
+2. Subir ZIP a blob + `az functionapp deploy --src-url` - Más complejo
+3. Usar la API REST de deployment directamente
+
+**Estado actual (v1.0.21):**
+- Se implementó la opción 2 (subir a blob) pero puede ser innecesariamente complejo
+- Necesita probarse si la opción 1 funciona (más simple)
+
+### Cómo Retomar
+
+1. Probar si `az functionapp deploy --src-path` funciona para FC1:
+   ```bash
+   # En el deployment script, cambiar de:
+   az functionapp deployment source config-zip --src $zip_file ...
+   # A:
+   az functionapp deploy --src-path $zip_file --type zip ...
+   ```
+
+2. Si funciona, simplificar `deploy_flex_consumption()` en `code-deployment.bicep`
+
+3. Si no funciona, investigar la API REST de deployment para FC1
+
+### Archivos Modificados (desde v1.0.16)
+
+| Archivo | Cambios |
+|---------|---------|
+| `infra/modules/functionapp.bicep` | Runtime settings condicionales, 2 recursos (Standard vs Flex) |
+| `infra/modules/appserviceplan.bicep` | Agregado SKU FC1 |
+| `infra/main.bicep` | 3 App Service Plans para FC1, variable `isFlexConsumption` |
+| `infra/modules/code-deployment.bicep` | Función `deploy_flex_consumption()` para FC1 |
+| `scripts/configure-auth.sh` | **NUEVO** - Wizard para configurar Azure AD post-deployment |
 
 ### Planes de Function Apps Soportados
 
-| SKU | Nombre | VNet | Costo | Notas |
-|-----|--------|------|-------|-------|
-| **FC1** | Flex Consumption | ✅ Sí | ~$0-10/mes | **RECOMENDADO** - Default nuevo |
-| Y1 | Consumption (Legacy) | ❌ No | ~$0-5/mes | EOL Sept 2028 |
-| EP1 | Premium | ✅ Sí | ~$150/mes | Sin cold starts |
-| EP2 | Premium | ✅ Sí | ~$300/mes | Alto rendimiento |
-| EP3 | Premium | ✅ Sí | ~$600/mes | Máximo rendimiento |
+| SKU | Nombre | VNet | Costo | Estado |
+|-----|--------|------|-------|--------|
+| **FC1** | Flex Consumption | ✅ Sí | ~$0-10/mes | ⚠️ Deployment en progreso |
+| Y1 | Consumption (Legacy) | ❌ No | ~$0-5/mes | ✅ Funciona |
+| EP1 | Premium | ✅ Sí | ~$150/mes | ✅ Funciona |
+| EP2 | Premium | ✅ Sí | ~$300/mes | ✅ Funciona |
+| EP3 | Premium | ✅ Sí | ~$600/mes | ✅ Funciona |
+
+### Releases Recientes
+
+| Versión | Fecha | Cambio |
+|---------|-------|--------|
+| v1.0.18 | 2026-01-29 | feat: configure-auth.sh wizard |
+| v1.0.19 | 2026-01-29 | fix: remover FUNCTIONS_WORKER_RUNTIME de appSettings para FC1 |
+| v1.0.20 | 2026-01-29 | fix: crear 3 App Service Plans separados para FC1 |
+| v1.0.21 | 2026-01-29 | fix: deployment via Blob Storage para FC1 (en testing) |
 
 ---
 

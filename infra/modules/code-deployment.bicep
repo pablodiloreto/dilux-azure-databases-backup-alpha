@@ -104,7 +104,7 @@ echo "=========================================="
 echo "Deploying Dilux Database Backup"
 echo "=========================================="
 
-# Function to deploy to Flex Consumption (via Blob Storage)
+# Function to deploy to Flex Consumption (using az functionapp deploy)
 deploy_flex_consumption() {
   local app_name=$1
   local zip_file=$2
@@ -112,55 +112,21 @@ deploy_flex_consumption() {
   local attempt=1
   local wait_time=30
 
-  echo "    Deploying to Flex Consumption via Blob Storage..."
-
-  # Get storage account key
-  local account_key=$(az storage account keys list \
-    --account-name $STORAGE_ACCOUNT_NAME \
-    --resource-group $RESOURCE_GROUP \
-    --query "[0].value" -o tsv 2>/dev/null)
-
-  if [ -z "$account_key" ]; then
-    echo "    ERROR: Could not get storage account key"
-    return 1
-  fi
-
-  # Create deployments container if not exists
-  az storage container create \
-    --name "deployments" \
-    --account-name $STORAGE_ACCOUNT_NAME \
-    --account-key "$account_key" \
-    --only-show-errors 2>/dev/null || true
-
-  # Upload ZIP to deployments container with unique name
-  local blob_name="${app_name}/$(date +%Y%m%d%H%M%S).zip"
+  echo "    Deploying to Flex Consumption using az functionapp deploy..."
 
   while [ $attempt -le $max_attempts ]; do
     echo "    Attempt $attempt of $max_attempts..."
 
-    # Upload ZIP to blob storage
-    if az storage blob upload \
-      --account-name $STORAGE_ACCOUNT_NAME \
-      --account-key "$account_key" \
-      --container-name "deployments" \
-      --name "$blob_name" \
-      --file "$zip_file" \
-      --overwrite \
-      --only-show-errors 2>/dev/null; then
-
-      echo "    ZIP uploaded to deployments/$blob_name"
-
-      # Trigger deployment using az functionapp deploy
-      if az functionapp deploy \
-        --resource-group $RESOURCE_GROUP \
-        --name $app_name \
-        --src-url "${STORAGE_BLOB_ENDPOINT}deployments/$blob_name" \
-        --type zip \
-        --async true \
-        --only-show-errors 2>&1; then
-        echo "    Success! Deployment triggered."
-        return 0
-      fi
+    # Use az functionapp deploy which works with Flex Consumption
+    if az functionapp deploy \
+      --resource-group $RESOURCE_GROUP \
+      --name $app_name \
+      --src-path "$zip_file" \
+      --type zip \
+      --async false \
+      2>&1; then
+      echo "    Success!"
+      return 0
     fi
 
     if [ $attempt -lt $max_attempts ]; then
