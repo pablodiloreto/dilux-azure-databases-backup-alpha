@@ -291,6 +291,49 @@ def backup_alerts(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
+@app.route(route="vnet-status", methods=["GET"])
+def vnet_status(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Get VNet integration status for all Function Apps.
+
+    Queries Azure Resource Manager in real-time to check:
+    - Which VNets are connected
+    - Per-app connection status (api, scheduler, processor)
+    - Inconsistencies (e.g., only 2/3 apps connected to a VNet)
+
+    Requires:
+    - AZURE_SUBSCRIPTION_ID
+    - DILUX_RESOURCE_GROUP
+    - DILUX_API_APP_NAME, DILUX_SCHEDULER_APP_NAME, DILUX_PROCESSOR_APP_NAME
+    - Managed Identity with Reader role on the Resource Group
+    """
+    try:
+        from shared.services import get_azure_service
+
+        azure_service = get_azure_service()
+        status = azure_service.get_vnet_status()
+
+        return func.HttpResponse(
+            json.dumps(status.to_dict()),
+            mimetype="application/json",
+            status_code=200,
+        )
+
+    except Exception as e:
+        logger.exception("VNet status check failed")
+        return func.HttpResponse(
+            json.dumps({
+                "has_vnet_integration": False,
+                "vnets": [],
+                "function_apps": [],
+                "inconsistencies": [],
+                "query_error": str(e),
+            }),
+            mimetype="application/json",
+            status_code=200,  # Return 200 with error in body for graceful degradation
+        )
+
+
 # ===========================================
 # Database Configuration Endpoints
 # ===========================================

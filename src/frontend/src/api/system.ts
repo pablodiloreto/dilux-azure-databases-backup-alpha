@@ -44,6 +44,33 @@ export interface BackupAlertsResponse {
   count: number
 }
 
+export interface FunctionAppVNetInfo {
+  name: string
+  type: 'api' | 'scheduler' | 'processor'
+  vnet_name: string | null
+  subnet_name: string | null
+  vnet_resource_group: string | null
+  is_connected: boolean
+  error: string | null
+}
+
+export interface VNetGroup {
+  vnet_name: string
+  vnet_resource_group: string
+  subnet_name: string
+  connected_apps: string[]
+  connection_status: string
+  is_complete: boolean
+}
+
+export interface VNetStatusResponse {
+  has_vnet_integration: boolean
+  vnets: VNetGroup[]
+  function_apps: FunctionAppVNetInfo[]
+  inconsistencies: string[]
+  query_error: string | null
+}
+
 export const systemApi = {
   /**
    * Get comprehensive system status
@@ -64,6 +91,15 @@ export const systemApi = {
     const response = await apiClient.get<BackupAlertsResponse>('/backup-alerts', {
       params: { consecutive_failures: consecutiveFailures },
     })
+    return response.data
+  },
+
+  /**
+   * Get VNet integration status (queries Azure in real-time)
+   * Separate endpoint with longer cache time since VNet changes are infrequent
+   */
+  getVNetStatus: async (): Promise<VNetStatusResponse> => {
+    const response = await apiClient.get<VNetStatusResponse>('/vnet-status')
     return response.data
   },
 }

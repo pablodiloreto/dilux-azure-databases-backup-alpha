@@ -34,9 +34,10 @@ import {
   Code as CodeIcon,
   NotificationsActive as AlertIcon,
   Settings as SettingsIcon,
+  LanOutlined as VNetIcon,
 } from '@mui/icons-material'
 import { systemApi } from '../../api'
-import type { BackupAlert } from '../../api'
+import type { BackupAlert, VNetStatusResponse, VNetGroup } from '../../api'
 
 function StatusChip({ status }: { status: string }) {
   const color = status === 'healthy' ? 'success' : status === 'unhealthy' ? 'error' : 'warning'
@@ -116,6 +117,194 @@ function ServiceCard({
   )
 }
 
+function VNetStatusCard({
+  data,
+  isLoading,
+  error,
+  onRetry,
+}: {
+  data?: VNetStatusResponse
+  isLoading: boolean
+  error: Error | null
+  onRetry: () => void
+}) {
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+            <Box sx={{ color: 'primary.main' }}><VNetIcon /></Box>
+            <Typography variant="h6">Virtual Network Integration</Typography>
+          </Box>
+          <Skeleton width="100%" height={20} />
+          <Skeleton width="60%" height={20} sx={{ mt: 1 }} />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (error || data?.query_error) {
+    return (
+      <Card>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Box sx={{ color: 'primary.main' }}><VNetIcon /></Box>
+              <Typography variant="h6">Virtual Network Integration</Typography>
+            </Box>
+            <Chip size="small" label="error" color="warning" icon={<WarningIcon />} />
+          </Box>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {data?.query_error || error?.message || 'Failed to query VNet status'}
+          </Alert>
+          <Button variant="outlined" size="small" onClick={onRetry} startIcon={<RefreshIcon />}>
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (!data?.has_vnet_integration) {
+    return (
+      <Card>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Box sx={{ color: 'primary.main' }}><VNetIcon /></Box>
+              <Typography variant="h6">Virtual Network Integration</Typography>
+            </Box>
+            <Chip size="small" label="not configured" color="default" variant="outlined" />
+          </Box>
+          <Typography variant="body2" color="text.secondary">
+            No VNet integration configured. Function Apps are using public endpoints.
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            To connect to databases in private networks, configure VNet integration using the setup script.
+          </Typography>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <Card>
+      <CardContent>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Box sx={{ color: 'primary.main' }}><VNetIcon /></Box>
+            <Typography variant="h6">Virtual Network Integration</Typography>
+          </Box>
+          {data.inconsistencies.length === 0 ? (
+            <Chip size="small" label="configured" color="success" icon={<CheckIcon />} />
+          ) : (
+            <Chip size="small" label="inconsistent" color="warning" icon={<WarningIcon />} />
+          )}
+        </Box>
+
+        {/* Inconsistencies Alert */}
+        {data.inconsistencies.length > 0 && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {data.inconsistencies.map((msg, idx) => (
+              <Typography key={idx} variant="body2">{msg}</Typography>
+            ))}
+          </Alert>
+        )}
+
+        {/* VNet Groups */}
+        {data.vnets.map((vnet: VNetGroup) => (
+          <Box key={`${vnet.vnet_resource_group}/${vnet.vnet_name}`} sx={{ mb: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+              <Typography variant="subtitle2" fontWeight={500}>
+                {vnet.vnet_name}
+              </Typography>
+              <Chip
+                size="small"
+                label={vnet.connection_status}
+                color={vnet.is_complete ? 'success' : 'warning'}
+                variant="outlined"
+              />
+            </Box>
+            <TableContainer component={Paper} variant="outlined">
+              <Table size="small">
+                <TableBody>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 500 }}>Resource Group</TableCell>
+                    <TableCell>{vnet.vnet_resource_group}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 500 }}>Subnet</TableCell>
+                    <TableCell>{vnet.subnet_name}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 500 }}>Connected Apps</TableCell>
+                    <TableCell>
+                      {vnet.connected_apps.map((app) => (
+                        <Chip
+                          key={app}
+                          size="small"
+                          label={app}
+                          color="primary"
+                          variant="outlined"
+                          sx={{ mr: 0.5 }}
+                        />
+                      ))}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Box>
+        ))}
+
+        {/* Per-App Status */}
+        <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+          Function App Details
+        </Typography>
+        <TableContainer component={Paper} variant="outlined">
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>App</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>VNet</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {data.function_apps.map((app) => (
+                <TableRow key={app.name}>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight={500}>
+                      {app.type}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {app.name}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    {app.error ? (
+                      <Tooltip title={app.error}>
+                        <Chip size="small" label="error" color="error" />
+                      </Tooltip>
+                    ) : app.is_connected ? (
+                      <Chip size="small" label="connected" color="success" />
+                    ) : (
+                      <Chip size="small" label="not connected" color="default" variant="outlined" />
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {app.vnet_name || '-'}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </CardContent>
+    </Card>
+  )
+}
+
 function formatAlertDate(dateStr: string): string {
   return new Date(dateStr).toLocaleString()
 }
@@ -146,9 +335,23 @@ export function StatusPage() {
     refetchInterval: 30000,
   })
 
+  const {
+    data: vnetData,
+    isLoading: vnetLoading,
+    error: vnetError,
+    refetch: refetchVnet,
+  } = useQuery({
+    queryKey: ['vnet-status'],
+    queryFn: () => systemApi.getVNetStatus(),
+    staleTime: 5 * 60 * 1000, // 5 minutes - VNet changes are infrequent
+    refetchInterval: 5 * 60 * 1000, // Refresh every 5 minutes
+    retry: 1, // Only retry once for VNet queries
+  })
+
   const handleRefresh = () => {
     refetch()
     refetchAlerts()
+    refetchVnet()
   }
 
   const lastChecked = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleString() : 'Never'
@@ -366,6 +569,16 @@ export function StatusPage() {
               total: status.backups.completed + status.backups.failed,
             } : {}}
             loading={isLoading}
+          />
+        </Grid>
+
+        {/* VNet Integration */}
+        <Grid item xs={12}>
+          <VNetStatusCard
+            data={vnetData}
+            isLoading={vnetLoading}
+            error={vnetError}
+            onRetry={() => refetchVnet()}
           />
         </Grid>
       </Grid>

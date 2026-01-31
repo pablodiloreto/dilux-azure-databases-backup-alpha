@@ -255,6 +255,12 @@ module functionAppApi 'modules/functionapp.bicep' = {
       AZURE_AD_TENANT_ID: tenantId
       AZURE_AD_CLIENT_ID: clientId
       AUTH_MODE: empty(clientId) ? 'mock' : 'azure'
+      // VNet status query (uses Managed Identity with Reader role)
+      AZURE_SUBSCRIPTION_ID: subscription().subscriptionId
+      DILUX_RESOURCE_GROUP: resourceGroup().name
+      DILUX_API_APP_NAME: functionAppApiName
+      DILUX_SCHEDULER_APP_NAME: functionAppSchedulerName
+      DILUX_PROCESSOR_APP_NAME: functionAppProcessorName
     }
   }
 }
@@ -331,6 +337,18 @@ module rbacAssignments 'modules/rbac-native.bicep' = {
     apiPrincipalId: functionAppApi.outputs.principalId
     schedulerPrincipalId: functionAppScheduler.outputs.principalId
     processorPrincipalId: functionAppProcessor.outputs.principalId
+  }
+}
+
+// Reader role for API Function App on Resource Group (for VNet status queries)
+// This allows the API to query VNet integration status of all Function Apps
+var readerRoleId = 'acdd72a7-3385-48ef-bd42-f606fba81ae7'
+resource apiReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, functionAppApiName, readerRoleId, 'vnet-status')
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', readerRoleId)
+    principalId: functionAppApi.outputs.principalId
+    principalType: 'ServicePrincipal'
   }
 }
 

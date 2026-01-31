@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "2791938212739223754"
+      "templateHash": "2556999171065275366"
     }
   },
   "parameters": {
@@ -93,10 +93,24 @@
       "ManagedBy": "Bicep",
       "Version": "[parameters('appVersion')]"
     },
+    "readerRoleId": "acdd72a7-3385-48ef-bd42-f606fba81ae7",
     "gitHubRepo": "pablodiloreto/dilux-azure-databases-backup-alpha",
     "gitHubReleaseUrl": "[format('https://github.com/{0}/releases/download/{1}', variables('gitHubRepo'), parameters('appVersion'))]"
   },
   "resources": [
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(resourceGroup().id, variables('functionAppApiName'), variables('readerRoleId'), 'vnet-status')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('readerRoleId'))]",
+        "principalId": "[reference(resourceId('Microsoft.Resources/deployments', 'functionapp-api-deployment'), '2025-04-01').outputs.principalId.value]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'functionapp-api-deployment')]"
+      ]
+    },
     {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
@@ -1594,7 +1608,12 @@
               "INSTALLATION_ID": "[variables('installationId')]",
               "AZURE_AD_TENANT_ID": "[variables('tenantId')]",
               "AZURE_AD_CLIENT_ID": "[if(not(empty(parameters('azureAdClientId'))), parameters('azureAdClientId'), if(parameters('skipAppRegistration'), '', if(reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.success.value, reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.clientId.value, '')))]",
-              "AUTH_MODE": "[if(empty(if(not(empty(parameters('azureAdClientId'))), parameters('azureAdClientId'), if(parameters('skipAppRegistration'), '', if(reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.success.value, reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.clientId.value, '')))), 'mock', 'azure')]"
+              "AUTH_MODE": "[if(empty(if(not(empty(parameters('azureAdClientId'))), parameters('azureAdClientId'), if(parameters('skipAppRegistration'), '', if(reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.success.value, reference(resourceId('Microsoft.Resources/deployments', 'appregistration-deployment'), '2025-04-01').outputs.clientId.value, '')))), 'mock', 'azure')]",
+              "AZURE_SUBSCRIPTION_ID": "[subscription().subscriptionId]",
+              "DILUX_RESOURCE_GROUP": "[resourceGroup().name]",
+              "DILUX_API_APP_NAME": "[variables('functionAppApiName')]",
+              "DILUX_SCHEDULER_APP_NAME": "[variables('functionAppSchedulerName')]",
+              "DILUX_PROCESSOR_APP_NAME": "[variables('functionAppProcessorName')]"
             }
           }
         },

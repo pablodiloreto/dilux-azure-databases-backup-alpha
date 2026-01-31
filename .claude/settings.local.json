@@ -173,7 +173,12 @@
       "Bash(az functionapp cors add:*)",
       "Bash(gh run watch:*)",
       "Bash(az group:*)",
-      "Bash(az functionapp update:*)"
+      "Bash(az functionapp update:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(az monitor activity-log:*)",
+      "Bash(az network vnet subnet show:*)",
+      "Bash(az network vnet subnet list:*)",
+      "Bash(az network vnet list:*)"
     ],
     "deny": [],
     "ask": []

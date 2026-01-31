@@ -45,16 +45,19 @@ La versión 1.0 está **100% funcional** para planes Y1 y EP1/EP2/EP3.
 - **Users**: Gestión de usuarios y access requests
 - **Audit**: Logs completos con filtros avanzados
 - **Settings**: Configuración de la aplicación
-- **Status**: Panel de salud del sistema con alertas
+- **Status**: Panel de salud del sistema con alertas, **VNet integration status en tiempo real**
 
 ### Infraestructura
 
 - **Deploy to Azure Button**: Un click para desplegar todo
+- **Script deploy.sh**: Wizard interactivo con selección de VNet ANTES del deployment
 - **Script configure-auth.sh**: Wizard interactivo para configurar Azure AD post-deployment
+- **Script configure-vnet.sh**: Integración de VNet para acceso a bases de datos privadas
 - **Pre-built Assets**: GitHub Action construye ZIPs en cada release
 - **RBAC Automático**: Managed Identity con roles configurados
 - **Nombres Únicos**: Sufijo hash para evitar colisiones globales
 - **Re-deploy Idempotente**: Se puede re-desplegar sin errores
+- **VNet Status API**: Endpoint `/api/vnet-status` para consultar integración en tiempo real
 
 ### Seguridad
 
@@ -179,6 +182,8 @@ az functionapp deployment source config-zip \
 | v1.0.26 | 2026-01-31 | fix: FC1 deployment sin --build-remote + restart previo |
 | v1.0.27 | 2026-01-31 | fix: eliminar SCM_DO_BUILD_DURING_DEPLOYMENT + config-zip sin flags |
 | v1.0.28 | 2026-01-31 | **fix: esperar 3 min + verificar SCM endpoint antes de deploy FC1** |
+| v1.0.29 | 2026-01-31 | **feat: VNet Status en UI - query Azure en tiempo real** |
+| v1.0.30 | 2026-01-31 | fix: deploy.sh wizard VNet primero, configure-vnet.sh fixes |
 
 ### 🧪 Historial de Tests FC1
 
@@ -389,6 +394,50 @@ az functionapp function list --name <app>-api --resource-group <rg> --output tab
 # Ver logs del deployment
 az deployment-scripts show-log --resource-group <rg> --name deploy-application-code
 ```
+
+---
+
+## VNet Integration (2026-01-31)
+
+### Descripción
+
+Para acceder a bases de datos en redes privadas (Private Endpoints, VNets), los Function Apps necesitan VNet Integration. Esta funcionalidad está disponible en:
+
+- **FC1 (Flex Consumption)** - Recomendado
+- **EP1/EP2/EP3 (Premium)**
+- **Y1 (Consumption)** - NO soportado
+
+### Scripts
+
+| Script | Descripción |
+|--------|-------------|
+| `deploy.sh` | Pregunta por VNet ANTES del deployment para determinar la región |
+| `configure-vnet.sh` | Integra Function Apps a VNet existente post-deployment |
+
+### VNet Status en UI
+
+La página Status (`/status`) muestra el estado de VNet integration en tiempo real:
+
+- **Endpoint**: `GET /api/vnet-status`
+- **Cache**: 5 minutos (VNet changes are infrequent)
+- **Permisos**: API Function App necesita rol Reader en Resource Group
+
+**Información mostrada:**
+- VNets conectadas con sus subnets
+- Estado por Function App (api, scheduler, processor)
+- Inconsistencias (ej: solo 2/3 apps conectadas)
+- Errores de query con opción de retry
+
+### Requisitos Técnicos
+
+1. **Variables de entorno** (configuradas automáticamente por Bicep):
+   - `AZURE_SUBSCRIPTION_ID`
+   - `DILUX_RESOURCE_GROUP`
+   - `DILUX_API_APP_NAME`, `DILUX_SCHEDULER_APP_NAME`, `DILUX_PROCESSOR_APP_NAME`
+
+2. **RBAC**: API Function App necesita rol Reader en Resource Group
+
+3. **SDK**: `azure-mgmt-web>=7.0.0` para queries a Azure Resource Manager
 
 ---
 
