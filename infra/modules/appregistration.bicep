@@ -95,7 +95,9 @@ resource appRegistrationScript 'Microsoft.Resources/deploymentScripts@2023-08-01
 
       APP_DISPLAY_NAME="Dilux Database Backup - ${APP_NAME}"
       REDIRECT_URI_1="${STORAGE_WEB_URL}"
-      REDIRECT_URI_2="${STORAGE_WEB_URL}/auth/callback"
+      REDIRECT_URI_2="${STORAGE_WEB_URL}/"
+      REDIRECT_URI_3="http://localhost:3000"
+      REDIRECT_URI_4="http://localhost:5173"
 
       # Check if app already exists using Graph API
       echo "Checking if App Registration already exists..."
@@ -117,7 +119,7 @@ resource appRegistrationScript 'Microsoft.Resources/deploymentScripts@2023-08-01
         az rest --method PATCH \
           --uri "https://graph.microsoft.com/v1.0/applications/${OBJECT_ID}" \
           --headers "Content-Type=application/json" \
-          --body "{\"spa\":{\"redirectUris\":[\"${REDIRECT_URI_1}\",\"${REDIRECT_URI_2}\"]}}" \
+          --body "{\"spa\":{\"redirectUris\":[\"${REDIRECT_URI_1}\",\"${REDIRECT_URI_2}\",\"${REDIRECT_URI_3}\",\"${REDIRECT_URI_4}\"]}}" \
           2>/dev/null || echo "Warning: Could not update redirect URIs"
       else
         echo "Creating new App Registration with SPA redirect URIs..."
@@ -130,7 +132,7 @@ resource appRegistrationScript 'Microsoft.Resources/deploymentScripts@2023-08-01
             \"displayName\": \"${APP_DISPLAY_NAME}\",
             \"signInAudience\": \"AzureADMyOrg\",
             \"spa\": {
-              \"redirectUris\": [\"${REDIRECT_URI_1}\", \"${REDIRECT_URI_2}\"]
+              \"redirectUris\": [\"${REDIRECT_URI_1}\", \"${REDIRECT_URI_2}\", \"${REDIRECT_URI_3}\", \"${REDIRECT_URI_4}\"]
             },
             \"requiredResourceAccess\": [
               {
@@ -201,6 +203,8 @@ resource appRegistrationScript 'Microsoft.Resources/deploymentScripts@2023-08-01
       echo "Redirect URIs (SPA):"
       echo "  - ${REDIRECT_URI_1}"
       echo "  - ${REDIRECT_URI_2}"
+      echo "  - ${REDIRECT_URI_3}"
+      echo "  - ${REDIRECT_URI_4}"
       echo "=========================================="
 
       # Output the results

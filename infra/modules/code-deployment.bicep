@@ -105,9 +105,8 @@ echo "Deploying Dilux Database Backup"
 echo "=========================================="
 
 # Function to deploy to Flex Consumption (FC1)
-# FC1 uses az functionapp deployment source config-zip WITHOUT --build-remote
-# IMPORTANT: --build-remote sets SCM_DO_BUILD_DURING_DEPLOYMENT which FC1 doesn't support
-# FC1 handles Python dependencies automatically via its deployment pipeline.
+# FC1 does NOT support SCM_DO_BUILD_DURING_DEPLOYMENT setting (neither true nor false)
+# The fix is: delete the setting, restart, wait, then deploy WITHOUT --build-remote flag
 deploy_flex_consumption() {
   local app_name=$1
   local zip_file=$2
@@ -117,21 +116,31 @@ deploy_flex_consumption() {
 
   echo "    [FC1] Deploying via config-zip..."
 
-  # Restart the Function App first to clear any residual deployment state
-  # This prevents "SCM_DO_BUILD_DURING_DEPLOYMENT not supported" errors
-  echo "    [FC1] Restarting Function App to clear deployment state..."
+  # CRITICAL: Delete SCM_DO_BUILD_DURING_DEPLOYMENT and ENABLE_ORYX_BUILD settings
+  # These settings are NOT supported by FC1 and cause deployment failures
+  echo "    [FC1] Removing incompatible settings..."
+  az functionapp config appsettings delete \
+    --name $app_name \
+    --resource-group $RESOURCE_GROUP \
+    --setting-names SCM_DO_BUILD_DURING_DEPLOYMENT ENABLE_ORYX_BUILD \
+    --only-show-errors \
+    -o none 2>/dev/null || true
+
+  # Restart to clear any cached deployment state
+  echo "    [FC1] Restarting Function App..."
   az functionapp restart \
     --name $app_name \
     --resource-group $RESOURCE_GROUP \
     --only-show-errors 2>/dev/null || true
 
-  echo "    [FC1] Waiting 15s for restart to complete..."
-  sleep 15
+  echo "    [FC1] Waiting 30s for restart to complete..."
+  sleep 30
 
   while [ $attempt -le $max_attempts ]; do
     echo "    [FC1] Attempt $attempt of $max_attempts..."
 
-    # Use config-zip WITHOUT --build-remote (FC1 doesn't support SCM_DO_BUILD_DURING_DEPLOYMENT)
+    # IMPORTANT: Do NOT use --build-remote flag at all (neither true nor false)
+    # FC1 handles remote build automatically without the flag
     if az functionapp deployment source config-zip \
       --resource-group $RESOURCE_GROUP \
       --name $app_name \
@@ -142,7 +151,13 @@ deploy_flex_consumption() {
     fi
 
     if [ $attempt -lt $max_attempts ]; then
-      echo "    [FC1] Failed. Restarting and waiting ${wait_time}s before retry..."
+      echo "    [FC1] Failed. Cleaning settings and waiting ${wait_time}s before retry..."
+      az functionapp config appsettings delete \
+        --name $app_name \
+        --resource-group $RESOURCE_GROUP \
+        --setting-names SCM_DO_BUILD_DURING_DEPLOYMENT ENABLE_ORYX_BUILD \
+        --only-show-errors \
+        -o none 2>/dev/null || true
       az functionapp restart --name $app_name --resource-group $RESOURCE_GROUP --only-show-errors 2>/dev/null || true
       sleep $wait_time
       wait_time=$((wait_time + 30))
