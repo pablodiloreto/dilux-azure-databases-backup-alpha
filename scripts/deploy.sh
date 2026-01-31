@@ -448,8 +448,9 @@ select_or_create_subnet_for_region() {
 
 create_subnet_for_region() {
     echo ""
-    echo "Calculando espacio disponible..."
+    echo "Analizando espacio de direcciones de la VNet..."
 
+    # Get VNet info
     set +e
     VNET_PREFIX=$(az network vnet show \
         --name "$VNET_SELECTED_NAME" \
@@ -465,11 +466,12 @@ create_subnet_for_region() {
         return
     fi
 
+    # Get existing subnets with their addresses
     set +e
     EXISTING_SUBNETS=$(az network vnet subnet list \
         --vnet-name "$VNET_SELECTED_NAME" \
         --resource-group "$VNET_SELECTED_RG" \
-        --query "[].addressPrefixes[0]" -o tsv 2>&1 | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n)
+        --query "[].{name:name, prefix:addressPrefix}" -o json 2>&1)
     SUBNETS_RESULT=$?
     set -e
 
@@ -480,48 +482,286 @@ create_subnet_for_region() {
         return
     fi
 
-    VNET_BASE=$(echo "$VNET_PREFIX" | cut -d'.' -f1-2)
+    # =========================================================================
+    # IP Address Helper Functions
+    # =========================================================================
 
-    if [ -n "$EXISTING_SUBNETS" ]; then
-        MAX_THIRD_OCTET=$(echo "$EXISTING_SUBNETS" | cut -d'.' -f3 | sort -n | tail -1)
-        NEXT_THIRD_OCTET=$((MAX_THIRD_OCTET + 1))
-        SUGGESTED_PREFIX="${VNET_BASE}.${NEXT_THIRD_OCTET}.0"
-    else
-        SUGGESTED_PREFIX="${VNET_BASE}.1.0"
+    # Convert IP to integer for comparison
+    ip_to_int() {
+        local ip=$1
+        local a b c d
+        IFS=. read -r a b c d <<< "$ip"
+        echo $(( (a << 24) + (b << 16) + (c << 8) + d ))
+    }
+
+    # Convert integer back to IP
+    int_to_ip() {
+        local int=$1
+        echo "$(( (int >> 24) & 255 )).$(( (int >> 16) & 255 )).$(( (int >> 8) & 255 )).$(( int & 255 ))"
+    }
+
+    # Get number of IPs in a CIDR block
+    cidr_to_size() {
+        local cidr=$1
+        echo $(( 1 << (32 - cidr) ))
+    }
+
+    # =========================================================================
+    # Parse VNet Address Space
+    # =========================================================================
+
+    VNET_IP=$(echo "$VNET_PREFIX" | cut -d'/' -f1)
+    VNET_CIDR=$(echo "$VNET_PREFIX" | cut -d'/' -f2)
+    VNET_START=$(ip_to_int "$VNET_IP")
+    VNET_SIZE=$(cidr_to_size $VNET_CIDR)
+    VNET_END=$((VNET_START + VNET_SIZE - 1))
+
+    echo ""
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}${BOLD}   Análisis de Espacio de Direcciones${NC}"
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "  ${BOLD}VNet:${NC}         $VNET_PREFIX"
+    echo -e "  ${BOLD}Rango:${NC}        $VNET_IP - $(int_to_ip $VNET_END)"
+    echo -e "  ${BOLD}Total IPs:${NC}    $VNET_SIZE"
+    echo ""
+
+    # =========================================================================
+    # Collect Used Ranges
+    # =========================================================================
+
+    # Build array of used ranges (start, end)
+    declare -a USED_RANGES
+    USED_IPS=0
+
+    SUBNET_COUNT=$(echo "$EXISTING_SUBNETS" | jq 'length')
+
+    if [ "$SUBNET_COUNT" -gt 0 ]; then
+        for i in $(seq 0 $((SUBNET_COUNT - 1))); do
+            SUBNET_PREFIX=$(echo "$EXISTING_SUBNETS" | jq -r ".[$i].prefix")
+            if [ "$SUBNET_PREFIX" != "null" ] && [ -n "$SUBNET_PREFIX" ]; then
+                SUBNET_IP=$(echo "$SUBNET_PREFIX" | cut -d'/' -f1)
+                SUBNET_CIDR_SIZE=$(echo "$SUBNET_PREFIX" | cut -d'/' -f2)
+                SUBNET_START=$(ip_to_int "$SUBNET_IP")
+                SUBNET_SIZE=$(cidr_to_size $SUBNET_CIDR_SIZE)
+                SUBNET_END=$((SUBNET_START + SUBNET_SIZE - 1))
+                USED_RANGES+=("$SUBNET_START:$SUBNET_END")
+                USED_IPS=$((USED_IPS + SUBNET_SIZE))
+            fi
+        done
     fi
 
-    echo ""
-    echo -e "${CYAN}Espacio de VNet:${NC} $VNET_PREFIX"
-    echo -e "${CYAN}Siguiente bloque disponible:${NC} $SUGGESTED_PREFIX"
+    AVAILABLE_IPS=$((VNET_SIZE - USED_IPS))
+    USAGE_PERCENT=$((USED_IPS * 100 / VNET_SIZE))
+
+    echo -e "  ${BOLD}Subnets existentes:${NC} $SUBNET_COUNT"
+    echo -e "  ${BOLD}IPs usadas:${NC}       $USED_IPS ($USAGE_PERCENT%)"
+    echo -e "  ${BOLD}IPs disponibles:${NC}  $AVAILABLE_IPS"
     echo ""
 
+    # =========================================================================
+    # Find Free Blocks
+    # =========================================================================
+
+    # Sort used ranges by start address
+    IFS=$'\n' SORTED_RANGES=($(for r in "${USED_RANGES[@]}"; do echo "$r"; done | sort -t: -k1 -n))
+    unset IFS
+
+    # Find gaps
+    declare -a FREE_BLOCKS
+    CURRENT_POS=$VNET_START
+
+    for range in "${SORTED_RANGES[@]}"; do
+        RANGE_START=$(echo "$range" | cut -d: -f1)
+        RANGE_END=$(echo "$range" | cut -d: -f2)
+
+        if [ $CURRENT_POS -lt $RANGE_START ]; then
+            GAP_SIZE=$((RANGE_START - CURRENT_POS))
+            FREE_BLOCKS+=("$CURRENT_POS:$GAP_SIZE")
+        fi
+        CURRENT_POS=$((RANGE_END + 1))
+    done
+
+    # Check space after last subnet
+    if [ $CURRENT_POS -le $VNET_END ]; then
+        GAP_SIZE=$((VNET_END - CURRENT_POS + 1))
+        FREE_BLOCKS+=("$CURRENT_POS:$GAP_SIZE")
+    fi
+
+    # =========================================================================
+    # Show Free Blocks
+    # =========================================================================
+
+    if [ ${#FREE_BLOCKS[@]} -eq 0 ]; then
+        echo -e "${RED}${BOLD}❌ No hay espacio disponible en esta VNet${NC}"
+        echo ""
+        echo "La VNet está completamente utilizada por subnets existentes."
+        SUBNET_SELECTED_ID=""
+        return
+    fi
+
+    echo -e "${GREEN}Bloques libres encontrados:${NC}"
+    echo ""
+
+    BLOCK_NUM=0
+    BEST_BLOCK_START=""
+    BEST_BLOCK_SIZE=0
+
+    for block in "${FREE_BLOCKS[@]}"; do
+        BLOCK_START=$(echo "$block" | cut -d: -f1)
+        BLOCK_SIZE=$(echo "$block" | cut -d: -f2)
+        BLOCK_IP=$(int_to_ip $BLOCK_START)
+        BLOCK_END_IP=$(int_to_ip $((BLOCK_START + BLOCK_SIZE - 1)))
+
+        # Determine what CIDR blocks can fit
+        CAN_FIT=""
+        if [ $BLOCK_SIZE -ge 64 ]; then
+            CAN_FIT="/26+"
+        elif [ $BLOCK_SIZE -ge 32 ]; then
+            CAN_FIT="/27"
+        elif [ $BLOCK_SIZE -ge 16 ]; then
+            CAN_FIT="/28"
+        else
+            CAN_FIT="muy pequeño"
+        fi
+
+        echo -e "  ${CYAN}[$((BLOCK_NUM + 1))]${NC} $BLOCK_IP - $BLOCK_END_IP (${BLOCK_SIZE} IPs, cabe: $CAN_FIT)"
+
+        # Track best block (largest that can fit /27)
+        if [ $BLOCK_SIZE -ge 32 ] && [ $BLOCK_SIZE -gt $BEST_BLOCK_SIZE ]; then
+            BEST_BLOCK_START=$BLOCK_START
+            BEST_BLOCK_SIZE=$BLOCK_SIZE
+        fi
+
+        BLOCK_NUM=$((BLOCK_NUM + 1))
+    done
+
+    echo ""
+
+    # =========================================================================
+    # Select Subnet Size
+    # =========================================================================
+
+    # Check if there's space for at least /28
+    if [ $BEST_BLOCK_SIZE -lt 16 ]; then
+        # Find any block with at least 16 IPs
+        for block in "${FREE_BLOCKS[@]}"; do
+            BLOCK_SIZE=$(echo "$block" | cut -d: -f2)
+            if [ $BLOCK_SIZE -ge 16 ]; then
+                BEST_BLOCK_START=$(echo "$block" | cut -d: -f1)
+                BEST_BLOCK_SIZE=$BLOCK_SIZE
+                break
+            fi
+        done
+    fi
+
+    if [ -z "$BEST_BLOCK_START" ] || [ $BEST_BLOCK_SIZE -lt 16 ]; then
+        echo -e "${RED}${BOLD}❌ No hay bloques suficientemente grandes para un subnet de Azure${NC}"
+        echo ""
+        echo "Azure requiere al menos 16 IPs (/28) para un subnet de Function Apps."
+        echo "El bloque libre más grande tiene $BEST_BLOCK_SIZE IPs."
+        SUBNET_SELECTED_ID=""
+        return
+    fi
+
+    SUGGESTED_IP=$(int_to_ip $BEST_BLOCK_START)
+
     echo "Tamaño del subnet:"
-    echo -e "  ${GREEN}1)${NC} /28 = 16 IPs"
-    echo -e "  ${GREEN}2)${NC} /27 = 32 IPs ${GREEN}(recomendado)${NC}"
-    echo -e "  ${YELLOW}3)${NC} /26 = 64 IPs"
+
+    if [ $BEST_BLOCK_SIZE -ge 64 ]; then
+        echo -e "  ${GREEN}1)${NC} /28 = 16 IPs"
+        echo -e "  ${GREEN}2)${NC} /27 = 32 IPs ${GREEN}(recomendado)${NC}"
+        echo -e "  ${GREEN}3)${NC} /26 = 64 IPs"
+    elif [ $BEST_BLOCK_SIZE -ge 32 ]; then
+        echo -e "  ${GREEN}1)${NC} /28 = 16 IPs"
+        echo -e "  ${GREEN}2)${NC} /27 = 32 IPs ${GREEN}(recomendado)${NC}"
+        echo -e "  ${YELLOW}3)${NC} /26 = 64 IPs ${RED}(no cabe - necesita 64 IPs)${NC}"
+    else
+        echo -e "  ${GREEN}1)${NC} /28 = 16 IPs ${GREEN}(única opción disponible)${NC}"
+        echo -e "  ${YELLOW}2)${NC} /27 = 32 IPs ${RED}(no cabe - necesita 32 IPs)${NC}"
+        echo -e "  ${YELLOW}3)${NC} /26 = 64 IPs ${RED}(no cabe - necesita 64 IPs)${NC}"
+    fi
+
     echo -e "  ${YELLOW}0)${NC} Cancelar"
     echo ""
-    echo -en "${BOLD}Selecciona [0-3] (default: 2):${NC} "
+
+    # Determine default based on available space
+    if [ $BEST_BLOCK_SIZE -ge 32 ]; then
+        DEFAULT_SIZE="2"
+    else
+        DEFAULT_SIZE="1"
+    fi
+
+    echo -en "${BOLD}Selecciona [0-3] (default: $DEFAULT_SIZE):${NC} "
     read SIZE_CHOICE < /dev/tty
-    SIZE_CHOICE="${SIZE_CHOICE:-2}"
+    SIZE_CHOICE="${SIZE_CHOICE:-$DEFAULT_SIZE}"
 
     case $SIZE_CHOICE in
         0)
             SUBNET_SELECTED_ID=""
             return
             ;;
-        1) SUBNET_CIDR="/28" ;;
-        2) SUBNET_CIDR="/27" ;;
-        3) SUBNET_CIDR="/26" ;;
-        *) SUBNET_CIDR="/27" ;;
+        1)
+            SUBNET_CIDR="/28"
+            NEEDED_SIZE=16
+            ;;
+        2)
+            SUBNET_CIDR="/27"
+            NEEDED_SIZE=32
+            ;;
+        3)
+            SUBNET_CIDR="/26"
+            NEEDED_SIZE=64
+            ;;
+        *)
+            SUBNET_CIDR="/27"
+            NEEDED_SIZE=32
+            ;;
     esac
 
-    NEW_SUBNET_ADDRESS="${SUGGESTED_PREFIX}${SUBNET_CIDR}"
+    # Validate selection fits
+    if [ $BEST_BLOCK_SIZE -lt $NEEDED_SIZE ]; then
+        echo ""
+        print_error "El bloque disponible ($BEST_BLOCK_SIZE IPs) es menor que el tamaño solicitado ($NEEDED_SIZE IPs)"
+        echo "Por favor selecciona un tamaño menor."
+        SUBNET_SELECTED_ID=""
+        return
+    fi
+
+    # Align address to CIDR boundary
+    ALIGNMENT=$NEEDED_SIZE
+    ALIGNED_START=$(( (BEST_BLOCK_START + ALIGNMENT - 1) / ALIGNMENT * ALIGNMENT ))
+
+    # Check alignment is still within the free block
+    if [ $((ALIGNED_START + NEEDED_SIZE)) -gt $((BEST_BLOCK_START + BEST_BLOCK_SIZE)) ]; then
+        # Use original start if alignment would push us out
+        ALIGNED_START=$BEST_BLOCK_START
+    fi
+
+    SUGGESTED_IP=$(int_to_ip $ALIGNED_START)
+    NEW_SUBNET_ADDRESS="${SUGGESTED_IP}${SUBNET_CIDR}"
 
     echo ""
-    echo -en "${BOLD}Nombre del subnet [dilux-functions]:${NC} "
-    read NEW_SUBNET_NAME < /dev/tty
-    NEW_SUBNET_NAME="${NEW_SUBNET_NAME:-dilux-functions}"
+    echo -e "${GREEN}Dirección calculada:${NC} $NEW_SUBNET_ADDRESS"
+    echo ""
+
+    # Check for existing subnet names to avoid conflicts
+    EXISTING_NAMES=$(echo "$EXISTING_SUBNETS" | jq -r '.[].name' 2>/dev/null | tr '\n' ' ')
+
+    while true; do
+        echo -en "${BOLD}Nombre del subnet [dilux-functions]:${NC} "
+        read NEW_SUBNET_NAME < /dev/tty
+        NEW_SUBNET_NAME="${NEW_SUBNET_NAME:-dilux-functions}"
+
+        # Check if name already exists
+        if echo " $EXISTING_NAMES " | grep -q " $NEW_SUBNET_NAME "; then
+            echo -e "${YELLOW}⚠️  Ya existe un subnet llamado '$NEW_SUBNET_NAME'${NC}"
+            echo "Por favor elige otro nombre."
+            echo ""
+        else
+            break
+        fi
+    done
 
     echo ""
     echo "Creando subnet '$NEW_SUBNET_NAME' ($NEW_SUBNET_ADDRESS)..."
