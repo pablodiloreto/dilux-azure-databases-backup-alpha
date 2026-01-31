@@ -622,6 +622,16 @@ print_summary() {
     echo -e "  al hacer el primer login con Azure AD."
 
     echo ""
+    echo -e "${YELLOW}───────────────────────────────────────────────────────────────${NC}"
+    echo -e "${BOLD}📡 ¿Bases de datos en redes privadas?${NC}"
+    echo ""
+    echo "Si necesitas conectarte a bases de datos con Private Endpoints"
+    echo "o en VNets de Azure, ejecuta:"
+    echo ""
+    echo -e "  ${CYAN}curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/configure-vnet.sh | bash${NC}"
+    echo -e "${YELLOW}───────────────────────────────────────────────────────────────${NC}"
+
+    echo ""
     echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"
     echo ""
 }
