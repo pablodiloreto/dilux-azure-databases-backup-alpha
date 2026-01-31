@@ -839,17 +839,23 @@ create_new_subnet_for_deploy() {
     read NEW_SUBNET_NAME < /dev/tty
     NEW_SUBNET_NAME="${NEW_SUBNET_NAME:-dilux-functions}"
 
-    echo "Creando subnet..."
-    az network vnet subnet create \
+    echo "Creando subnet '$NEW_SUBNET_NAME' ($NEW_SUBNET_ADDRESS)..."
+    echo ""
+
+    CREATE_OUTPUT=$(az network vnet subnet create \
         --name "$NEW_SUBNET_NAME" \
         --vnet-name "$SELECTED_VNET_NAME" \
         --resource-group "$SELECTED_VNET_RG" \
         --address-prefixes "$NEW_SUBNET_ADDRESS" \
         --delegations "Microsoft.Web/serverFarms" \
-        --output none 2>/dev/null
+        -o json 2>&1)
 
-    if [ $? -ne 0 ]; then
-        print_error "Error al crear subnet. Configura VNet manualmente después."
+    CREATE_RESULT=$?
+
+    if [ $CREATE_RESULT -ne 0 ]; then
+        print_error "Error al crear subnet"
+        echo "  Detalle: $CREATE_OUTPUT"
+        print_info "Puedes configurar VNet manualmente después con configure-vnet.sh"
         SELECTED_SUBNET_ID=""
         return
     fi
@@ -862,37 +868,62 @@ create_new_subnet_for_deploy() {
         --query "id" -o tsv)
 
     print_success "Subnet creado: $SELECTED_SUBNET_NAME ($NEW_SUBNET_ADDRESS)"
+    echo ""
 }
 
 apply_vnet_integration_for_deploy() {
     echo ""
-    echo "Aplicando VNet Integration..."
+    echo "Aplicando VNet Integration a las 3 Function Apps..."
+    echo "Esto puede tomar 1-2 minutos..."
+    echo ""
 
-    echo "  Integrando $API_APP..."
-    az functionapp vnet-integration add \
+    VNET_SUCCESS=0
+
+    echo -n "  [1/3] $API_APP... "
+    if az functionapp vnet-integration add \
         --name "$API_APP" \
         --resource-group "$RESOURCE_GROUP" \
         --vnet "$SELECTED_VNET_ID" \
         --subnet "$SELECTED_SUBNET_NAME" \
-        --output none 2>/dev/null && print_success "$API_APP" || print_warning "$API_APP (revisar)"
+        --output none 2>/dev/null; then
+        echo -e "${GREEN}✅ OK${NC}"
+        VNET_SUCCESS=$((VNET_SUCCESS + 1))
+    else
+        echo -e "${YELLOW}⚠️  revisar${NC}"
+    fi
 
-    echo "  Integrando $SCHEDULER_APP..."
-    az functionapp vnet-integration add \
+    echo -n "  [2/3] $SCHEDULER_APP... "
+    if az functionapp vnet-integration add \
         --name "$SCHEDULER_APP" \
         --resource-group "$RESOURCE_GROUP" \
         --vnet "$SELECTED_VNET_ID" \
         --subnet "$SELECTED_SUBNET_NAME" \
-        --output none 2>/dev/null && print_success "$SCHEDULER_APP" || print_warning "$SCHEDULER_APP (revisar)"
+        --output none 2>/dev/null; then
+        echo -e "${GREEN}✅ OK${NC}"
+        VNET_SUCCESS=$((VNET_SUCCESS + 1))
+    else
+        echo -e "${YELLOW}⚠️  revisar${NC}"
+    fi
 
-    echo "  Integrando $PROCESSOR_APP..."
-    az functionapp vnet-integration add \
+    echo -n "  [3/3] $PROCESSOR_APP... "
+    if az functionapp vnet-integration add \
         --name "$PROCESSOR_APP" \
         --resource-group "$RESOURCE_GROUP" \
         --vnet "$SELECTED_VNET_ID" \
         --subnet "$SELECTED_SUBNET_NAME" \
-        --output none 2>/dev/null && print_success "$PROCESSOR_APP" || print_warning "$PROCESSOR_APP (revisar)"
+        --output none 2>/dev/null; then
+        echo -e "${GREEN}✅ OK${NC}"
+        VNET_SUCCESS=$((VNET_SUCCESS + 1))
+    else
+        echo -e "${YELLOW}⚠️  revisar${NC}"
+    fi
 
-    print_success "VNet Integration aplicado"
+    echo ""
+    if [ $VNET_SUCCESS -eq 3 ]; then
+        print_success "VNet Integration aplicado correctamente a las 3 apps"
+    else
+        print_warning "VNet Integration: $VNET_SUCCESS/3 apps integradas"
+    fi
 }
 
 # ============================================================================

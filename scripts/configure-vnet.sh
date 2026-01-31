@@ -443,17 +443,25 @@ create_new_subnet() {
 
     echo ""
     echo "Creando subnet '$NEW_SUBNET_NAME' ($NEW_SUBNET_ADDRESS)..."
+    echo ""
 
-    az network vnet subnet create \
+    # Crear el subnet (capturando errores)
+    CREATE_OUTPUT=$(az network vnet subnet create \
         --name "$NEW_SUBNET_NAME" \
         --vnet-name "$VNET_NAME" \
         --resource-group "$VNET_RG" \
         --address-prefixes "$NEW_SUBNET_ADDRESS" \
         --delegations "Microsoft.Web/serverFarms" \
-        --output none 2>/dev/null
+        -o json 2>&1)
 
-    if [ $? -ne 0 ]; then
+    CREATE_RESULT=$?
+
+    if [ $CREATE_RESULT -ne 0 ]; then
         print_error "Error al crear el subnet"
+        echo ""
+        echo "Detalle del error:"
+        echo "$CREATE_OUTPUT"
+        echo ""
         echo "Puede que el rango de direcciones esté en uso o sea inválido."
         echo "Intenta con otro rango o crea el subnet manualmente."
         exit 1
@@ -462,7 +470,8 @@ create_new_subnet() {
     SUBNET_NAME="$NEW_SUBNET_NAME"
     SUBNET_ADDRESS="$NEW_SUBNET_ADDRESS"
 
-    print_success "Subnet '$SUBNET_NAME' creado ($SUBNET_ADDRESS)"
+    print_success "Subnet '$SUBNET_NAME' creado correctamente ($SUBNET_ADDRESS)"
+    echo ""
 
     # Get Subnet ID
     SUBNET_ID=$(az network vnet subnet show \
@@ -470,6 +479,13 @@ create_new_subnet() {
         --vnet-name "$VNET_NAME" \
         --resource-group "$VNET_RG" \
         --query "id" -o tsv)
+
+    if [ -z "$SUBNET_ID" ]; then
+        print_error "No se pudo obtener el ID del subnet"
+        exit 1
+    fi
+
+    print_info "Subnet ID obtenido, continuando con la integración..."
 }
 
 # ============================================================================
@@ -480,52 +496,85 @@ apply_vnet_integration() {
     print_step "4/5" "Aplicando VNet Integration"
 
     echo ""
-    echo "Integrando Function Apps con el subnet..."
+    echo "Integrando las 3 Function Apps con el subnet..."
+    echo "Esto puede tomar 1-2 minutos..."
     echo ""
 
+    INTEGRATION_SUCCESS=0
+    INTEGRATION_ERRORS=0
+
     # Integrate API
-    echo "  Integrando $API_APP..."
-    az functionapp vnet-integration add \
+    echo -n "  [1/3] Integrando $API_APP... "
+    API_OUTPUT=$(az functionapp vnet-integration add \
         --name "$API_APP" \
         --resource-group "$RESOURCE_GROUP" \
         --vnet "$VNET_ID" \
         --subnet "$SUBNET_NAME" \
-        --output none 2>/dev/null
+        -o json 2>&1)
 
     if [ $? -eq 0 ]; then
-        print_success "$API_APP integrado"
+        echo -e "${GREEN}✅ OK${NC}"
+        INTEGRATION_SUCCESS=$((INTEGRATION_SUCCESS + 1))
     else
-        print_warning "$API_APP - posiblemente ya integrado o error"
+        if echo "$API_OUTPUT" | grep -qi "already"; then
+            echo -e "${YELLOW}⚠️  Ya estaba integrado${NC}"
+            INTEGRATION_SUCCESS=$((INTEGRATION_SUCCESS + 1))
+        else
+            echo -e "${RED}❌ Error${NC}"
+            INTEGRATION_ERRORS=$((INTEGRATION_ERRORS + 1))
+        fi
     fi
 
     # Integrate Scheduler
-    echo "  Integrando $SCHEDULER_APP..."
-    az functionapp vnet-integration add \
+    echo -n "  [2/3] Integrando $SCHEDULER_APP... "
+    SCHEDULER_OUTPUT=$(az functionapp vnet-integration add \
         --name "$SCHEDULER_APP" \
         --resource-group "$RESOURCE_GROUP" \
         --vnet "$VNET_ID" \
         --subnet "$SUBNET_NAME" \
-        --output none 2>/dev/null
+        -o json 2>&1)
 
     if [ $? -eq 0 ]; then
-        print_success "$SCHEDULER_APP integrado"
+        echo -e "${GREEN}✅ OK${NC}"
+        INTEGRATION_SUCCESS=$((INTEGRATION_SUCCESS + 1))
     else
-        print_warning "$SCHEDULER_APP - posiblemente ya integrado o error"
+        if echo "$SCHEDULER_OUTPUT" | grep -qi "already"; then
+            echo -e "${YELLOW}⚠️  Ya estaba integrado${NC}"
+            INTEGRATION_SUCCESS=$((INTEGRATION_SUCCESS + 1))
+        else
+            echo -e "${RED}❌ Error${NC}"
+            INTEGRATION_ERRORS=$((INTEGRATION_ERRORS + 1))
+        fi
     fi
 
     # Integrate Processor
-    echo "  Integrando $PROCESSOR_APP..."
-    az functionapp vnet-integration add \
+    echo -n "  [3/3] Integrando $PROCESSOR_APP... "
+    PROCESSOR_OUTPUT=$(az functionapp vnet-integration add \
         --name "$PROCESSOR_APP" \
         --resource-group "$RESOURCE_GROUP" \
         --vnet "$VNET_ID" \
         --subnet "$SUBNET_NAME" \
-        --output none 2>/dev/null
+        -o json 2>&1)
 
     if [ $? -eq 0 ]; then
-        print_success "$PROCESSOR_APP integrado"
+        echo -e "${GREEN}✅ OK${NC}"
+        INTEGRATION_SUCCESS=$((INTEGRATION_SUCCESS + 1))
     else
-        print_warning "$PROCESSOR_APP - posiblemente ya integrado o error"
+        if echo "$PROCESSOR_OUTPUT" | grep -qi "already"; then
+            echo -e "${YELLOW}⚠️  Ya estaba integrado${NC}"
+            INTEGRATION_SUCCESS=$((INTEGRATION_SUCCESS + 1))
+        else
+            echo -e "${RED}❌ Error${NC}"
+            INTEGRATION_ERRORS=$((INTEGRATION_ERRORS + 1))
+        fi
+    fi
+
+    echo ""
+
+    if [ $INTEGRATION_ERRORS -gt 0 ]; then
+        print_warning "$INTEGRATION_SUCCESS/3 apps integradas, $INTEGRATION_ERRORS con errores"
+    else
+        print_success "Las 3 Function Apps fueron integradas correctamente"
     fi
 }
 
@@ -582,7 +631,15 @@ main() {
     select_subnet
     apply_vnet_integration
     print_summary
+
+    # Mensaje final claro
+    echo ""
+    echo -e "${GREEN}${BOLD}¡Script finalizado correctamente!${NC}"
+    echo ""
 }
+
+# Manejar errores inesperados
+trap 'echo ""; echo -e "${RED}❌ El script terminó inesperadamente.${NC}"; echo "Si el error no es claro, ejecuta el script de nuevo."; echo ""' ERR
 
 # Run main function
 main "$@"
