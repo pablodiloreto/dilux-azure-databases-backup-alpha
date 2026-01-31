@@ -479,7 +479,7 @@ deploy_infrastructure() {
 
         # Show completed operations (only new ones)
         if [ "$OPERATIONS" != "[]" ]; then
-            COMPLETED_LIST=$(echo "$OPERATIONS" | jq -r '.[] | select(.status == "Succeeded") | "\(.name)|\(.type)"' 2>/dev/null || echo "")
+            COMPLETED_LIST=$(echo "$OPERATIONS" | jq -r '.[] | select(.status == "Succeeded" and .name != null) | "\(.name)|\(.type)"' 2>/dev/null || echo "")
 
             if [ -n "$COMPLETED_LIST" ]; then
                 echo "$COMPLETED_LIST" | while IFS='|' read -r name type; do
