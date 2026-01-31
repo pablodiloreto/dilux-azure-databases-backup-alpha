@@ -197,17 +197,20 @@ select_resource_group() {
     fi
 
     # Get Function App location (all 3 should be in same region)
-    APP_LOCATION=$(az functionapp show \
+    APP_LOCATION_DISPLAY=$(az functionapp show \
         --name "$API_APP" \
         --resource-group "$RESOURCE_GROUP" \
         --query "location" -o tsv 2>/dev/null)
 
-    if [ -z "$APP_LOCATION" ]; then
+    if [ -z "$APP_LOCATION_DISPLAY" ]; then
         print_error "No se pudo obtener la ubicación de las Function Apps"
         exit 1
     fi
 
-    print_info "Function Apps encontradas (región: ${APP_LOCATION}):"
+    # Normalize location to match VNet format (e.g., "East US" -> "eastus")
+    APP_LOCATION=$(echo "$APP_LOCATION_DISPLAY" | tr '[:upper:]' '[:lower:]' | tr -d ' ')
+
+    print_info "Function Apps encontradas (región: ${APP_LOCATION_DISPLAY}):"
     echo "  - $API_APP"
     echo "  - $SCHEDULER_APP"
     echo "  - $PROCESSOR_APP"
@@ -221,7 +224,7 @@ select_vnet() {
     print_step "2/5" "Seleccionar Virtual Network"
 
     echo ""
-    echo "Buscando VNets en la región ${CYAN}${APP_LOCATION}${NC}..."
+    echo -e "Buscando VNets en la región ${CYAN}${APP_LOCATION_DISPLAY}${NC}..."
     echo "(Solo se muestran VNets en la misma región que las Function Apps)"
     echo ""
 
@@ -232,22 +235,22 @@ select_vnet() {
     VNET_COUNT=$(echo "$VNETS" | jq 'length')
 
     if [ "$VNET_COUNT" == "0" ] || [ -z "$VNETS" ] || [ "$VNETS" == "[]" ]; then
-        print_error "No se encontraron VNets en la región ${APP_LOCATION}"
+        print_error "No se encontraron VNets en la región ${APP_LOCATION_DISPLAY}"
         echo ""
-        echo "Tus Function Apps están desplegadas en ${CYAN}${APP_LOCATION}${NC}."
+        echo -e "Tus Function Apps están desplegadas en ${CYAN}${APP_LOCATION_DISPLAY}${NC}."
         echo ""
         echo "Para usar VNet Integration, tienes dos opciones:"
         echo ""
-        echo "  1) Crear una VNet en ${APP_LOCATION} con tus bases de datos"
+        echo -e "  1) Crear una VNet en ${CYAN}${APP_LOCATION_DISPLAY}${NC} con tus bases de datos"
         echo ""
         echo "  2) Redesplegar Dilux en la región donde está tu VNet:"
-        echo "     - Elimina el Resource Group: az group delete -n $RESOURCE_GROUP"
+        echo -e "     - Elimina el Resource Group: ${CYAN}az group delete -n $RESOURCE_GROUP${NC}"
         echo "     - Ejecuta el instalador de nuevo eligiendo la VNet correcta"
         echo ""
         exit 1
     fi
 
-    echo "VNets disponibles en ${APP_LOCATION}:"
+    echo -e "VNets disponibles en ${CYAN}${APP_LOCATION_DISPLAY}${NC}:"
     echo ""
 
     # Display VNets
