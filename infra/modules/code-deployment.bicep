@@ -104,42 +104,74 @@ echo "=========================================="
 echo "Deploying Dilux Database Backup"
 echo "=========================================="
 
-# Function to deploy to Flex Consumption (using az functionapp deploy)
+# Function to deploy to Flex Consumption (using WEBSITE_RUN_FROM_PACKAGE)
+# FC1 doesn't have Kudu/SCM, so we upload ZIP to blob storage and configure
+# the Function App to run directly from the package URL.
 deploy_flex_consumption() {
   local app_name=$1
   local zip_file=$2
-  local max_attempts=5
-  local attempt=1
-  local wait_time=30
 
-  echo "    Deploying to Flex Consumption using az functionapp deploy..."
+  echo "    [FC1] Deploying via WEBSITE_RUN_FROM_PACKAGE..."
 
-  while [ $attempt -le $max_attempts ]; do
-    echo "    Attempt $attempt of $max_attempts..."
+  # 1. Create "deployments" container if it doesn't exist
+  echo "    [FC1] Ensuring 'deployments' container exists..."
+  az storage container create \
+    --account-name $STORAGE_ACCOUNT_NAME \
+    --name "deployments" \
+    --auth-mode login \
+    --only-show-errors \
+    2>/dev/null || true
 
-    # Use az functionapp deploy which works with Flex Consumption
-    if az functionapp deploy \
-      --resource-group $RESOURCE_GROUP \
-      --name $app_name \
-      --src-path "$zip_file" \
-      --type zip \
-      --async false \
-      2>&1; then
-      echo "    Success!"
-      return 0
-    fi
+  # 2. Upload the ZIP (overwrites if exists)
+  local blob_name="${app_name}.zip"
+  echo "    [FC1] Uploading $zip_file to deployments/$blob_name..."
+  az storage blob upload \
+    --account-name $STORAGE_ACCOUNT_NAME \
+    --container-name "deployments" \
+    --file "$zip_file" \
+    --name "$blob_name" \
+    --overwrite \
+    --auth-mode login \
+    --only-show-errors
 
-    if [ $attempt -lt $max_attempts ]; then
-      echo "    Failed. Waiting ${wait_time}s for RBAC propagation..."
-      sleep $wait_time
-      wait_time=$((wait_time + 30))
-    fi
+  # 3. Generate SAS URL with 5-year expiration
+  echo "    [FC1] Generating SAS URL (5-year expiry)..."
+  local expiry=$(date -u -d "+5 years" '+%Y-%m-%dT%H:%MZ')
+  local sas_url=$(az storage blob generate-sas \
+    --account-name $STORAGE_ACCOUNT_NAME \
+    --container-name "deployments" \
+    --name "$blob_name" \
+    --permissions r \
+    --expiry "$expiry" \
+    --full-uri \
+    --auth-mode login \
+    -o tsv)
 
-    attempt=$((attempt + 1))
-  done
+  if [ -z "$sas_url" ]; then
+    echo "    [FC1] ERROR: Failed to generate SAS URL"
+    return 1
+  fi
 
-  echo "    ERROR: Failed after $max_attempts attempts"
-  return 1
+  echo "    [FC1] SAS URL generated successfully"
+
+  # 4. Configure WEBSITE_RUN_FROM_PACKAGE
+  echo "    [FC1] Configuring WEBSITE_RUN_FROM_PACKAGE..."
+  az functionapp config appsettings set \
+    --name $app_name \
+    --resource-group $RESOURCE_GROUP \
+    --settings "WEBSITE_RUN_FROM_PACKAGE=$sas_url" \
+    --only-show-errors \
+    -o none
+
+  # 5. Restart to pick up the new package
+  echo "    [FC1] Restarting Function App..."
+  az functionapp restart \
+    --name $app_name \
+    --resource-group $RESOURCE_GROUP \
+    --only-show-errors
+
+  echo "    [FC1] Deployed successfully!"
+  return 0
 }
 
 # Function to deploy with remote build (for Y1/EP* plans)
