@@ -19,6 +19,32 @@
 
 set -e
 
+# ============================================================================
+# Error Handling
+# ============================================================================
+
+handle_error() {
+    local exit_code=$?
+    local line_number=$1
+    echo ""
+    echo -e "${RED}═══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${RED}${BOLD}   ❌ ERROR INESPERADO${NC}"
+    echo -e "${RED}═══════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "El script falló en la línea $line_number (código: $exit_code)"
+    echo ""
+    echo "Posibles causas:"
+    echo "  - Permisos insuficientes en Azure"
+    echo "  - Recurso no encontrado"
+    echo "  - Problema de red o timeout"
+    echo ""
+    echo "Revisa los mensajes anteriores para más detalles."
+    echo ""
+    exit $exit_code
+}
+
+trap 'handle_error $LINENO' ERR
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -31,6 +57,15 @@ BOLD='\033[1m'
 # GitHub repo for deployment
 GITHUB_REPO="pablodiloreto/dilux-azure-databases-backup-alpha"
 DEFAULT_VERSION="latest"
+
+# VNet Integration variables (set in ask_vnet_requirement)
+VNET_INTEGRATION_WANTED=false
+VNET_SELECTED_NAME=""
+VNET_SELECTED_RG=""
+VNET_SELECTED_ID=""
+VNET_SELECTED_LOCATION=""
+SUBNET_SELECTED_NAME=""
+SUBNET_SELECTED_ID=""
 
 # ============================================================================
 # Helper Functions
@@ -104,7 +139,7 @@ prompt_required() {
 # ============================================================================
 
 check_prerequisites() {
-    print_step "0/6" "Verificando pre-requisitos"
+    print_step "0/7" "Verificando pre-requisitos"
 
     # Check if az cli is installed
     if ! command -v az &> /dev/null; then
@@ -175,11 +210,303 @@ check_prerequisites() {
 }
 
 # ============================================================================
+# VNet Requirement (determines region)
+# ============================================================================
+
+ask_vnet_requirement() {
+    print_step "1/7" "Planificación de conectividad"
+
+    echo ""
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}¿Necesitas que Dilux acceda a bases de datos en una VNet?${NC}"
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo "Esto es necesario si tus bases de datos usan Private Endpoints"
+    echo "o están en máquinas virtuales dentro de una red virtual."
+    echo ""
+    echo -e "  ${GREEN}1)${NC} Sí, tengo bases de datos en una VNet"
+    echo -e "  ${YELLOW}2)${NC} No quiero configurar integración con VNet ahora"
+    echo ""
+    echo -en "${BOLD}Selecciona [1-2]:${NC} "
+    read VNET_CHOICE < /dev/tty
+
+    if [ "$VNET_CHOICE" == "1" ]; then
+        VNET_INTEGRATION_WANTED=true
+        select_vnet_for_region
+
+        if [ -z "$VNET_SELECTED_ID" ]; then
+            # User cancelled or no VNets found
+            VNET_INTEGRATION_WANTED=false
+            return
+        fi
+
+        select_or_create_subnet_for_region
+
+        if [ -z "$SUBNET_SELECTED_ID" ]; then
+            # User cancelled subnet selection
+            VNET_INTEGRATION_WANTED=false
+            return
+        fi
+
+        # Region is now set from VNet
+        LOCATION="$VNET_SELECTED_LOCATION"
+        print_success "Región determinada por VNet: $LOCATION"
+    else
+        VNET_INTEGRATION_WANTED=false
+        print_info "VNet Integration no configurado."
+        echo ""
+        echo "Podrás configurarlo después del deployment, pero recuerda que"
+        echo "solo podrás integrar con VNets en la misma región que elijas ahora."
+    fi
+}
+
+select_vnet_for_region() {
+    echo ""
+    echo "Buscando VNets en la subscription..."
+
+    VNETS=$(az network vnet list --query "[].{name:name, rg:resourceGroup, location:location, address:addressSpace.addressPrefixes[0]}" -o json 2>/dev/null)
+    VNET_COUNT=$(echo "$VNETS" | jq 'length')
+
+    if [ "$VNET_COUNT" == "0" ] || [ -z "$VNETS" ] || [ "$VNETS" == "[]" ]; then
+        print_warning "No se encontraron VNets en la subscription"
+        echo ""
+        echo "Para usar VNet Integration necesitas una VNet con tus"
+        echo "bases de datos configuradas."
+        echo ""
+        echo "Puedes continuar sin VNet y configurarlo después."
+        VNET_SELECTED_ID=""
+        return
+    fi
+
+    echo ""
+    echo "VNets disponibles:"
+    echo ""
+
+    # Display VNets with location
+    INDEX=1
+    while IFS='|' read -r name rg location address; do
+        echo -e "  ${GREEN}$INDEX)${NC} $name (${CYAN}$location${NC}) - $address"
+        echo -e "      RG: $rg"
+        INDEX=$((INDEX + 1))
+    done < <(echo "$VNETS" | jq -r '.[] | "\(.name)|\(.rg)|\(.location)|\(.address)"')
+
+    echo ""
+    echo -e "  ${YELLOW}0)${NC} Cancelar (continuar sin VNet)"
+    echo ""
+    echo -en "${BOLD}Selecciona [0-$VNET_COUNT]:${NC} "
+    read VNET_SELECTION < /dev/tty
+
+    if [ "$VNET_SELECTION" == "0" ] || [ -z "$VNET_SELECTION" ]; then
+        print_info "VNet Integration omitido."
+        VNET_SELECTED_ID=""
+        return
+    fi
+
+    # Validate selection
+    if ! [[ "$VNET_SELECTION" =~ ^[0-9]+$ ]] || [ "$VNET_SELECTION" -lt 1 ] || [ "$VNET_SELECTION" -gt "$VNET_COUNT" ]; then
+        print_error "Selección inválida"
+        VNET_SELECTED_ID=""
+        return
+    fi
+
+    VNET_INDEX=$((VNET_SELECTION - 1))
+    VNET_SELECTED_NAME=$(echo "$VNETS" | jq -r ".[$VNET_INDEX].name")
+    VNET_SELECTED_RG=$(echo "$VNETS" | jq -r ".[$VNET_INDEX].rg")
+    VNET_SELECTED_LOCATION=$(echo "$VNETS" | jq -r ".[$VNET_INDEX].location")
+
+    VNET_SELECTED_ID=$(az network vnet show --name "$VNET_SELECTED_NAME" --resource-group "$VNET_SELECTED_RG" --query "id" -o tsv)
+
+    echo ""
+    print_success "VNet: $VNET_SELECTED_NAME"
+    print_info "Ubicación: $VNET_SELECTED_LOCATION (la app se desplegará aquí)"
+}
+
+select_or_create_subnet_for_region() {
+    echo ""
+    echo "Buscando subnets en $VNET_SELECTED_NAME..."
+
+    SUBNETS=$(az network vnet subnet list \
+        --vnet-name "$VNET_SELECTED_NAME" \
+        --resource-group "$VNET_SELECTED_RG" \
+        --query "[].{name:name, address:addressPrefixes[0], delegation:delegations[0].serviceName}" \
+        -o json 2>/dev/null)
+
+    SUBNET_COUNT=$(echo "$SUBNETS" | jq 'length')
+
+    echo ""
+
+    if [ "$SUBNET_COUNT" != "0" ] && [ -n "$SUBNETS" ] && [ "$SUBNETS" != "[]" ]; then
+        echo "Subnets existentes:"
+        echo ""
+
+        INDEX=1
+        while IFS='|' read -r name address delegation; do
+            if [ "$delegation" == "Microsoft.Web/serverFarms" ]; then
+                echo -e "  ${GREEN}$INDEX)${NC} $name ($address) - ${GREEN}✓ Compatible${NC}"
+            elif [ "$delegation" == "null" ] || [ -z "$delegation" ]; then
+                echo -e "  ${YELLOW}$INDEX)${NC} $name ($address) - Sin delegación"
+            else
+                echo -e "  ${RED}$INDEX)${NC} $name ($address) - Delegado: $delegation ${RED}✗${NC}"
+            fi
+            INDEX=$((INDEX + 1))
+        done < <(echo "$SUBNETS" | jq -r '.[] | "\(.name)|\(.address)|\(.delegation)"')
+
+        echo ""
+    fi
+
+    echo -e "  ${CYAN}N)${NC} ✨ Crear nuevo subnet"
+    echo -e "  ${YELLOW}0)${NC} Cancelar"
+    echo ""
+    echo -en "${BOLD}Selecciona [0-$SUBNET_COUNT/N]:${NC} "
+    read SUBNET_SELECTION < /dev/tty
+
+    if [ "$SUBNET_SELECTION" == "0" ]; then
+        print_info "VNet Integration omitido."
+        SUBNET_SELECTED_ID=""
+        return
+    fi
+
+    if [ "$SUBNET_SELECTION" == "N" ] || [ "$SUBNET_SELECTION" == "n" ]; then
+        create_subnet_for_region
+        return
+    fi
+
+    # Validate selection
+    if ! [[ "$SUBNET_SELECTION" =~ ^[0-9]+$ ]] || [ "$SUBNET_SELECTION" -lt 1 ] || [ "$SUBNET_SELECTION" -gt "$SUBNET_COUNT" ]; then
+        print_error "Selección inválida"
+        SUBNET_SELECTED_ID=""
+        return
+    fi
+
+    # Select existing subnet
+    SUBNET_INDEX=$((SUBNET_SELECTION - 1))
+    SUBNET_SELECTED_NAME=$(echo "$SUBNETS" | jq -r ".[$SUBNET_INDEX].name")
+    SUBNET_DELEGATION=$(echo "$SUBNETS" | jq -r ".[$SUBNET_INDEX].delegation")
+
+    # Check delegation
+    if [ "$SUBNET_DELEGATION" != "null" ] && [ "$SUBNET_DELEGATION" != "Microsoft.Web/serverFarms" ] && [ -n "$SUBNET_DELEGATION" ]; then
+        print_error "Subnet delegado a otro servicio ($SUBNET_DELEGATION)"
+        echo "Selecciona otro subnet o crea uno nuevo."
+        SUBNET_SELECTED_ID=""
+        return
+    fi
+
+    # Add delegation if needed
+    if [ "$SUBNET_DELEGATION" == "null" ] || [ -z "$SUBNET_DELEGATION" ]; then
+        echo "Agregando delegación a Microsoft.Web/serverFarms..."
+        az network vnet subnet update \
+            --name "$SUBNET_SELECTED_NAME" \
+            --vnet-name "$VNET_SELECTED_NAME" \
+            --resource-group "$VNET_SELECTED_RG" \
+            --delegations "Microsoft.Web/serverFarms" \
+            --output none 2>/dev/null || {
+                print_error "No se pudo agregar la delegación al subnet"
+                SUBNET_SELECTED_ID=""
+                return
+            }
+        print_success "Delegación agregada"
+    fi
+
+    SUBNET_SELECTED_ID=$(az network vnet subnet show \
+        --name "$SUBNET_SELECTED_NAME" \
+        --vnet-name "$VNET_SELECTED_NAME" \
+        --resource-group "$VNET_SELECTED_RG" \
+        --query "id" -o tsv)
+
+    print_success "Subnet: $SUBNET_SELECTED_NAME"
+}
+
+create_subnet_for_region() {
+    echo ""
+    echo "Calculando espacio disponible..."
+
+    VNET_PREFIX=$(az network vnet show \
+        --name "$VNET_SELECTED_NAME" \
+        --resource-group "$VNET_SELECTED_RG" \
+        --query "addressSpace.addressPrefixes[0]" -o tsv)
+
+    EXISTING_SUBNETS=$(az network vnet subnet list \
+        --vnet-name "$VNET_SELECTED_NAME" \
+        --resource-group "$VNET_SELECTED_RG" \
+        --query "[].addressPrefixes[0]" -o tsv | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n)
+
+    VNET_BASE=$(echo "$VNET_PREFIX" | cut -d'.' -f1-2)
+
+    if [ -n "$EXISTING_SUBNETS" ]; then
+        MAX_THIRD_OCTET=$(echo "$EXISTING_SUBNETS" | cut -d'.' -f3 | sort -n | tail -1)
+        NEXT_THIRD_OCTET=$((MAX_THIRD_OCTET + 1))
+        SUGGESTED_PREFIX="${VNET_BASE}.${NEXT_THIRD_OCTET}.0"
+    else
+        SUGGESTED_PREFIX="${VNET_BASE}.1.0"
+    fi
+
+    echo ""
+    echo -e "${CYAN}Espacio de VNet:${NC} $VNET_PREFIX"
+    echo -e "${CYAN}Siguiente bloque disponible:${NC} $SUGGESTED_PREFIX"
+    echo ""
+
+    echo "Tamaño del subnet:"
+    echo -e "  ${GREEN}1)${NC} /28 = 16 IPs"
+    echo -e "  ${GREEN}2)${NC} /27 = 32 IPs ${GREEN}(recomendado)${NC}"
+    echo -e "  ${YELLOW}3)${NC} /26 = 64 IPs"
+    echo -e "  ${YELLOW}0)${NC} Cancelar"
+    echo ""
+    echo -en "${BOLD}Selecciona [0-3] (default: 2):${NC} "
+    read SIZE_CHOICE < /dev/tty
+    SIZE_CHOICE="${SIZE_CHOICE:-2}"
+
+    case $SIZE_CHOICE in
+        0)
+            SUBNET_SELECTED_ID=""
+            return
+            ;;
+        1) SUBNET_CIDR="/28" ;;
+        2) SUBNET_CIDR="/27" ;;
+        3) SUBNET_CIDR="/26" ;;
+        *) SUBNET_CIDR="/27" ;;
+    esac
+
+    NEW_SUBNET_ADDRESS="${SUGGESTED_PREFIX}${SUBNET_CIDR}"
+
+    echo ""
+    echo -en "${BOLD}Nombre del subnet [dilux-functions]:${NC} "
+    read NEW_SUBNET_NAME < /dev/tty
+    NEW_SUBNET_NAME="${NEW_SUBNET_NAME:-dilux-functions}"
+
+    echo ""
+    echo "Creando subnet '$NEW_SUBNET_NAME' ($NEW_SUBNET_ADDRESS)..."
+
+    CREATE_OUTPUT=$(az network vnet subnet create \
+        --name "$NEW_SUBNET_NAME" \
+        --vnet-name "$VNET_SELECTED_NAME" \
+        --resource-group "$VNET_SELECTED_RG" \
+        --address-prefixes "$NEW_SUBNET_ADDRESS" \
+        --delegations "Microsoft.Web/serverFarms" \
+        -o json 2>&1)
+
+    if [ $? -ne 0 ]; then
+        print_error "Error al crear subnet"
+        echo "Detalle: $CREATE_OUTPUT"
+        SUBNET_SELECTED_ID=""
+        return
+    fi
+
+    SUBNET_SELECTED_NAME="$NEW_SUBNET_NAME"
+    SUBNET_SELECTED_ID=$(az network vnet subnet show \
+        --name "$SUBNET_SELECTED_NAME" \
+        --vnet-name "$VNET_SELECTED_NAME" \
+        --resource-group "$VNET_SELECTED_RG" \
+        --query "id" -o tsv)
+
+    print_success "Subnet creado: $SUBNET_SELECTED_NAME ($NEW_SUBNET_ADDRESS)"
+}
+
+# ============================================================================
 # Configuration Prompts
 # ============================================================================
 
 get_configuration() {
-    print_step "1/6" "Configuración del deployment"
+    print_step "2/7" "Configuración del deployment"
 
     echo ""
     echo -e "${CYAN}Ingresa los parámetros de configuración:${NC}"
@@ -194,11 +521,16 @@ get_configuration() {
     # Resource group
     prompt_with_default "Resource Group" "${APP_NAME}-rg" RESOURCE_GROUP
 
-    # Location
-    echo ""
-    echo "Regiones disponibles: eastus, eastus2, westus, westus2, centralus,"
-    echo "                      westeurope, northeurope, brazilsouth, etc."
-    prompt_with_default "Región de Azure" "eastus" LOCATION
+    # Location - skip if already set by VNet selection
+    if [ "$VNET_INTEGRATION_WANTED" = true ] && [ -n "$LOCATION" ]; then
+        echo ""
+        echo -e "Región: ${GREEN}${BOLD}$LOCATION${NC} ${CYAN}(determinada por VNet)${NC}"
+    else
+        echo ""
+        echo "Regiones disponibles: eastus, eastus2, westus, westus2, centralus,"
+        echo "                      westeurope, northeurope, brazilsouth, etc."
+        prompt_with_default "Región de Azure" "eastus" LOCATION
+    fi
 
     # Admin email
     echo ""
@@ -220,53 +552,95 @@ get_configuration() {
     echo -e "${BOLD}Selecciona el plan de hosting para las Function Apps:${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "${GREEN}1) FC1 - Flex Consumption (RECOMENDADO)${NC}"
-    echo "   ✅ Serverless (pago por ejecución)"
-    echo "   ✅ VNet Integration (conexión a redes privadas)"
-    echo "   ✅ Cold starts rápidos"
-    echo "   💰 Costo: ~\$0-10/mes"
-    echo ""
-    echo -e "${YELLOW}2) Y1 - Consumption (Legacy)${NC}"
-    echo "   ✅ Serverless (pago por ejecución)"
-    echo "   ❌ SIN VNet Integration"
-    echo "   ⚠️  EOL: Septiembre 2028"
-    echo "   💰 Costo: ~\$0-5/mes"
-    echo ""
-    echo -e "${BLUE}3) EP1 - Premium${NC}"
-    echo "   ✅ Instancias reservadas (sin cold starts)"
-    echo "   ✅ VNet Integration"
-    echo "   ✅ Mejor rendimiento"
-    echo "   💰 Costo: ~\$150/mes"
-    echo ""
-    echo -e "${BLUE}4) EP2 - Premium (Alto rendimiento)${NC}"
-    echo "   ✅ Todo lo de EP1 + más CPU/memoria"
-    echo "   💰 Costo: ~\$300/mes"
-    echo ""
-    echo -e "${BLUE}5) EP3 - Premium (Máximo rendimiento)${NC}"
-    echo "   ✅ Todo lo de EP2 + máximos recursos"
-    echo "   💰 Costo: ~\$600/mes"
-    echo ""
-    echo -e "${CYAN}───────────────────────────────────────────────────────────────${NC}"
-    echo -e "${YELLOW}IMPORTANTE:${NC} Si necesitas conectarte a bases de datos en"
-    echo "Azure Virtual Networks (Private Endpoints, VMs en VNet),"
-    echo -e "debes usar ${GREEN}FC1${NC} o ${BLUE}EP1/EP2/EP3${NC}. El plan Y1 NO soporta VNet."
-    echo -e "${CYAN}───────────────────────────────────────────────────────────────${NC}"
-    echo ""
-    echo -en "${BOLD}Selecciona una opción [1-5] (default: 1):${NC} "
-    read PLAN_CHOICE < /dev/tty
-    PLAN_CHOICE="${PLAN_CHOICE:-1}"
 
-    case $PLAN_CHOICE in
-        1) FUNCTION_SKU="FC1" ;;
-        2) FUNCTION_SKU="Y1" ;;
-        3) FUNCTION_SKU="EP1" ;;
-        4) FUNCTION_SKU="EP2" ;;
-        5) FUNCTION_SKU="EP3" ;;
-        *)
-            print_warning "Opción inválida, usando FC1 (recomendado)"
-            FUNCTION_SKU="FC1"
-            ;;
-    esac
+    if [ "$VNET_INTEGRATION_WANTED" = true ]; then
+        # VNet selected - don't show Y1 (not compatible)
+        echo -e "${GREEN}1) FC1 - Flex Consumption (RECOMENDADO)${NC}"
+        echo "   ✅ Serverless (pago por ejecución)"
+        echo "   ✅ VNet Integration"
+        echo "   ✅ Cold starts rápidos"
+        echo "   💰 Costo: ~\$0-10/mes"
+        echo ""
+        echo -e "${BLUE}2) EP1 - Premium${NC}"
+        echo "   ✅ Instancias reservadas (sin cold starts)"
+        echo "   ✅ VNet Integration"
+        echo "   💰 Costo: ~\$150/mes"
+        echo ""
+        echo -e "${BLUE}3) EP2 - Premium (Alto rendimiento)${NC}"
+        echo "   ✅ Todo lo de EP1 + más CPU/memoria"
+        echo "   💰 Costo: ~\$300/mes"
+        echo ""
+        echo -e "${BLUE}4) EP3 - Premium (Máximo rendimiento)${NC}"
+        echo "   ✅ Todo lo de EP2 + máximos recursos"
+        echo "   💰 Costo: ~\$600/mes"
+        echo ""
+        echo -e "${CYAN}───────────────────────────────────────────────────────────────${NC}"
+        echo -e "${CYAN}ℹ️  El plan Y1 no se muestra porque no soporta VNet Integration.${NC}"
+        echo -e "${CYAN}───────────────────────────────────────────────────────────────${NC}"
+        echo ""
+        echo -en "${BOLD}Selecciona una opción [1-4] (default: 1):${NC} "
+        read PLAN_CHOICE < /dev/tty
+        PLAN_CHOICE="${PLAN_CHOICE:-1}"
+
+        case $PLAN_CHOICE in
+            1) FUNCTION_SKU="FC1" ;;
+            2) FUNCTION_SKU="EP1" ;;
+            3) FUNCTION_SKU="EP2" ;;
+            4) FUNCTION_SKU="EP3" ;;
+            *)
+                print_warning "Opción inválida, usando FC1 (recomendado)"
+                FUNCTION_SKU="FC1"
+                ;;
+        esac
+    else
+        # No VNet - show all options including Y1
+        echo -e "${GREEN}1) FC1 - Flex Consumption (RECOMENDADO)${NC}"
+        echo "   ✅ Serverless (pago por ejecución)"
+        echo "   ✅ VNet Integration (conexión a redes privadas)"
+        echo "   ✅ Cold starts rápidos"
+        echo "   💰 Costo: ~\$0-10/mes"
+        echo ""
+        echo -e "${YELLOW}2) Y1 - Consumption (Legacy)${NC}"
+        echo "   ✅ Serverless (pago por ejecución)"
+        echo "   ❌ SIN VNet Integration"
+        echo "   ⚠️  EOL: Septiembre 2028"
+        echo "   💰 Costo: ~\$0-5/mes"
+        echo ""
+        echo -e "${BLUE}3) EP1 - Premium${NC}"
+        echo "   ✅ Instancias reservadas (sin cold starts)"
+        echo "   ✅ VNet Integration"
+        echo "   ✅ Mejor rendimiento"
+        echo "   💰 Costo: ~\$150/mes"
+        echo ""
+        echo -e "${BLUE}4) EP2 - Premium (Alto rendimiento)${NC}"
+        echo "   ✅ Todo lo de EP1 + más CPU/memoria"
+        echo "   💰 Costo: ~\$300/mes"
+        echo ""
+        echo -e "${BLUE}5) EP3 - Premium (Máximo rendimiento)${NC}"
+        echo "   ✅ Todo lo de EP2 + máximos recursos"
+        echo "   💰 Costo: ~\$600/mes"
+        echo ""
+        echo -e "${CYAN}───────────────────────────────────────────────────────────────${NC}"
+        echo -e "${YELLOW}IMPORTANTE:${NC} Si en el futuro necesitas VNet Integration,"
+        echo -e "elige ${GREEN}FC1${NC} o ${BLUE}EP1/EP2/EP3${NC}. El plan Y1 NO lo soporta."
+        echo -e "${CYAN}───────────────────────────────────────────────────────────────${NC}"
+        echo ""
+        echo -en "${BOLD}Selecciona una opción [1-5] (default: 1):${NC} "
+        read PLAN_CHOICE < /dev/tty
+        PLAN_CHOICE="${PLAN_CHOICE:-1}"
+
+        case $PLAN_CHOICE in
+            1) FUNCTION_SKU="FC1" ;;
+            2) FUNCTION_SKU="Y1" ;;
+            3) FUNCTION_SKU="EP1" ;;
+            4) FUNCTION_SKU="EP2" ;;
+            5) FUNCTION_SKU="EP3" ;;
+            *)
+                print_warning "Opción inválida, usando FC1 (recomendado)"
+                FUNCTION_SKU="FC1"
+                ;;
+        esac
+    fi
 
     print_success "Plan seleccionado: $FUNCTION_SKU"
 
@@ -282,12 +656,12 @@ get_configuration() {
     echo -e "  Admin Email:    ${BOLD}$ADMIN_EMAIL${NC}"
     echo -e "  Versión:        ${BOLD}$APP_VERSION${NC}"
     echo -e "  Plan Functions: ${BOLD}$FUNCTION_SKU${NC}"
-    echo ""
 
-    # Show VNet warning if Y1 selected
-    if [ "$FUNCTION_SKU" == "Y1" ]; then
-        print_warning "Has seleccionado Y1 (sin VNet). No podrás conectarte a DBs en redes privadas."
+    if [ "$VNET_INTEGRATION_WANTED" = true ]; then
+        echo -e "  VNet:           ${BOLD}$VNET_SELECTED_NAME${NC} (${VNET_SELECTED_RG})"
+        echo -e "  Subnet:         ${BOLD}$SUBNET_SELECTED_NAME${NC}"
     fi
+    echo ""
 
     echo -en "${BOLD}¿Continuar con estos valores? (S/n):${NC} "
     read CONFIRM < /dev/tty
@@ -304,7 +678,7 @@ get_configuration() {
 # ============================================================================
 
 create_app_registration() {
-    print_step "2/6" "Creando App Registration para Azure AD"
+    print_step "3/7" "Creando App Registration para Azure AD"
 
     APP_DISPLAY_NAME="Dilux Database Backup - ${APP_NAME}"
 
@@ -353,7 +727,7 @@ create_app_registration() {
 # ============================================================================
 
 create_resource_group() {
-    print_step "3/6" "Creando Resource Group"
+    print_step "4/7" "Creando Resource Group"
 
     # Check if resource group exists
     if az group show --name "$RESOURCE_GROUP" &> /dev/null; then
@@ -382,7 +756,7 @@ create_resource_group() {
 # ============================================================================
 
 deploy_infrastructure() {
-    print_step "4/6" "Desplegando infraestructura"
+    print_step "5/7" "Desplegando infraestructura"
 
     echo ""
     echo "Esto puede tomar 10-15 minutos..."
@@ -535,7 +909,7 @@ deploy_infrastructure() {
 # ============================================================================
 
 configure_redirect_uris() {
-    print_step "5/6" "Configurando redirect URIs"
+    print_step "6/7" "Configurando redirect URIs"
 
     # Get the storage account web endpoint
     if [ -z "$STORAGE_ACCOUNT" ]; then
@@ -590,35 +964,18 @@ configure_redirect_uris() {
 }
 
 # ============================================================================
-# VNet Integration (Optional)
+# Apply VNet Integration (if selected at the beginning)
 # ============================================================================
 
-VNET_CONFIGURED="false"
-SELECTED_VNET_NAME=""
-SELECTED_SUBNET_NAME=""
-
-configure_vnet_integration() {
-    print_step "6/6" "VNet Integration (opcional)"
-
-    echo ""
-    echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
-    echo -e "${BOLD}¿Configurar VNet Integration?${NC}"
-    echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
-    echo ""
-    echo "VNet Integration permite que Dilux acceda a bases de datos"
-    echo "en redes privadas de Azure (Private Endpoints, VMs en VNet)."
-    echo ""
-    echo -e "  ${GREEN}1)${NC} Sí, configurar ahora"
-    echo -e "  ${YELLOW}2)${NC} No, lo haré después"
-    echo ""
-    echo -en "${BOLD}Selecciona [1-2] (default: 2):${NC} "
-    read VNET_CHOICE < /dev/tty
-    VNET_CHOICE="${VNET_CHOICE:-2}"
-
-    if [ "$VNET_CHOICE" != "1" ]; then
-        print_info "VNet Integration omitido. Puedes configurarlo después."
+apply_vnet_integration() {
+    # Skip if VNet was not selected at the beginning
+    if [ "$VNET_INTEGRATION_WANTED" != true ]; then
+        print_step "7/7" "VNet Integration"
+        print_info "No configurado (se puede configurar después)"
         return
     fi
+
+    print_step "7/7" "Aplicando VNet Integration"
 
     # Get Function App names
     API_APP=$(az functionapp list --resource-group "$RESOURCE_GROUP" --query "[?contains(name, '-api')].name" -o tsv | head -1)
@@ -626,303 +983,83 @@ configure_vnet_integration() {
     PROCESSOR_APP=$(az functionapp list --resource-group "$RESOURCE_GROUP" --query "[?contains(name, '-processor')].name" -o tsv | head -1)
 
     if [ -z "$API_APP" ] || [ -z "$SCHEDULER_APP" ] || [ -z "$PROCESSOR_APP" ]; then
-        print_warning "No se encontraron las Function Apps. Configura VNet manualmente después."
-        return
-    fi
-
-    # Select VNet
-    select_vnet_for_deploy
-    if [ -z "$SELECTED_VNET_ID" ]; then
-        return
-    fi
-
-    # Select or create subnet
-    select_subnet_for_deploy
-    if [ -z "$SELECTED_SUBNET_ID" ]; then
-        return
-    fi
-
-    # Apply VNet Integration
-    apply_vnet_integration_for_deploy
-
-    VNET_CONFIGURED="true"
-}
-
-select_vnet_for_deploy() {
-    echo ""
-    echo "Buscando VNets en la subscription..."
-
-    VNETS=$(az network vnet list --query "[].{name:name, rg:resourceGroup, address:addressSpace.addressPrefixes[0]}" -o json 2>/dev/null)
-    VNET_COUNT=$(echo "$VNETS" | jq 'length')
-
-    if [ "$VNET_COUNT" == "0" ] || [ -z "$VNETS" ]; then
-        print_warning "No se encontraron VNets en la subscription"
-        print_info "Crea una VNet con tus bases de datos y ejecuta configure-vnet.sh después."
-        SELECTED_VNET_ID=""
+        print_error "No se encontraron las Function Apps"
+        print_info "Configura VNet manualmente después con configure-vnet.sh"
         return
     fi
 
     echo ""
-    echo "VNets disponibles:"
+    echo "Integrando Function Apps con VNet: $VNET_SELECTED_NAME"
+    echo "Subnet: $SUBNET_SELECTED_NAME"
     echo ""
-
-    INDEX=1
-    while IFS='|' read -r name rg address; do
-        echo -e "  ${GREEN}$INDEX)${NC} $name ($address) - RG: $rg"
-        INDEX=$((INDEX + 1))
-    done < <(echo "$VNETS" | jq -r '.[] | "\(.name)|\(.rg)|\(.address)"')
-
-    echo -e "  ${YELLOW}0)${NC} Cancelar (configurar después)"
-    echo ""
-    echo -en "${BOLD}Selecciona [0-$VNET_COUNT]:${NC} "
-    read VNET_SELECTION < /dev/tty
-
-    if [ "$VNET_SELECTION" == "0" ] || [ -z "$VNET_SELECTION" ]; then
-        print_info "VNet Integration omitido."
-        SELECTED_VNET_ID=""
-        return
-    fi
-
-    VNET_INDEX=$((VNET_SELECTION - 1))
-    SELECTED_VNET_NAME=$(echo "$VNETS" | jq -r ".[$VNET_INDEX].name")
-    SELECTED_VNET_RG=$(echo "$VNETS" | jq -r ".[$VNET_INDEX].rg")
-
-    if [ "$SELECTED_VNET_NAME" == "null" ] || [ -z "$SELECTED_VNET_NAME" ]; then
-        print_error "Selección inválida"
-        SELECTED_VNET_ID=""
-        return
-    fi
-
-    SELECTED_VNET_ID=$(az network vnet show --name "$SELECTED_VNET_NAME" --resource-group "$SELECTED_VNET_RG" --query "id" -o tsv)
-    print_success "VNet: $SELECTED_VNET_NAME"
-}
-
-select_subnet_for_deploy() {
-    echo ""
-    echo "Buscando subnets en $SELECTED_VNET_NAME..."
-
-    SUBNETS=$(az network vnet subnet list \
-        --vnet-name "$SELECTED_VNET_NAME" \
-        --resource-group "$SELECTED_VNET_RG" \
-        --query "[].{name:name, address:addressPrefixes[0], delegation:delegations[0].serviceName}" \
-        -o json 2>/dev/null)
-
-    SUBNET_COUNT=$(echo "$SUBNETS" | jq 'length')
-
-    echo ""
-
-    if [ "$SUBNET_COUNT" != "0" ] && [ -n "$SUBNETS" ]; then
-        echo "Subnets existentes:"
-        echo ""
-
-        INDEX=1
-        while IFS='|' read -r name address delegation; do
-            if [ "$delegation" == "Microsoft.Web/serverFarms" ]; then
-                echo -e "  ${GREEN}$INDEX)${NC} $name ($address) - ${GREEN}✓ Compatible${NC}"
-            elif [ "$delegation" == "null" ] || [ -z "$delegation" ]; then
-                echo -e "  ${YELLOW}$INDEX)${NC} $name ($address) - Sin delegación"
-            else
-                echo -e "  ${RED}$INDEX)${NC} $name ($address) - Delegado a otro servicio"
-            fi
-            INDEX=$((INDEX + 1))
-        done < <(echo "$SUBNETS" | jq -r '.[] | "\(.name)|\(.address)|\(.delegation)"')
-
-        echo ""
-    fi
-
-    echo -e "  ${CYAN}N)${NC} ✨ Crear nuevo subnet"
-    echo -e "  ${YELLOW}0)${NC} Cancelar"
-    echo ""
-    echo -en "${BOLD}Selecciona [0-$SUBNET_COUNT/N]:${NC} "
-    read SUBNET_SELECTION < /dev/tty
-
-    if [ "$SUBNET_SELECTION" == "0" ]; then
-        print_info "VNet Integration omitido."
-        SELECTED_SUBNET_ID=""
-        return
-    fi
-
-    if [ "$SUBNET_SELECTION" == "N" ] || [ "$SUBNET_SELECTION" == "n" ]; then
-        create_new_subnet_for_deploy
-        return
-    fi
-
-    # Select existing subnet
-    SUBNET_INDEX=$((SUBNET_SELECTION - 1))
-    SELECTED_SUBNET_NAME=$(echo "$SUBNETS" | jq -r ".[$SUBNET_INDEX].name")
-    SELECTED_SUBNET_DELEGATION=$(echo "$SUBNETS" | jq -r ".[$SUBNET_INDEX].delegation")
-
-    if [ "$SELECTED_SUBNET_NAME" == "null" ] || [ -z "$SELECTED_SUBNET_NAME" ]; then
-        print_error "Selección inválida"
-        SELECTED_SUBNET_ID=""
-        return
-    fi
-
-    # Check delegation
-    if [ "$SELECTED_SUBNET_DELEGATION" != "null" ] && [ "$SELECTED_SUBNET_DELEGATION" != "Microsoft.Web/serverFarms" ] && [ -n "$SELECTED_SUBNET_DELEGATION" ]; then
-        print_error "Subnet delegado a otro servicio. Selecciona otro o crea uno nuevo."
-        SELECTED_SUBNET_ID=""
-        return
-    fi
-
-    # Add delegation if needed
-    if [ "$SELECTED_SUBNET_DELEGATION" == "null" ] || [ -z "$SELECTED_SUBNET_DELEGATION" ]; then
-        echo "Agregando delegación..."
-        az network vnet subnet update \
-            --name "$SELECTED_SUBNET_NAME" \
-            --vnet-name "$SELECTED_VNET_NAME" \
-            --resource-group "$SELECTED_VNET_RG" \
-            --delegations "Microsoft.Web/serverFarms" \
-            --output none 2>/dev/null
-    fi
-
-    SELECTED_SUBNET_ID=$(az network vnet subnet show \
-        --name "$SELECTED_SUBNET_NAME" \
-        --vnet-name "$SELECTED_VNET_NAME" \
-        --resource-group "$SELECTED_VNET_RG" \
-        --query "id" -o tsv)
-
-    print_success "Subnet: $SELECTED_SUBNET_NAME"
-}
-
-create_new_subnet_for_deploy() {
-    echo ""
-    echo "Calculando espacio disponible..."
-
-    VNET_PREFIX=$(az network vnet show \
-        --name "$SELECTED_VNET_NAME" \
-        --resource-group "$SELECTED_VNET_RG" \
-        --query "addressSpace.addressPrefixes[0]" -o tsv)
-
-    EXISTING_SUBNETS=$(az network vnet subnet list \
-        --vnet-name "$SELECTED_VNET_NAME" \
-        --resource-group "$SELECTED_VNET_RG" \
-        --query "[].addressPrefixes[0]" -o tsv | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n)
-
-    VNET_BASE=$(echo "$VNET_PREFIX" | cut -d'.' -f1-2)
-
-    if [ -n "$EXISTING_SUBNETS" ]; then
-        # Find the highest third octet and add 1
-        MAX_THIRD_OCTET=$(echo "$EXISTING_SUBNETS" | cut -d'.' -f3 | sort -n | tail -1)
-        NEXT_THIRD_OCTET=$((MAX_THIRD_OCTET + 1))
-        SUGGESTED_PREFIX="${VNET_BASE}.${NEXT_THIRD_OCTET}.0"
-    else
-        SUGGESTED_PREFIX="${VNET_BASE}.1.0"
-    fi
-
-    echo ""
-    echo "Tamaño del subnet:"
-    echo -e "  ${GREEN}1)${NC} /28 = 16 IPs"
-    echo -e "  ${GREEN}2)${NC} /27 = 32 IPs ${GREEN}(recomendado)${NC}"
-    echo -e "  ${YELLOW}3)${NC} /26 = 64 IPs"
-    echo -e "  ${YELLOW}0)${NC} Cancelar"
-    echo ""
-    echo -en "${BOLD}Selecciona [0-3] (default: 2):${NC} "
-    read SIZE_CHOICE < /dev/tty
-    SIZE_CHOICE="${SIZE_CHOICE:-2}"
-
-    case $SIZE_CHOICE in
-        0)
-            SELECTED_SUBNET_ID=""
-            return
-            ;;
-        1) SUBNET_CIDR="/28" ;;
-        2) SUBNET_CIDR="/27" ;;
-        3) SUBNET_CIDR="/26" ;;
-        *) SUBNET_CIDR="/27" ;;
-    esac
-
-    NEW_SUBNET_ADDRESS="${SUGGESTED_PREFIX}${SUBNET_CIDR}"
-
-    echo ""
-    echo -en "${BOLD}Nombre del subnet [dilux-functions]:${NC} "
-    read NEW_SUBNET_NAME < /dev/tty
-    NEW_SUBNET_NAME="${NEW_SUBNET_NAME:-dilux-functions}"
-
-    echo "Creando subnet '$NEW_SUBNET_NAME' ($NEW_SUBNET_ADDRESS)..."
-    echo ""
-
-    CREATE_OUTPUT=$(az network vnet subnet create \
-        --name "$NEW_SUBNET_NAME" \
-        --vnet-name "$SELECTED_VNET_NAME" \
-        --resource-group "$SELECTED_VNET_RG" \
-        --address-prefixes "$NEW_SUBNET_ADDRESS" \
-        --delegations "Microsoft.Web/serverFarms" \
-        -o json 2>&1)
-
-    CREATE_RESULT=$?
-
-    if [ $CREATE_RESULT -ne 0 ]; then
-        print_error "Error al crear subnet"
-        echo "  Detalle: $CREATE_OUTPUT"
-        print_info "Puedes configurar VNet manualmente después con configure-vnet.sh"
-        SELECTED_SUBNET_ID=""
-        return
-    fi
-
-    SELECTED_SUBNET_NAME="$NEW_SUBNET_NAME"
-    SELECTED_SUBNET_ID=$(az network vnet subnet show \
-        --name "$SELECTED_SUBNET_NAME" \
-        --vnet-name "$SELECTED_VNET_NAME" \
-        --resource-group "$SELECTED_VNET_RG" \
-        --query "id" -o tsv)
-
-    print_success "Subnet creado: $SELECTED_SUBNET_NAME ($NEW_SUBNET_ADDRESS)"
-    echo ""
-}
-
-apply_vnet_integration_for_deploy() {
-    echo ""
-    echo "Aplicando VNet Integration a las 3 Function Apps..."
     echo "Esto puede tomar 1-2 minutos..."
     echo ""
 
     VNET_SUCCESS=0
+    VNET_ERRORS=""
 
+    # Integrate API
     echo -n "  [1/3] $API_APP... "
-    if az functionapp vnet-integration add \
+    API_OUTPUT=$(az functionapp vnet-integration add \
         --name "$API_APP" \
         --resource-group "$RESOURCE_GROUP" \
-        --vnet "$SELECTED_VNET_ID" \
-        --subnet "$SELECTED_SUBNET_NAME" \
-        --output none 2>/dev/null; then
+        --vnet "$VNET_SELECTED_ID" \
+        --subnet "$SUBNET_SELECTED_NAME" \
+        -o json 2>&1)
+
+    if [ $? -eq 0 ]; then
         echo -e "${GREEN}✅ OK${NC}"
         VNET_SUCCESS=$((VNET_SUCCESS + 1))
     else
-        echo -e "${YELLOW}⚠️  revisar${NC}"
+        echo -e "${RED}❌ Error${NC}"
+        VNET_ERRORS="$VNET_ERRORS\n  API: $API_OUTPUT"
     fi
 
+    # Integrate Scheduler
     echo -n "  [2/3] $SCHEDULER_APP... "
-    if az functionapp vnet-integration add \
+    SCHEDULER_OUTPUT=$(az functionapp vnet-integration add \
         --name "$SCHEDULER_APP" \
         --resource-group "$RESOURCE_GROUP" \
-        --vnet "$SELECTED_VNET_ID" \
-        --subnet "$SELECTED_SUBNET_NAME" \
-        --output none 2>/dev/null; then
+        --vnet "$VNET_SELECTED_ID" \
+        --subnet "$SUBNET_SELECTED_NAME" \
+        -o json 2>&1)
+
+    if [ $? -eq 0 ]; then
         echo -e "${GREEN}✅ OK${NC}"
         VNET_SUCCESS=$((VNET_SUCCESS + 1))
     else
-        echo -e "${YELLOW}⚠️  revisar${NC}"
+        echo -e "${RED}❌ Error${NC}"
+        VNET_ERRORS="$VNET_ERRORS\n  Scheduler: $SCHEDULER_OUTPUT"
     fi
 
+    # Integrate Processor
     echo -n "  [3/3] $PROCESSOR_APP... "
-    if az functionapp vnet-integration add \
+    PROCESSOR_OUTPUT=$(az functionapp vnet-integration add \
         --name "$PROCESSOR_APP" \
         --resource-group "$RESOURCE_GROUP" \
-        --vnet "$SELECTED_VNET_ID" \
-        --subnet "$SELECTED_SUBNET_NAME" \
-        --output none 2>/dev/null; then
+        --vnet "$VNET_SELECTED_ID" \
+        --subnet "$SUBNET_SELECTED_NAME" \
+        -o json 2>&1)
+
+    if [ $? -eq 0 ]; then
         echo -e "${GREEN}✅ OK${NC}"
         VNET_SUCCESS=$((VNET_SUCCESS + 1))
     else
-        echo -e "${YELLOW}⚠️  revisar${NC}"
+        echo -e "${RED}❌ Error${NC}"
+        VNET_ERRORS="$VNET_ERRORS\n  Processor: $PROCESSOR_OUTPUT"
     fi
 
     echo ""
+
     if [ $VNET_SUCCESS -eq 3 ]; then
         print_success "VNet Integration aplicado correctamente a las 3 apps"
     else
-        print_warning "VNet Integration: $VNET_SUCCESS/3 apps integradas"
+        print_error "VNet Integration: $VNET_SUCCESS/3 apps integradas"
+        if [ -n "$VNET_ERRORS" ]; then
+            echo ""
+            echo "Errores detectados:"
+            echo -e "$VNET_ERRORS"
+        fi
     fi
 }
 
@@ -959,18 +1096,22 @@ print_summary() {
     echo -e "  al hacer el primer login con Azure AD."
 
     # Show VNet status
-    if [ "$VNET_CONFIGURED" == "true" ]; then
+    if [ "$VNET_INTEGRATION_WANTED" = true ] && [ -n "$VNET_SELECTED_NAME" ]; then
         echo ""
         echo -e "${BOLD}VNet Integration:${NC}"
-        echo -e "  ✅ Configurado - VNet: ${CYAN}${SELECTED_VNET_NAME}${NC}, Subnet: ${CYAN}${SELECTED_SUBNET_NAME}${NC}"
+        echo -e "  ✅ Configurado - VNet: ${CYAN}${VNET_SELECTED_NAME}${NC}, Subnet: ${CYAN}${SUBNET_SELECTED_NAME}${NC}"
     else
         echo ""
         echo -e "${YELLOW}───────────────────────────────────────────────────────────────${NC}"
-        echo -e "${BOLD}📡 ¿Bases de datos en redes privadas?${NC}"
+        echo -e "${BOLD}📡 ¿Integración con VNet más adelante?${NC}"
         echo ""
-        echo "Para configurar VNet Integration después, ejecuta:"
+        echo "Si en el futuro necesitas conectar Dilux a bases de datos"
+        echo "en una VNet, ejecuta:"
         echo ""
         echo -e "  ${CYAN}curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/configure-vnet.sh | bash${NC}"
+        echo ""
+        echo -e "${YELLOW}⚠️  Importante:${NC} Solo podrás integrar con VNets en la región"
+        echo -e "   donde desplegaste la app (${CYAN}${LOCATION}${NC})"
         echo -e "${YELLOW}───────────────────────────────────────────────────────────────${NC}"
     fi
 
@@ -986,12 +1127,13 @@ print_summary() {
 main() {
     print_banner
     check_prerequisites
+    ask_vnet_requirement
     get_configuration
     create_app_registration
     create_resource_group
     deploy_infrastructure
     configure_redirect_uris
-    configure_vnet_integration
+    apply_vnet_integration
     print_summary
 }
 

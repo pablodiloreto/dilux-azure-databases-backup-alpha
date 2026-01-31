@@ -196,7 +196,18 @@ select_resource_group() {
         exit 1
     fi
 
-    print_info "Function Apps encontradas:"
+    # Get Function App location (all 3 should be in same region)
+    APP_LOCATION=$(az functionapp show \
+        --name "$API_APP" \
+        --resource-group "$RESOURCE_GROUP" \
+        --query "location" -o tsv 2>/dev/null)
+
+    if [ -z "$APP_LOCATION" ]; then
+        print_error "No se pudo obtener la ubicación de las Function Apps"
+        exit 1
+    fi
+
+    print_info "Function Apps encontradas (región: ${APP_LOCATION}):"
     echo "  - $API_APP"
     echo "  - $SCHEDULER_APP"
     echo "  - $PROCESSOR_APP"
@@ -210,30 +221,41 @@ select_vnet() {
     print_step "2/5" "Seleccionar Virtual Network"
 
     echo ""
-    echo "Buscando VNets en la subscription..."
+    echo "Buscando VNets en la región ${CYAN}${APP_LOCATION}${NC}..."
+    echo "(Solo se muestran VNets en la misma región que las Function Apps)"
+    echo ""
 
-    # List all VNets
-    VNETS=$(az network vnet list --query "[].{name:name, rg:resourceGroup, address:addressSpace.addressPrefixes[0]}" -o json 2>/dev/null)
+    # List VNets ONLY in the same region as the Function Apps
+    VNETS=$(az network vnet list \
+        --query "[?location=='${APP_LOCATION}'].{name:name, rg:resourceGroup, location:location, address:addressSpace.addressPrefixes[0]}" \
+        -o json 2>/dev/null)
     VNET_COUNT=$(echo "$VNETS" | jq 'length')
 
-    if [ "$VNET_COUNT" == "0" ] || [ -z "$VNETS" ]; then
-        print_error "No se encontraron VNets en la subscription"
+    if [ "$VNET_COUNT" == "0" ] || [ -z "$VNETS" ] || [ "$VNETS" == "[]" ]; then
+        print_error "No se encontraron VNets en la región ${APP_LOCATION}"
         echo ""
-        echo "Debes crear una VNet primero con tus bases de datos"
-        echo "configuradas con Private Endpoints."
+        echo "Tus Function Apps están desplegadas en ${CYAN}${APP_LOCATION}${NC}."
+        echo ""
+        echo "Para usar VNet Integration, tienes dos opciones:"
+        echo ""
+        echo "  1) Crear una VNet en ${APP_LOCATION} con tus bases de datos"
+        echo ""
+        echo "  2) Redesplegar Dilux en la región donde está tu VNet:"
+        echo "     - Elimina el Resource Group: az group delete -n $RESOURCE_GROUP"
+        echo "     - Ejecuta el instalador de nuevo eligiendo la VNet correcta"
+        echo ""
         exit 1
     fi
 
-    echo ""
-    echo "VNets disponibles:"
+    echo "VNets disponibles en ${APP_LOCATION}:"
     echo ""
 
     # Display VNets
     INDEX=1
-    echo "$VNETS" | jq -r '.[] | "\(.name)|\(.rg)|\(.address)"' | while IFS='|' read -r name rg address; do
+    while IFS='|' read -r name rg address; do
         echo -e "  ${GREEN}$INDEX)${NC} $name ($address) - RG: $rg"
         INDEX=$((INDEX + 1))
-    done
+    done < <(echo "$VNETS" | jq -r '.[] | "\(.name)|\(.rg)|\(.address)"')
 
     echo -e "  ${YELLOW}0)${NC} Cancelar"
     echo ""
@@ -244,6 +266,12 @@ select_vnet() {
         echo ""
         print_warning "Operación cancelada."
         exit 0
+    fi
+
+    # Validate selection
+    if ! [[ "$VNET_CHOICE" =~ ^[0-9]+$ ]] || [ "$VNET_CHOICE" -lt 1 ] || [ "$VNET_CHOICE" -gt "$VNET_COUNT" ]; then
+        print_error "Selección inválida"
+        exit 1
     fi
 
     # Get selected VNet details
