@@ -90,6 +90,15 @@ resource deploymentsProcessorContainer 'Microsoft.Storage/storageAccounts/blobSe
   }
 }
 
+// Container for Function App packages (used by OneDeploy for FC1)
+resource functionPackagesContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-01-01' = if (isFlexConsumption) {
+  parent: blobService
+  name: 'function-packages'
+  properties: {
+    publicAccess: 'None'
+  }
+}
+
 // Queue Service
 resource queueService 'Microsoft.Storage/storageAccounts/queueServices@2023-01-01' = {
   parent: storageAccount

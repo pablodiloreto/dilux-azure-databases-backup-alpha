@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "17238377295080092502"
+      "templateHash": "13222723365285210891"
     }
   },
   "parameters": {
@@ -125,7 +125,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "17653728332193135658"
+              "templateHash": "3604417202173189035"
             }
           },
           "parameters": {
@@ -231,6 +231,18 @@
               "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
               "apiVersion": "2023-01-01",
               "name": "[format('{0}/{1}/{2}', parameters('storageAccountName'), 'default', 'deployments-processor')]",
+              "properties": {
+                "publicAccess": "None"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/blobServices', parameters('storageAccountName'), 'default')]"
+              ]
+            },
+            {
+              "condition": "[parameters('isFlexConsumption')]",
+              "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+              "apiVersion": "2023-01-01",
+              "name": "[format('{0}/{1}/{2}', parameters('storageAccountName'), 'default', 'function-packages')]",
               "properties": {
                 "publicAccess": "None"
               },
@@ -2829,7 +2841,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "8440419972909031572"
+              "templateHash": "12157282682516631432"
             }
           },
           "parameters": {
@@ -2999,7 +3011,7 @@
                     "value": "[string(parameters('isFlexConsumption'))]"
                   }
                 ],
-                "scriptContent": "#!/bin/bash\nset -e\n\necho \"==========================================\"\necho \"Deploying Dilux Database Backup\"\necho \"==========================================\"\n\n# Function to wait for SCM endpoint to be ready\nwait_for_scm() {\n  local app_name=$1\n  local max_wait=300  # 5 minutes max\n  local waited=0\n  local interval=15\n\n  echo \"    [FC1] Waiting for SCM endpoint to be ready...\"\n  while [ $waited -lt $max_wait ]; do\n    # Try to get SCM credentials - if it works, SCM is ready\n    if az functionapp deployment list-publishing-credentials \\\n      --name $app_name \\\n      --resource-group $RESOURCE_GROUP \\\n      --query \"scmUri\" -o tsv 2>/dev/null | grep -q \"scm\"; then\n      echo \"    [FC1] SCM endpoint is ready!\"\n      return 0\n    fi\n    echo \"    [FC1] SCM not ready, waiting ${interval}s... (${waited}s/${max_wait}s)\"\n    sleep $interval\n    waited=$((waited + interval))\n  done\n  echo \"    [FC1] Warning: SCM endpoint check timed out, proceeding anyway...\"\n  return 0\n}\n\n# Function to deploy to Flex Consumption (FC1)\n# FC1 does NOT support SCM_DO_BUILD_DURING_DEPLOYMENT setting (neither true nor false)\n# The fix is: delete the setting, restart, wait, then deploy WITHOUT --build-remote flag\ndeploy_flex_consumption() {\n  local app_name=$1\n  local zip_file=$2\n  local max_attempts=5\n  local attempt=1\n  local wait_time=30\n\n  echo \"    [FC1] Deploying via config-zip...\"\n\n  # Wait for SCM endpoint to be ready (FC1 takes time to initialize)\n  wait_for_scm $app_name\n\n  # CRITICAL: Delete SCM_DO_BUILD_DURING_DEPLOYMENT and ENABLE_ORYX_BUILD settings\n  # These settings are NOT supported by FC1 and cause deployment failures\n  echo \"    [FC1] Removing incompatible settings...\"\n  az functionapp config appsettings delete \\\n    --name $app_name \\\n    --resource-group $RESOURCE_GROUP \\\n    --setting-names SCM_DO_BUILD_DURING_DEPLOYMENT ENABLE_ORYX_BUILD \\\n    --only-show-errors \\\n    -o none 2>/dev/null || true\n\n  # Restart to clear any cached deployment state\n  echo \"    [FC1] Restarting Function App...\"\n  az functionapp restart \\\n    --name $app_name \\\n    --resource-group $RESOURCE_GROUP \\\n    --only-show-errors 2>/dev/null || true\n\n  echo \"    [FC1] Waiting 30s for restart to complete...\"\n  sleep 30\n\n  while [ $attempt -le $max_attempts ]; do\n    echo \"    [FC1] Attempt $attempt of $max_attempts...\"\n\n    # IMPORTANT: Do NOT use --build-remote flag at all (neither true nor false)\n    # FC1 handles remote build automatically without the flag\n    if az functionapp deployment source config-zip \\\n      --resource-group $RESOURCE_GROUP \\\n      --name $app_name \\\n      --src $zip_file \\\n      --timeout 600 2>&1; then\n      echo \"    [FC1] Success!\"\n      return 0\n    fi\n\n    if [ $attempt -lt $max_attempts ]; then\n      echo \"    [FC1] Failed. Cleaning settings and waiting ${wait_time}s before retry...\"\n      az functionapp config appsettings delete \\\n        --name $app_name \\\n        --resource-group $RESOURCE_GROUP \\\n        --setting-names SCM_DO_BUILD_DURING_DEPLOYMENT ENABLE_ORYX_BUILD \\\n        --only-show-errors \\\n        -o none 2>/dev/null || true\n      az functionapp restart --name $app_name --resource-group $RESOURCE_GROUP --only-show-errors 2>/dev/null || true\n      sleep $wait_time\n      wait_time=$((wait_time + 30))\n    fi\n\n    attempt=$((attempt + 1))\n  done\n\n  echo \"    [FC1] ERROR: Failed after $max_attempts attempts\"\n  return 1\n}\n\n# Function to deploy with remote build (for Y1/EP* plans)\ndeploy_with_remote_build() {\n  local app_name=$1\n  local zip_file=$2\n  local max_attempts=5\n  local attempt=1\n  local wait_time=30\n\n  # Enable remote build settings\n  echo \"    Configuring remote build...\"\n  az functionapp config appsettings set \\\n    --name $app_name \\\n    --resource-group $RESOURCE_GROUP \\\n    --settings \"SCM_DO_BUILD_DURING_DEPLOYMENT=true\" \"ENABLE_ORYX_BUILD=true\" \\\n    -o none 2>&1 || true\n\n  while [ $attempt -le $max_attempts ]; do\n    echo \"    Attempt $attempt of $max_attempts (with remote build)...\"\n\n    # Use --build-remote true to install dependencies on Azure\n    if az functionapp deployment source config-zip \\\n      --resource-group $RESOURCE_GROUP \\\n      --name $app_name \\\n      --src $zip_file \\\n      --build-remote true \\\n      --timeout 600 2>&1; then\n      echo \"    Success! (dependencies installed via remote build)\"\n      return 0\n    fi\n\n    if [ $attempt -lt $max_attempts ]; then\n      echo \"    Failed. Waiting ${wait_time}s for RBAC propagation...\"\n      sleep $wait_time\n      wait_time=$((wait_time + 30))\n    fi\n\n    attempt=$((attempt + 1))\n  done\n\n  echo \"    ERROR: Failed after $max_attempts attempts\"\n  return 1\n}\n\n# Function to deploy Function App (auto-detects plan type)\ndeploy_function_app() {\n  local app_name=$1\n  local zip_file=$2\n\n  # Bicep string(true) returns \"True\" (capital T), so compare case-insensitive\n  local is_flex=$(echo \"$IS_FLEX_CONSUMPTION\" | tr '[:upper:]' '[:lower:]')\n\n  if [ \"$is_flex\" == \"true\" ]; then\n    deploy_flex_consumption $app_name $zip_file\n  else\n    deploy_with_remote_build $app_name $zip_file\n  fi\n}\n\n# Resolve \"latest\" to actual version tag using GitHub API\nif [ \"$VERSION\" == \"latest\" ]; then\n  echo \"Resolving latest release from GitHub...\"\n\n  RELEASE_INFO=$(curl -s \"https://api.github.com/repos/$GITHUB_REPO/releases/latest\")\n  RESOLVED_VERSION=$(echo \"$RELEASE_INFO\" | grep '\"tag_name\"' | head -1 | sed -E 's/.*\"tag_name\": *\"([^\"]+)\".*/\\1/')\n\n  if [ -z \"$RESOLVED_VERSION\" ] || [ \"$RESOLVED_VERSION\" == \"null\" ]; then\n    echo \"ERROR: Could not resolve latest release\"\n    echo \"Make sure the repository has at least one published release.\"\n    echo '{\"status\": \"failed\", \"error\": \"No releases found\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n    exit 1\n  fi\n\n  echo \"Resolved latest to: $RESOLVED_VERSION\"\n  VERSION=$RESOLVED_VERSION\nfi\n\necho \"Version: $VERSION\"\necho \"Repository: $GITHUB_REPO\"\necho \"==========================================\"\n\n# Base URL for release assets\nRELEASE_URL=\"https://github.com/$GITHUB_REPO/releases/download/$VERSION\"\n\necho \"\"\necho \"Downloading pre-built release assets from:\"\necho \"$RELEASE_URL\"\necho \"\"\n\n# Download all ZIPs (frontend + 3 Function Apps)\necho \"[1/4] Downloading frontend.zip...\"\nif ! curl -L -f -s -o frontend.zip \"$RELEASE_URL/frontend.zip\"; then\n  echo \"ERROR: Could not download frontend.zip\"\n  echo \"URL: $RELEASE_URL/frontend.zip\"\n  echo \"\"\n  echo \"Make sure:\"\n  echo \"1. The release $VERSION exists\"\n  echo \"2. The release has frontend.zip, api.zip, scheduler.zip, processor.zip assets\"\n  echo \"3. Run the Build Release Assets GitHub Action first\"\n  echo \"\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download frontend.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded frontend.zip\"\n\necho \"[2/4] Downloading api.zip...\"\nif ! curl -L -f -s -o api.zip \"$RELEASE_URL/api.zip\"; then\n  echo \"ERROR: Could not download api.zip\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download api.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded api.zip\"\n\necho \"[3/4] Downloading scheduler.zip...\"\nif ! curl -L -f -s -o scheduler.zip \"$RELEASE_URL/scheduler.zip\"; then\n  echo \"ERROR: Could not download scheduler.zip\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download scheduler.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded scheduler.zip\"\n\necho \"[4/4] Downloading processor.zip...\"\nif ! curl -L -f -s -o processor.zip \"$RELEASE_URL/processor.zip\"; then\n  echo \"ERROR: Could not download processor.zip\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download processor.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded processor.zip\"\n\necho \"\"\necho \"All assets downloaded successfully:\"\nls -lh *.zip\necho \"\"\n\n# ========================================\n# Wait for RBAC propagation\n# ========================================\necho \"==========================================\"\necho \"Waiting for RBAC permissions to propagate...\"\necho \"==========================================\"\nIS_FLEX_LOWER=$(echo \"$IS_FLEX_CONSUMPTION\" | tr '[:upper:]' '[:lower:]')\nif [ \"$IS_FLEX_LOWER\" == \"true\" ]; then\n  echo \"(FC1: SCM endpoint needs extra time to initialize - waiting 3 minutes)\"\n  sleep 180\n  echo \"Waited 180 seconds.\"\nelse\n  echo \"(Azure AD role assignments can take up to 1 minute to propagate)\"\n  sleep 60\n  echo \"Waited 60 seconds.\"\nfi\necho \"Starting deployment...\"\necho \"\"\n\n# ========================================\n# Deploy Frontend to Blob Storage Static Website\n# ========================================\necho \"==========================================\"\necho \"Deploying Frontend to Blob Storage Static Website...\"\necho \"==========================================\"\necho \"\"\n\n# Get storage account\nif [ -n \"$STORAGE_ACCOUNT_NAME\" ]; then\n  STORAGE_ACCOUNT=\"$STORAGE_ACCOUNT_NAME\"\nelse\n  STORAGE_ACCOUNT=$(az storage account list --resource-group $RESOURCE_GROUP --query \"[0].name\" -o tsv 2>/dev/null || echo \"\")\nfi\n\nif [ -z \"$STORAGE_ACCOUNT\" ]; then\n  echo \"ERROR: Could not find storage account\"\n  FRONTEND_DEPLOYED=false\n  FRONTEND_URL=\"\"\nelse\n  echo \"Storage Account: $STORAGE_ACCOUNT\"\n\n  # Get storage account key\n  echo \"Getting storage account key...\"\n  ACCOUNT_KEY=$(az storage account keys list --account-name $STORAGE_ACCOUNT --resource-group $RESOURCE_GROUP --query \"[0].value\" -o tsv 2>/dev/null)\n\n  if [ -z \"$ACCOUNT_KEY\" ]; then\n    echo \"ERROR: Could not get storage account key\"\n    FRONTEND_DEPLOYED=false\n    FRONTEND_URL=\"\"\n  else\n    # Enable static website on storage account\n    echo \"Enabling static website on storage account...\"\n    az storage blob service-properties update \\\n      --account-name $STORAGE_ACCOUNT \\\n      --account-key \"$ACCOUNT_KEY\" \\\n      --static-website \\\n      --index-document index.html \\\n      --404-document index.html \\\n      --only-show-errors\n\n    echo \"    Static website enabled\"\n\n    # Get the static website URL\n    FRONTEND_URL=$(az storage account show \\\n      --name $STORAGE_ACCOUNT \\\n      --resource-group $RESOURCE_GROUP \\\n      --query \"primaryEndpoints.web\" -o tsv 2>/dev/null | sed 's:/*$::')\n\n    echo \"    Static Website URL: $FRONTEND_URL\"\n\n    # Extract frontend.zip\n    echo \"Extracting frontend.zip...\"\n    mkdir -p frontend_dist\n    unzip -q frontend.zip -d frontend_dist\n\n    # Determine auth mode based on client ID availability\n    if [ -n \"$AZURE_AD_CLIENT_ID\" ] && [ \"$AZURE_AD_CLIENT_ID\" != \"\" ]; then\n      AUTH_MODE=\"azure\"\n\n      # Clean up mock users from Table Storage to allow real \"first run\"\n      # This prevents the dev-user from blocking real Azure AD users\n      echo \"    Cleaning up mock users from Table Storage...\"\n\n      # Delete mock dev user if exists (RowKey = dev-user-00000000-0000-0000-0000-000000000000)\n      az storage entity delete \\\n        --account-name $STORAGE_ACCOUNT \\\n        --account-key \"$ACCOUNT_KEY\" \\\n        --table-name users \\\n        --partition-key \"users\" \\\n        --row-key \"dev-user-00000000-0000-0000-0000-000000000000\" \\\n        2>/dev/null || true\n\n      echo \"    Mock users cleaned up (first login will be admin)\"\n    else\n      AUTH_MODE=\"mock\"\n    fi\n\n    # Generate config.json with runtime configuration\n    echo \"Generating config.json for runtime configuration...\"\n    cat > frontend_dist/config.json << CONFIGEOF\n{\n  \"apiUrl\": \"$API_BASE_URL\",\n  \"azureClientId\": \"$AZURE_AD_CLIENT_ID\",\n  \"azureTenantId\": \"$AZURE_AD_TENANT_ID\",\n  \"azureRedirectUri\": \"$FRONTEND_URL\",\n  \"authMode\": \"$AUTH_MODE\"\n}\nCONFIGEOF\n\n    echo \"    config.json created:\"\n    cat frontend_dist/config.json\n    echo \"\"\n\n    # Upload all files to $web container using batch upload\n    echo \"Uploading frontend files to \\$web container...\"\n\n    az storage blob upload-batch \\\n      --account-name $STORAGE_ACCOUNT \\\n      --account-key \"$ACCOUNT_KEY\" \\\n      --destination '$web' \\\n      --source frontend_dist \\\n      --overwrite \\\n      --only-show-errors 2>/dev/null\n\n    echo \"    Frontend files uploaded successfully!\"\n    FRONTEND_DEPLOYED=true\n  fi\nfi\n\necho \"\"\n\n# ========================================\n# Deploy Function Apps (with retry)\n# ========================================\necho \"==========================================\"\necho \"Deploying Function Apps...\"\necho \"==========================================\"\n\necho \"\"\nIS_FLEX_LOWER=$(echo \"$IS_FLEX_CONSUMPTION\" | tr '[:upper:]' '[:lower:]')\necho \"Deployment mode: $([ \"$IS_FLEX_LOWER\" == \"true\" ] && echo \"Flex Consumption (config-zip + restart)\" || echo \"Standard (config-zip --build-remote)\")\"\necho \"\"\n\necho \"[1/3] Deploying API Function App: $API_FUNCTION_APP_NAME\"\nif ! deploy_function_app $API_FUNCTION_APP_NAME api.zip; then\n  echo '{\"status\": \"failed\", \"error\": \"Failed to deploy API Function App\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\n\necho \"\"\necho \"[2/3] Deploying Scheduler Function App: $SCHEDULER_FUNCTION_APP_NAME\"\nif ! deploy_function_app $SCHEDULER_FUNCTION_APP_NAME scheduler.zip; then\n  echo '{\"status\": \"failed\", \"error\": \"Failed to deploy Scheduler Function App\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\n\necho \"\"\necho \"[3/3] Deploying Processor Function App: $PROCESSOR_FUNCTION_APP_NAME\"\nif ! deploy_function_app $PROCESSOR_FUNCTION_APP_NAME processor.zip; then\n  echo '{\"status\": \"failed\", \"error\": \"Failed to deploy Processor Function App\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\n\n# Get API URL for output\nAPI_URL=$(az functionapp show \\\n  --name $API_FUNCTION_APP_NAME \\\n  --resource-group $RESOURCE_GROUP \\\n  --query \"defaultHostName\" -o tsv 2>/dev/null || echo \"\")\n\n# ========================================\n# Configure CORS for API Function App\n# ========================================\nif [ -n \"$FRONTEND_URL\" ]; then\n  echo \"\"\n  echo \"==========================================\"\n  echo \"Configuring CORS...\"\n  echo \"==========================================\"\n\n  # Add specific frontend URL to CORS (required for credentials)\n  az functionapp cors add \\\n    --name $API_FUNCTION_APP_NAME \\\n    --resource-group $RESOURCE_GROUP \\\n    --allowed-origins \"$FRONTEND_URL\" \\\n    -o none 2>/dev/null && echo \"  ✅ CORS configured for $FRONTEND_URL\" || echo \"  ⚠️ CORS may already be configured\"\nfi\n\necho \"\"\necho \"==========================================\"\necho \"DEPLOYMENT COMPLETE\"\necho \"==========================================\"\necho \"\"\necho \"All components deployed successfully!\"\necho \"\"\necho \"URLs:\"\necho \"  Frontend: $FRONTEND_URL\"\necho \"  API:      https://$API_URL\"\necho \"\"\n\nif [ \"$FRONTEND_DEPLOYED\" != true ]; then\n  echo \"NOTE: Frontend deployment failed.\"\n  echo \"Check the storage account permissions and try again.\"\n  echo \"\"\nfi\n\n# Output results\ncat > $AZ_SCRIPTS_OUTPUT_PATH << EOF\n{\n  \"status\": \"success\",\n  \"version\": \"$VERSION\",\n  \"frontendDeployed\": $FRONTEND_DEPLOYED,\n  \"functionAppsDeployed\": true,\n  \"apiUrl\": \"https://$API_URL\",\n  \"frontendUrl\": \"$FRONTEND_URL\"\n}\nEOF\n    "
+                "scriptContent": "#!/bin/bash\nset -e\n\necho \"==========================================\"\necho \"Deploying Dilux Database Backup\"\necho \"==========================================\"\n\n# Function to upload ZIP to blob storage for OneDeploy (FC1 only)\n# OneDeploy is the ONLY supported deployment method for Flex Consumption\n# This function uploads the ZIP; the actual deployment is done via Bicep OneDeploy extension\nupload_package_for_onedeploy() {\n  local app_type=$1\n  local zip_file=$2\n\n  echo \"    [FC1] Uploading $zip_file to function-packages container...\"\n\n  az storage blob upload \\\n    --account-name $STORAGE_ACCOUNT_NAME \\\n    --container-name function-packages \\\n    --name \"${app_type}.zip\" \\\n    --file $zip_file \\\n    --overwrite \\\n    --auth-mode login \\\n    --only-show-errors\n\n  if [ $? -eq 0 ]; then\n    echo \"    [FC1] Uploaded ${app_type}.zip successfully\"\n    return 0\n  else\n    echo \"    [FC1] ERROR: Failed to upload ${app_type}.zip\"\n    return 1\n  fi\n}\n\n# Function to deploy with remote build (for Y1/EP* plans)\ndeploy_with_remote_build() {\n  local app_name=$1\n  local zip_file=$2\n  local max_attempts=5\n  local attempt=1\n  local wait_time=30\n\n  # Enable remote build settings\n  echo \"    Configuring remote build...\"\n  az functionapp config appsettings set \\\n    --name $app_name \\\n    --resource-group $RESOURCE_GROUP \\\n    --settings \"SCM_DO_BUILD_DURING_DEPLOYMENT=true\" \"ENABLE_ORYX_BUILD=true\" \\\n    -o none 2>&1 || true\n\n  while [ $attempt -le $max_attempts ]; do\n    echo \"    Attempt $attempt of $max_attempts (with remote build)...\"\n\n    # Use --build-remote true to install dependencies on Azure\n    if az functionapp deployment source config-zip \\\n      --resource-group $RESOURCE_GROUP \\\n      --name $app_name \\\n      --src $zip_file \\\n      --build-remote true \\\n      --timeout 600 2>&1; then\n      echo \"    Success! (dependencies installed via remote build)\"\n      return 0\n    fi\n\n    if [ $attempt -lt $max_attempts ]; then\n      echo \"    Failed. Waiting ${wait_time}s for RBAC propagation...\"\n      sleep $wait_time\n      wait_time=$((wait_time + 30))\n    fi\n\n    attempt=$((attempt + 1))\n  done\n\n  echo \"    ERROR: Failed after $max_attempts attempts\"\n  return 1\n}\n\n# Function to deploy Function App (for Y1/EP* plans only)\n# FC1 uses OneDeploy via Bicep, not this function\ndeploy_function_app() {\n  local app_name=$1\n  local zip_file=$2\n\n  deploy_with_remote_build $app_name $zip_file\n}\n\n# Resolve \"latest\" to actual version tag using GitHub API\nif [ \"$VERSION\" == \"latest\" ]; then\n  echo \"Resolving latest release from GitHub...\"\n\n  RELEASE_INFO=$(curl -s \"https://api.github.com/repos/$GITHUB_REPO/releases/latest\")\n  RESOLVED_VERSION=$(echo \"$RELEASE_INFO\" | grep '\"tag_name\"' | head -1 | sed -E 's/.*\"tag_name\": *\"([^\"]+)\".*/\\1/')\n\n  if [ -z \"$RESOLVED_VERSION\" ] || [ \"$RESOLVED_VERSION\" == \"null\" ]; then\n    echo \"ERROR: Could not resolve latest release\"\n    echo \"Make sure the repository has at least one published release.\"\n    echo '{\"status\": \"failed\", \"error\": \"No releases found\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n    exit 1\n  fi\n\n  echo \"Resolved latest to: $RESOLVED_VERSION\"\n  VERSION=$RESOLVED_VERSION\nfi\n\necho \"Version: $VERSION\"\necho \"Repository: $GITHUB_REPO\"\necho \"==========================================\"\n\n# Base URL for release assets\nRELEASE_URL=\"https://github.com/$GITHUB_REPO/releases/download/$VERSION\"\n\necho \"\"\necho \"Downloading pre-built release assets from:\"\necho \"$RELEASE_URL\"\necho \"\"\n\n# Download all ZIPs (frontend + 3 Function Apps)\necho \"[1/4] Downloading frontend.zip...\"\nif ! curl -L -f -s -o frontend.zip \"$RELEASE_URL/frontend.zip\"; then\n  echo \"ERROR: Could not download frontend.zip\"\n  echo \"URL: $RELEASE_URL/frontend.zip\"\n  echo \"\"\n  echo \"Make sure:\"\n  echo \"1. The release $VERSION exists\"\n  echo \"2. The release has frontend.zip, api.zip, scheduler.zip, processor.zip assets\"\n  echo \"3. Run the Build Release Assets GitHub Action first\"\n  echo \"\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download frontend.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded frontend.zip\"\n\necho \"[2/4] Downloading api.zip...\"\nif ! curl -L -f -s -o api.zip \"$RELEASE_URL/api.zip\"; then\n  echo \"ERROR: Could not download api.zip\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download api.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded api.zip\"\n\necho \"[3/4] Downloading scheduler.zip...\"\nif ! curl -L -f -s -o scheduler.zip \"$RELEASE_URL/scheduler.zip\"; then\n  echo \"ERROR: Could not download scheduler.zip\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download scheduler.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded scheduler.zip\"\n\necho \"[4/4] Downloading processor.zip...\"\nif ! curl -L -f -s -o processor.zip \"$RELEASE_URL/processor.zip\"; then\n  echo \"ERROR: Could not download processor.zip\"\n  echo '{\"status\": \"failed\", \"error\": \"Could not download processor.zip\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n  exit 1\nfi\necho \"    Downloaded processor.zip\"\n\necho \"\"\necho \"All assets downloaded successfully:\"\nls -lh *.zip\necho \"\"\n\n# ========================================\n# Wait for RBAC propagation\n# ========================================\necho \"==========================================\"\necho \"Waiting for RBAC permissions to propagate...\"\necho \"==========================================\"\necho \"(Azure AD role assignments can take up to 1 minute to propagate)\"\nsleep 60\necho \"Waited 60 seconds.\"\necho \"Starting deployment...\"\necho \"\"\n\n# ========================================\n# Deploy Frontend to Blob Storage Static Website\n# ========================================\necho \"==========================================\"\necho \"Deploying Frontend to Blob Storage Static Website...\"\necho \"==========================================\"\necho \"\"\n\n# Get storage account\nif [ -n \"$STORAGE_ACCOUNT_NAME\" ]; then\n  STORAGE_ACCOUNT=\"$STORAGE_ACCOUNT_NAME\"\nelse\n  STORAGE_ACCOUNT=$(az storage account list --resource-group $RESOURCE_GROUP --query \"[0].name\" -o tsv 2>/dev/null || echo \"\")\nfi\n\nif [ -z \"$STORAGE_ACCOUNT\" ]; then\n  echo \"ERROR: Could not find storage account\"\n  FRONTEND_DEPLOYED=false\n  FRONTEND_URL=\"\"\nelse\n  echo \"Storage Account: $STORAGE_ACCOUNT\"\n\n  # Get storage account key\n  echo \"Getting storage account key...\"\n  ACCOUNT_KEY=$(az storage account keys list --account-name $STORAGE_ACCOUNT --resource-group $RESOURCE_GROUP --query \"[0].value\" -o tsv 2>/dev/null)\n\n  if [ -z \"$ACCOUNT_KEY\" ]; then\n    echo \"ERROR: Could not get storage account key\"\n    FRONTEND_DEPLOYED=false\n    FRONTEND_URL=\"\"\n  else\n    # Enable static website on storage account\n    echo \"Enabling static website on storage account...\"\n    az storage blob service-properties update \\\n      --account-name $STORAGE_ACCOUNT \\\n      --account-key \"$ACCOUNT_KEY\" \\\n      --static-website \\\n      --index-document index.html \\\n      --404-document index.html \\\n      --only-show-errors\n\n    echo \"    Static website enabled\"\n\n    # Get the static website URL\n    FRONTEND_URL=$(az storage account show \\\n      --name $STORAGE_ACCOUNT \\\n      --resource-group $RESOURCE_GROUP \\\n      --query \"primaryEndpoints.web\" -o tsv 2>/dev/null | sed 's:/*$::')\n\n    echo \"    Static Website URL: $FRONTEND_URL\"\n\n    # Extract frontend.zip\n    echo \"Extracting frontend.zip...\"\n    mkdir -p frontend_dist\n    unzip -q frontend.zip -d frontend_dist\n\n    # Determine auth mode based on client ID availability\n    if [ -n \"$AZURE_AD_CLIENT_ID\" ] && [ \"$AZURE_AD_CLIENT_ID\" != \"\" ]; then\n      AUTH_MODE=\"azure\"\n\n      # Clean up mock users from Table Storage to allow real \"first run\"\n      # This prevents the dev-user from blocking real Azure AD users\n      echo \"    Cleaning up mock users from Table Storage...\"\n\n      # Delete mock dev user if exists (RowKey = dev-user-00000000-0000-0000-0000-000000000000)\n      az storage entity delete \\\n        --account-name $STORAGE_ACCOUNT \\\n        --account-key \"$ACCOUNT_KEY\" \\\n        --table-name users \\\n        --partition-key \"users\" \\\n        --row-key \"dev-user-00000000-0000-0000-0000-000000000000\" \\\n        2>/dev/null || true\n\n      echo \"    Mock users cleaned up (first login will be admin)\"\n    else\n      AUTH_MODE=\"mock\"\n    fi\n\n    # Generate config.json with runtime configuration\n    echo \"Generating config.json for runtime configuration...\"\n    cat > frontend_dist/config.json << CONFIGEOF\n{\n  \"apiUrl\": \"$API_BASE_URL\",\n  \"azureClientId\": \"$AZURE_AD_CLIENT_ID\",\n  \"azureTenantId\": \"$AZURE_AD_TENANT_ID\",\n  \"azureRedirectUri\": \"$FRONTEND_URL\",\n  \"authMode\": \"$AUTH_MODE\"\n}\nCONFIGEOF\n\n    echo \"    config.json created:\"\n    cat frontend_dist/config.json\n    echo \"\"\n\n    # Upload all files to $web container using batch upload\n    echo \"Uploading frontend files to \\$web container...\"\n\n    az storage blob upload-batch \\\n      --account-name $STORAGE_ACCOUNT \\\n      --account-key \"$ACCOUNT_KEY\" \\\n      --destination '$web' \\\n      --source frontend_dist \\\n      --overwrite \\\n      --only-show-errors 2>/dev/null\n\n    echo \"    Frontend files uploaded successfully!\"\n    FRONTEND_DEPLOYED=true\n  fi\nfi\n\necho \"\"\n\n# ========================================\n# Deploy Function Apps\n# ========================================\necho \"==========================================\"\necho \"Deploying Function Apps...\"\necho \"==========================================\"\n\necho \"\"\nIS_FLEX_LOWER=$(echo \"$IS_FLEX_CONSUMPTION\" | tr '[:upper:]' '[:lower:]')\n\n# Get API URL for output (used in both paths)\nAPI_URL=$(az functionapp show \\\n  --name $API_FUNCTION_APP_NAME \\\n  --resource-group $RESOURCE_GROUP \\\n  --query \"defaultHostName\" -o tsv 2>/dev/null || echo \"\")\n\nif [ \"$IS_FLEX_LOWER\" == \"true\" ]; then\n  # ========================================\n  # FC1: Upload ZIPs for OneDeploy (Bicep handles actual deployment)\n  # ========================================\n  echo \"Deployment mode: Flex Consumption (OneDeploy via Bicep)\"\n  echo \"\"\n  echo \"Uploading packages to blob storage for OneDeploy...\"\n  echo \"(Bicep OneDeploy modules will handle the actual deployment with remote build)\"\n  echo \"\"\n\n  echo \"[1/3] Uploading API package...\"\n  if ! upload_package_for_onedeploy \"api\" api.zip; then\n    echo '{\"status\": \"failed\", \"error\": \"Failed to upload API package\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n    exit 1\n  fi\n\n  echo \"\"\n  echo \"[2/3] Uploading Scheduler package...\"\n  if ! upload_package_for_onedeploy \"scheduler\" scheduler.zip; then\n    echo '{\"status\": \"failed\", \"error\": \"Failed to upload Scheduler package\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n    exit 1\n  fi\n\n  echo \"\"\n  echo \"[3/3] Uploading Processor package...\"\n  if ! upload_package_for_onedeploy \"processor\" processor.zip; then\n    echo '{\"status\": \"failed\", \"error\": \"Failed to upload Processor package\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n    exit 1\n  fi\n\n  echo \"\"\n  echo \"All packages uploaded. OneDeploy will be triggered by Bicep after this script completes.\"\n  FUNCTION_APPS_DEPLOYED=false\nelse\n  # ========================================\n  # Y1/EP*: Deploy directly via config-zip with remote build\n  # ========================================\n  echo \"Deployment mode: Standard (config-zip --build-remote)\"\n  echo \"\"\n\n  echo \"[1/3] Deploying API Function App: $API_FUNCTION_APP_NAME\"\n  if ! deploy_function_app $API_FUNCTION_APP_NAME api.zip; then\n    echo '{\"status\": \"failed\", \"error\": \"Failed to deploy API Function App\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n    exit 1\n  fi\n\n  echo \"\"\n  echo \"[2/3] Deploying Scheduler Function App: $SCHEDULER_FUNCTION_APP_NAME\"\n  if ! deploy_function_app $SCHEDULER_FUNCTION_APP_NAME scheduler.zip; then\n    echo '{\"status\": \"failed\", \"error\": \"Failed to deploy Scheduler Function App\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n    exit 1\n  fi\n\n  echo \"\"\n  echo \"[3/3] Deploying Processor Function App: $PROCESSOR_FUNCTION_APP_NAME\"\n  if ! deploy_function_app $PROCESSOR_FUNCTION_APP_NAME processor.zip; then\n    echo '{\"status\": \"failed\", \"error\": \"Failed to deploy Processor Function App\"}' > $AZ_SCRIPTS_OUTPUT_PATH\n    exit 1\n  fi\n\n  FUNCTION_APPS_DEPLOYED=true\nfi\n\n# ========================================\n# Configure CORS for API Function App\n# ========================================\nif [ -n \"$FRONTEND_URL\" ]; then\n  echo \"\"\n  echo \"==========================================\"\n  echo \"Configuring CORS...\"\n  echo \"==========================================\"\n\n  # Add specific frontend URL to CORS (required for credentials)\n  az functionapp cors add \\\n    --name $API_FUNCTION_APP_NAME \\\n    --resource-group $RESOURCE_GROUP \\\n    --allowed-origins \"$FRONTEND_URL\" \\\n    -o none 2>/dev/null && echo \"    CORS configured for $FRONTEND_URL\" || echo \"    CORS may already be configured\"\nfi\n\necho \"\"\necho \"==========================================\"\necho \"SCRIPT COMPLETE\"\necho \"==========================================\"\necho \"\"\n\nif [ \"$IS_FLEX_LOWER\" == \"true\" ]; then\n  echo \"FC1 packages uploaded successfully!\"\n  echo \"OneDeploy will now deploy the Function Apps via Bicep...\"\n  echo \"\"\n  echo \"URLs (will be available after OneDeploy completes):\"\nelse\n  echo \"All components deployed successfully!\"\n  echo \"\"\n  echo \"URLs:\"\nfi\necho \"  Frontend: $FRONTEND_URL\"\necho \"  API:      https://$API_URL\"\necho \"\"\n\nif [ \"$FRONTEND_DEPLOYED\" != true ]; then\n  echo \"NOTE: Frontend deployment failed.\"\n  echo \"Check the storage account permissions and try again.\"\n  echo \"\"\nfi\n\n# Output results with package URLs for FC1\nif [ \"$IS_FLEX_LOWER\" == \"true\" ]; then\n  cat > $AZ_SCRIPTS_OUTPUT_PATH << EOF\n{\n  \"status\": \"success\",\n  \"version\": \"$VERSION\",\n  \"frontendDeployed\": $FRONTEND_DEPLOYED,\n  \"functionPackagesUploaded\": true,\n  \"apiPackageUrl\": \"${STORAGE_BLOB_ENDPOINT}function-packages/api.zip\",\n  \"schedulerPackageUrl\": \"${STORAGE_BLOB_ENDPOINT}function-packages/scheduler.zip\",\n  \"processorPackageUrl\": \"${STORAGE_BLOB_ENDPOINT}function-packages/processor.zip\",\n  \"apiUrl\": \"https://$API_URL\",\n  \"frontendUrl\": \"$FRONTEND_URL\"\n}\nEOF\nelse\n  cat > $AZ_SCRIPTS_OUTPUT_PATH << EOF\n{\n  \"status\": \"success\",\n  \"version\": \"$VERSION\",\n  \"frontendDeployed\": $FRONTEND_DEPLOYED,\n  \"functionAppsDeployed\": true,\n  \"apiUrl\": \"https://$API_URL\",\n  \"frontendUrl\": \"$FRONTEND_URL\"\n}\nEOF\nfi\n    "
               }
             }
           ],
@@ -3029,6 +3041,234 @@
         "[resourceId('Microsoft.Resources/deployments', 'functionapp-scheduler-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'rbac-all-assignments')]",
         "[resourceId('Microsoft.Resources/deployments', 'rbac-deployment-contributor')]",
+        "[resourceId('Microsoft.Resources/deployments', 'storage-deployment')]"
+      ]
+    },
+    {
+      "condition": "[variables('isFlexConsumption')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-api-code",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "functionAppName": {
+            "value": "[variables('functionAppApiName')]"
+          },
+          "packageUri": {
+            "value": "[format('{0}function-packages/api.zip', reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.blobEndpoint.value)]"
+          },
+          "remoteBuild": {
+            "value": true
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "16945624681606733019"
+            }
+          },
+          "parameters": {
+            "functionAppName": {
+              "type": "string",
+              "metadata": {
+                "description": "Function App name"
+              }
+            },
+            "packageUri": {
+              "type": "string",
+              "metadata": {
+                "description": "Package URI (blob URL with SAS token or accessible via managed identity)"
+              }
+            },
+            "remoteBuild": {
+              "type": "bool",
+              "defaultValue": true,
+              "metadata": {
+                "description": "Enable remote build (required for Python)"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Web/sites/extensions",
+              "apiVersion": "2022-09-01",
+              "name": "[format('{0}/{1}', parameters('functionAppName'), 'onedeploy')]",
+              "properties": {
+                "packageUri": "[parameters('packageUri')]",
+                "remoteBuild": "[parameters('remoteBuild')]"
+              }
+            }
+          ],
+          "outputs": {
+            "deploymentStatus": {
+              "type": "string",
+              "value": "[format('OneDeploy initiated for {0}', parameters('functionAppName'))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'code-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'storage-deployment')]"
+      ]
+    },
+    {
+      "condition": "[variables('isFlexConsumption')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-scheduler-code",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "functionAppName": {
+            "value": "[variables('functionAppSchedulerName')]"
+          },
+          "packageUri": {
+            "value": "[format('{0}function-packages/scheduler.zip', reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.blobEndpoint.value)]"
+          },
+          "remoteBuild": {
+            "value": true
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "16945624681606733019"
+            }
+          },
+          "parameters": {
+            "functionAppName": {
+              "type": "string",
+              "metadata": {
+                "description": "Function App name"
+              }
+            },
+            "packageUri": {
+              "type": "string",
+              "metadata": {
+                "description": "Package URI (blob URL with SAS token or accessible via managed identity)"
+              }
+            },
+            "remoteBuild": {
+              "type": "bool",
+              "defaultValue": true,
+              "metadata": {
+                "description": "Enable remote build (required for Python)"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Web/sites/extensions",
+              "apiVersion": "2022-09-01",
+              "name": "[format('{0}/{1}', parameters('functionAppName'), 'onedeploy')]",
+              "properties": {
+                "packageUri": "[parameters('packageUri')]",
+                "remoteBuild": "[parameters('remoteBuild')]"
+              }
+            }
+          ],
+          "outputs": {
+            "deploymentStatus": {
+              "type": "string",
+              "value": "[format('OneDeploy initiated for {0}', parameters('functionAppName'))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'code-deployment')]",
+        "[resourceId('Microsoft.Resources/deployments', 'storage-deployment')]"
+      ]
+    },
+    {
+      "condition": "[variables('isFlexConsumption')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-processor-code",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "functionAppName": {
+            "value": "[variables('functionAppProcessorName')]"
+          },
+          "packageUri": {
+            "value": "[format('{0}function-packages/processor.zip', reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.blobEndpoint.value)]"
+          },
+          "remoteBuild": {
+            "value": true
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "16945624681606733019"
+            }
+          },
+          "parameters": {
+            "functionAppName": {
+              "type": "string",
+              "metadata": {
+                "description": "Function App name"
+              }
+            },
+            "packageUri": {
+              "type": "string",
+              "metadata": {
+                "description": "Package URI (blob URL with SAS token or accessible via managed identity)"
+              }
+            },
+            "remoteBuild": {
+              "type": "bool",
+              "defaultValue": true,
+              "metadata": {
+                "description": "Enable remote build (required for Python)"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Web/sites/extensions",
+              "apiVersion": "2022-09-01",
+              "name": "[format('{0}/{1}', parameters('functionAppName'), 'onedeploy')]",
+              "properties": {
+                "packageUri": "[parameters('packageUri')]",
+                "remoteBuild": "[parameters('remoteBuild')]"
+              }
+            }
+          ],
+          "outputs": {
+            "deploymentStatus": {
+              "type": "string",
+              "value": "[format('OneDeploy initiated for {0}', parameters('functionAppName'))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'code-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'storage-deployment')]"
       ]
     }

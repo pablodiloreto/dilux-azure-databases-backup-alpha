@@ -359,6 +359,43 @@ module codeDeployment 'modules/code-deployment.bicep' = {
 }
 
 // ============================================================================
+// Step 7: OneDeploy for Flex Consumption (FC1)
+// ============================================================================
+// For FC1, the deployment script only uploads ZIPs to blob storage.
+// OneDeploy modules handle the actual deployment with remote build.
+// This is the ONLY supported deployment method for Flex Consumption.
+
+module deployApiCode 'modules/function-deploy.bicep' = if (isFlexConsumption) {
+  name: 'deploy-api-code'
+  dependsOn: [codeDeployment]
+  params: {
+    functionAppName: functionAppApiName
+    packageUri: '${storage.outputs.blobEndpoint}function-packages/api.zip'
+    remoteBuild: true
+  }
+}
+
+module deploySchedulerCode 'modules/function-deploy.bicep' = if (isFlexConsumption) {
+  name: 'deploy-scheduler-code'
+  dependsOn: [codeDeployment]
+  params: {
+    functionAppName: functionAppSchedulerName
+    packageUri: '${storage.outputs.blobEndpoint}function-packages/scheduler.zip'
+    remoteBuild: true
+  }
+}
+
+module deployProcessorCode 'modules/function-deploy.bicep' = if (isFlexConsumption) {
+  name: 'deploy-processor-code'
+  dependsOn: [codeDeployment]
+  params: {
+    functionAppName: functionAppProcessorName
+    packageUri: '${storage.outputs.blobEndpoint}function-packages/processor.zip'
+    remoteBuild: true
+  }
+}
+
+// ============================================================================
 // Outputs
 // ============================================================================
 

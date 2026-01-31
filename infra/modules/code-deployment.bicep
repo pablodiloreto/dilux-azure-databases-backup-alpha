@@ -104,98 +104,31 @@ echo "=========================================="
 echo "Deploying Dilux Database Backup"
 echo "=========================================="
 
-# Function to wait for SCM endpoint to be ready
-wait_for_scm() {
-  local app_name=$1
-  local max_wait=300  # 5 minutes max
-  local waited=0
-  local interval=15
-
-  echo "    [FC1] Waiting for SCM endpoint to be ready..."
-  while [ $waited -lt $max_wait ]; do
-    # Try to get SCM credentials - if it works, SCM is ready
-    if az functionapp deployment list-publishing-credentials \
-      --name $app_name \
-      --resource-group $RESOURCE_GROUP \
-      --query "scmUri" -o tsv 2>/dev/null | grep -q "scm"; then
-      echo "    [FC1] SCM endpoint is ready!"
-      return 0
-    fi
-    echo "    [FC1] SCM not ready, waiting ${interval}s... (${waited}s/${max_wait}s)"
-    sleep $interval
-    waited=$((waited + interval))
-  done
-  echo "    [FC1] Warning: SCM endpoint check timed out, proceeding anyway..."
-  return 0
-}
-
-# Function to deploy to Flex Consumption (FC1)
-# FC1 does NOT support SCM_DO_BUILD_DURING_DEPLOYMENT setting (neither true nor false)
-# The fix is: delete the setting, restart, wait, then deploy WITHOUT --build-remote flag
-deploy_flex_consumption() {
-  local app_name=$1
+# Function to upload ZIP to blob storage for OneDeploy (FC1 only)
+# OneDeploy is the ONLY supported deployment method for Flex Consumption
+# This function uploads the ZIP; the actual deployment is done via Bicep OneDeploy extension
+upload_package_for_onedeploy() {
+  local app_type=$1
   local zip_file=$2
-  local max_attempts=5
-  local attempt=1
-  local wait_time=30
 
-  echo "    [FC1] Deploying via config-zip..."
+  echo "    [FC1] Uploading $zip_file to function-packages container..."
 
-  # Wait for SCM endpoint to be ready (FC1 takes time to initialize)
-  wait_for_scm $app_name
+  az storage blob upload \
+    --account-name $STORAGE_ACCOUNT_NAME \
+    --container-name function-packages \
+    --name "${app_type}.zip" \
+    --file $zip_file \
+    --overwrite \
+    --auth-mode login \
+    --only-show-errors
 
-  # CRITICAL: Delete SCM_DO_BUILD_DURING_DEPLOYMENT and ENABLE_ORYX_BUILD settings
-  # These settings are NOT supported by FC1 and cause deployment failures
-  echo "    [FC1] Removing incompatible settings..."
-  az functionapp config appsettings delete \
-    --name $app_name \
-    --resource-group $RESOURCE_GROUP \
-    --setting-names SCM_DO_BUILD_DURING_DEPLOYMENT ENABLE_ORYX_BUILD \
-    --only-show-errors \
-    -o none 2>/dev/null || true
-
-  # Restart to clear any cached deployment state
-  echo "    [FC1] Restarting Function App..."
-  az functionapp restart \
-    --name $app_name \
-    --resource-group $RESOURCE_GROUP \
-    --only-show-errors 2>/dev/null || true
-
-  echo "    [FC1] Waiting 30s for restart to complete..."
-  sleep 30
-
-  while [ $attempt -le $max_attempts ]; do
-    echo "    [FC1] Attempt $attempt of $max_attempts..."
-
-    # IMPORTANT: Do NOT use --build-remote flag at all (neither true nor false)
-    # FC1 handles remote build automatically without the flag
-    if az functionapp deployment source config-zip \
-      --resource-group $RESOURCE_GROUP \
-      --name $app_name \
-      --src $zip_file \
-      --timeout 600 2>&1; then
-      echo "    [FC1] Success!"
-      return 0
-    fi
-
-    if [ $attempt -lt $max_attempts ]; then
-      echo "    [FC1] Failed. Cleaning settings and waiting ${wait_time}s before retry..."
-      az functionapp config appsettings delete \
-        --name $app_name \
-        --resource-group $RESOURCE_GROUP \
-        --setting-names SCM_DO_BUILD_DURING_DEPLOYMENT ENABLE_ORYX_BUILD \
-        --only-show-errors \
-        -o none 2>/dev/null || true
-      az functionapp restart --name $app_name --resource-group $RESOURCE_GROUP --only-show-errors 2>/dev/null || true
-      sleep $wait_time
-      wait_time=$((wait_time + 30))
-    fi
-
-    attempt=$((attempt + 1))
-  done
-
-  echo "    [FC1] ERROR: Failed after $max_attempts attempts"
-  return 1
+  if [ $? -eq 0 ]; then
+    echo "    [FC1] Uploaded ${app_type}.zip successfully"
+    return 0
+  else
+    echo "    [FC1] ERROR: Failed to upload ${app_type}.zip"
+    return 1
+  fi
 }
 
 # Function to deploy with remote build (for Y1/EP* plans)
@@ -241,19 +174,13 @@ deploy_with_remote_build() {
   return 1
 }
 
-# Function to deploy Function App (auto-detects plan type)
+# Function to deploy Function App (for Y1/EP* plans only)
+# FC1 uses OneDeploy via Bicep, not this function
 deploy_function_app() {
   local app_name=$1
   local zip_file=$2
 
-  # Bicep string(true) returns "True" (capital T), so compare case-insensitive
-  local is_flex=$(echo "$IS_FLEX_CONSUMPTION" | tr '[:upper:]' '[:lower:]')
-
-  if [ "$is_flex" == "true" ]; then
-    deploy_flex_consumption $app_name $zip_file
-  else
-    deploy_with_remote_build $app_name $zip_file
-  fi
+  deploy_with_remote_build $app_name $zip_file
 }
 
 # Resolve "latest" to actual version tag using GitHub API
@@ -337,16 +264,9 @@ echo ""
 echo "=========================================="
 echo "Waiting for RBAC permissions to propagate..."
 echo "=========================================="
-IS_FLEX_LOWER=$(echo "$IS_FLEX_CONSUMPTION" | tr '[:upper:]' '[:lower:]')
-if [ "$IS_FLEX_LOWER" == "true" ]; then
-  echo "(FC1: SCM endpoint needs extra time to initialize - waiting 3 minutes)"
-  sleep 180
-  echo "Waited 180 seconds."
-else
-  echo "(Azure AD role assignments can take up to 1 minute to propagate)"
-  sleep 60
-  echo "Waited 60 seconds."
-fi
+echo "(Azure AD role assignments can take up to 1 minute to propagate)"
+sleep 60
+echo "Waited 60 seconds."
 echo "Starting deployment..."
 echo ""
 
@@ -463,7 +383,7 @@ fi
 echo ""
 
 # ========================================
-# Deploy Function Apps (with retry)
+# Deploy Function Apps
 # ========================================
 echo "=========================================="
 echo "Deploying Function Apps..."
@@ -471,34 +391,75 @@ echo "=========================================="
 
 echo ""
 IS_FLEX_LOWER=$(echo "$IS_FLEX_CONSUMPTION" | tr '[:upper:]' '[:lower:]')
-echo "Deployment mode: $([ "$IS_FLEX_LOWER" == "true" ] && echo "Flex Consumption (config-zip + restart)" || echo "Standard (config-zip --build-remote)")"
-echo ""
 
-echo "[1/3] Deploying API Function App: $API_FUNCTION_APP_NAME"
-if ! deploy_function_app $API_FUNCTION_APP_NAME api.zip; then
-  echo '{"status": "failed", "error": "Failed to deploy API Function App"}' > $AZ_SCRIPTS_OUTPUT_PATH
-  exit 1
-fi
-
-echo ""
-echo "[2/3] Deploying Scheduler Function App: $SCHEDULER_FUNCTION_APP_NAME"
-if ! deploy_function_app $SCHEDULER_FUNCTION_APP_NAME scheduler.zip; then
-  echo '{"status": "failed", "error": "Failed to deploy Scheduler Function App"}' > $AZ_SCRIPTS_OUTPUT_PATH
-  exit 1
-fi
-
-echo ""
-echo "[3/3] Deploying Processor Function App: $PROCESSOR_FUNCTION_APP_NAME"
-if ! deploy_function_app $PROCESSOR_FUNCTION_APP_NAME processor.zip; then
-  echo '{"status": "failed", "error": "Failed to deploy Processor Function App"}' > $AZ_SCRIPTS_OUTPUT_PATH
-  exit 1
-fi
-
-# Get API URL for output
+# Get API URL for output (used in both paths)
 API_URL=$(az functionapp show \
   --name $API_FUNCTION_APP_NAME \
   --resource-group $RESOURCE_GROUP \
   --query "defaultHostName" -o tsv 2>/dev/null || echo "")
+
+if [ "$IS_FLEX_LOWER" == "true" ]; then
+  # ========================================
+  # FC1: Upload ZIPs for OneDeploy (Bicep handles actual deployment)
+  # ========================================
+  echo "Deployment mode: Flex Consumption (OneDeploy via Bicep)"
+  echo ""
+  echo "Uploading packages to blob storage for OneDeploy..."
+  echo "(Bicep OneDeploy modules will handle the actual deployment with remote build)"
+  echo ""
+
+  echo "[1/3] Uploading API package..."
+  if ! upload_package_for_onedeploy "api" api.zip; then
+    echo '{"status": "failed", "error": "Failed to upload API package"}' > $AZ_SCRIPTS_OUTPUT_PATH
+    exit 1
+  fi
+
+  echo ""
+  echo "[2/3] Uploading Scheduler package..."
+  if ! upload_package_for_onedeploy "scheduler" scheduler.zip; then
+    echo '{"status": "failed", "error": "Failed to upload Scheduler package"}' > $AZ_SCRIPTS_OUTPUT_PATH
+    exit 1
+  fi
+
+  echo ""
+  echo "[3/3] Uploading Processor package..."
+  if ! upload_package_for_onedeploy "processor" processor.zip; then
+    echo '{"status": "failed", "error": "Failed to upload Processor package"}' > $AZ_SCRIPTS_OUTPUT_PATH
+    exit 1
+  fi
+
+  echo ""
+  echo "All packages uploaded. OneDeploy will be triggered by Bicep after this script completes."
+  FUNCTION_APPS_DEPLOYED=false
+else
+  # ========================================
+  # Y1/EP*: Deploy directly via config-zip with remote build
+  # ========================================
+  echo "Deployment mode: Standard (config-zip --build-remote)"
+  echo ""
+
+  echo "[1/3] Deploying API Function App: $API_FUNCTION_APP_NAME"
+  if ! deploy_function_app $API_FUNCTION_APP_NAME api.zip; then
+    echo '{"status": "failed", "error": "Failed to deploy API Function App"}' > $AZ_SCRIPTS_OUTPUT_PATH
+    exit 1
+  fi
+
+  echo ""
+  echo "[2/3] Deploying Scheduler Function App: $SCHEDULER_FUNCTION_APP_NAME"
+  if ! deploy_function_app $SCHEDULER_FUNCTION_APP_NAME scheduler.zip; then
+    echo '{"status": "failed", "error": "Failed to deploy Scheduler Function App"}' > $AZ_SCRIPTS_OUTPUT_PATH
+    exit 1
+  fi
+
+  echo ""
+  echo "[3/3] Deploying Processor Function App: $PROCESSOR_FUNCTION_APP_NAME"
+  if ! deploy_function_app $PROCESSOR_FUNCTION_APP_NAME processor.zip; then
+    echo '{"status": "failed", "error": "Failed to deploy Processor Function App"}' > $AZ_SCRIPTS_OUTPUT_PATH
+    exit 1
+  fi
+
+  FUNCTION_APPS_DEPLOYED=true
+fi
 
 # ========================================
 # Configure CORS for API Function App
@@ -514,17 +475,25 @@ if [ -n "$FRONTEND_URL" ]; then
     --name $API_FUNCTION_APP_NAME \
     --resource-group $RESOURCE_GROUP \
     --allowed-origins "$FRONTEND_URL" \
-    -o none 2>/dev/null && echo "  ✅ CORS configured for $FRONTEND_URL" || echo "  ⚠️ CORS may already be configured"
+    -o none 2>/dev/null && echo "    CORS configured for $FRONTEND_URL" || echo "    CORS may already be configured"
 fi
 
 echo ""
 echo "=========================================="
-echo "DEPLOYMENT COMPLETE"
+echo "SCRIPT COMPLETE"
 echo "=========================================="
 echo ""
-echo "All components deployed successfully!"
-echo ""
-echo "URLs:"
+
+if [ "$IS_FLEX_LOWER" == "true" ]; then
+  echo "FC1 packages uploaded successfully!"
+  echo "OneDeploy will now deploy the Function Apps via Bicep..."
+  echo ""
+  echo "URLs (will be available after OneDeploy completes):"
+else
+  echo "All components deployed successfully!"
+  echo ""
+  echo "URLs:"
+fi
 echo "  Frontend: $FRONTEND_URL"
 echo "  API:      https://$API_URL"
 echo ""
@@ -535,8 +504,23 @@ if [ "$FRONTEND_DEPLOYED" != true ]; then
   echo ""
 fi
 
-# Output results
-cat > $AZ_SCRIPTS_OUTPUT_PATH << EOF
+# Output results with package URLs for FC1
+if [ "$IS_FLEX_LOWER" == "true" ]; then
+  cat > $AZ_SCRIPTS_OUTPUT_PATH << EOF
+{
+  "status": "success",
+  "version": "$VERSION",
+  "frontendDeployed": $FRONTEND_DEPLOYED,
+  "functionPackagesUploaded": true,
+  "apiPackageUrl": "${STORAGE_BLOB_ENDPOINT}function-packages/api.zip",
+  "schedulerPackageUrl": "${STORAGE_BLOB_ENDPOINT}function-packages/scheduler.zip",
+  "processorPackageUrl": "${STORAGE_BLOB_ENDPOINT}function-packages/processor.zip",
+  "apiUrl": "https://$API_URL",
+  "frontendUrl": "$FRONTEND_URL"
+}
+EOF
+else
+  cat > $AZ_SCRIPTS_OUTPUT_PATH << EOF
 {
   "status": "success",
   "version": "$VERSION",
@@ -546,6 +530,7 @@ cat > $AZ_SCRIPTS_OUTPUT_PATH << EOF
   "frontendUrl": "$FRONTEND_URL"
 }
 EOF
+fi
     '''
   }
 }
