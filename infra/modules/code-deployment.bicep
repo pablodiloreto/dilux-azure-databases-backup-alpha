@@ -107,6 +107,7 @@ echo "=========================================="
 # Function to upload ZIP to blob storage for OneDeploy (FC1 only)
 # OneDeploy is the ONLY supported deployment method for Flex Consumption
 # This function uploads the ZIP; the actual deployment is done via Bicep OneDeploy extension
+# Uses Managed Identity (--auth-mode login) - requires Storage Blob Data Contributor role
 upload_package_for_onedeploy() {
   local app_type=$1
   local zip_file=$2
@@ -115,11 +116,11 @@ upload_package_for_onedeploy() {
 
   az storage blob upload \
     --account-name $STORAGE_ACCOUNT_NAME \
+    --auth-mode login \
     --container-name function-packages \
     --name "${app_type}.zip" \
     --file $zip_file \
     --overwrite \
-    --auth-mode login \
     --only-show-errors
 
   if [ $? -eq 0 ]; then

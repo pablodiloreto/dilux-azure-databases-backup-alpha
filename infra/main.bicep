@@ -189,6 +189,15 @@ module rbacDeploymentKeyVault 'modules/rbac-keyvault-officer.bicep' = {
   }
 }
 
+// Give deployment identity Storage data plane access (needed for FC1 OneDeploy uploads)
+module rbacDeploymentStorage 'modules/rbac-storage.bicep' = {
+  name: 'rbac-deployment-storage'
+  params: {
+    storageAccountName: storage.outputs.storageAccountName
+    principalId: deploymentIdentity.outputs.principalId
+  }
+}
+
 // ============================================================================
 // Step 3: App Registration (via Deployment Script)
 // ============================================================================
@@ -198,6 +207,7 @@ module appRegistration 'modules/appregistration.bicep' = if (!skipAppRegistratio
   dependsOn: [
     rbacDeploymentKeyVault
     rbacDeploymentContributor
+    rbacDeploymentStorage
   ]
   params: {
     appName: appName
@@ -339,6 +349,7 @@ module codeDeployment 'modules/code-deployment.bicep' = {
     functionAppProcessor
     rbacAssignments
     rbacDeploymentContributor  // Ensure Contributor role exists before deployment
+    rbacDeploymentStorage      // Ensure Storage data plane access for FC1 uploads
   ]
   params: {
     location: location
