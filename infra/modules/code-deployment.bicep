@@ -104,34 +104,6 @@ echo "=========================================="
 echo "Deploying Dilux Database Backup"
 echo "=========================================="
 
-# Function to upload ZIP to blob storage for OneDeploy (FC1 only)
-# OneDeploy is the ONLY supported deployment method for Flex Consumption
-# This function uploads the ZIP; the actual deployment is done via Bicep OneDeploy extension
-# Uses Managed Identity (--auth-mode login) - requires Storage Blob Data Contributor role
-upload_package_for_onedeploy() {
-  local app_type=$1
-  local zip_file=$2
-
-  echo "    [FC1] Uploading $zip_file to function-packages container..."
-
-  az storage blob upload \
-    --account-name $STORAGE_ACCOUNT_NAME \
-    --auth-mode login \
-    --container-name function-packages \
-    --name "${app_type}.zip" \
-    --file $zip_file \
-    --overwrite \
-    --only-show-errors
-
-  if [ $? -eq 0 ]; then
-    echo "    [FC1] Uploaded ${app_type}.zip successfully"
-    return 0
-  else
-    echo "    [FC1] ERROR: Failed to upload ${app_type}.zip"
-    return 1
-  fi
-}
-
 # Function to deploy with remote build (for Y1/EP* plans)
 deploy_with_remote_build() {
   local app_name=$1
@@ -401,36 +373,14 @@ API_URL=$(az functionapp show \
 
 if [ "$IS_FLEX_LOWER" == "true" ]; then
   # ========================================
-  # FC1: Upload ZIPs for OneDeploy (Bicep handles actual deployment)
+  # FC1: OneDeploy fetches directly from GitHub (no upload needed)
   # ========================================
   echo "Deployment mode: Flex Consumption (OneDeploy via Bicep)"
   echo ""
-  echo "Uploading packages to blob storage for OneDeploy..."
-  echo "(Bicep OneDeploy modules will handle the actual deployment with remote build)"
+  echo "Function App deployment will be handled by Bicep OneDeploy modules."
+  echo "OneDeploy will fetch packages directly from GitHub release: $VERSION"
   echo ""
-
-  echo "[1/3] Uploading API package..."
-  if ! upload_package_for_onedeploy "api" api.zip; then
-    echo '{"status": "failed", "error": "Failed to upload API package"}' > $AZ_SCRIPTS_OUTPUT_PATH
-    exit 1
-  fi
-
-  echo ""
-  echo "[2/3] Uploading Scheduler package..."
-  if ! upload_package_for_onedeploy "scheduler" scheduler.zip; then
-    echo '{"status": "failed", "error": "Failed to upload Scheduler package"}' > $AZ_SCRIPTS_OUTPUT_PATH
-    exit 1
-  fi
-
-  echo ""
-  echo "[3/3] Uploading Processor package..."
-  if ! upload_package_for_onedeploy "processor" processor.zip; then
-    echo '{"status": "failed", "error": "Failed to upload Processor package"}' > $AZ_SCRIPTS_OUTPUT_PATH
-    exit 1
-  fi
-
-  echo ""
-  echo "All packages uploaded. OneDeploy will be triggered by Bicep after this script completes."
+  echo "This script only deploys the frontend for FC1."
   FUNCTION_APPS_DEPLOYED=false
 else
   # ========================================
@@ -486,10 +436,11 @@ echo "=========================================="
 echo ""
 
 if [ "$IS_FLEX_LOWER" == "true" ]; then
-  echo "FC1 packages uploaded successfully!"
+  echo "Frontend deployed successfully!"
   echo "OneDeploy will now deploy the Function Apps via Bicep..."
+  echo "(Fetching packages directly from GitHub release: $VERSION)"
   echo ""
-  echo "URLs (will be available after OneDeploy completes):"
+  echo "URLs (Function Apps will be available after OneDeploy completes):"
 else
   echo "All components deployed successfully!"
   echo ""
@@ -505,17 +456,14 @@ if [ "$FRONTEND_DEPLOYED" != true ]; then
   echo ""
 fi
 
-# Output results with package URLs for FC1
+# Output results
 if [ "$IS_FLEX_LOWER" == "true" ]; then
   cat > $AZ_SCRIPTS_OUTPUT_PATH << EOF
 {
   "status": "success",
   "version": "$VERSION",
   "frontendDeployed": $FRONTEND_DEPLOYED,
-  "functionPackagesUploaded": true,
-  "apiPackageUrl": "${STORAGE_BLOB_ENDPOINT}function-packages/api.zip",
-  "schedulerPackageUrl": "${STORAGE_BLOB_ENDPOINT}function-packages/scheduler.zip",
-  "processorPackageUrl": "${STORAGE_BLOB_ENDPOINT}function-packages/processor.zip",
+  "oneDeployPending": true,
   "apiUrl": "https://$API_URL",
   "frontendUrl": "$FRONTEND_URL"
 }
