@@ -273,11 +273,11 @@ select_subnet() {
     echo ""
     echo "Buscando subnets en $VNET_NAME..."
 
-    # List subnets with delegation info
+    # List subnets with delegation info (note: addressPrefixes is an array)
     SUBNETS=$(az network vnet subnet list \
         --vnet-name "$VNET_NAME" \
         --resource-group "$VNET_RG" \
-        --query "[].{name:name, address:addressPrefix, delegation:delegations[0].serviceName}" \
+        --query "[].{name:name, address:addressPrefixes[0], delegation:delegations[0].serviceName}" \
         -o json 2>/dev/null)
 
     SUBNET_COUNT=$(echo "$SUBNETS" | jq 'length')
@@ -380,26 +380,30 @@ create_new_subnet() {
         --resource-group "$VNET_RG" \
         --query "addressSpace.addressPrefixes[0]" -o tsv)
 
-    # Get all existing subnet prefixes
+    # Get all existing subnet prefixes (use addressPrefixes[0] as it's an array)
     EXISTING_SUBNETS=$(az network vnet subnet list \
         --vnet-name "$VNET_NAME" \
         --resource-group "$VNET_RG" \
-        --query "[].addressPrefix" -o tsv | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n)
+        --query "[].addressPrefixes[0]" -o tsv | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n)
 
-    # Find next available /27 block (simple approach: use last octet + 1)
+    # Extract base from VNet (first two octets)
+    VNET_BASE=$(echo "$VNET_PREFIX" | cut -d'.' -f1-2)
+
+    # Find the highest third octet in use and add 1
     if [ -n "$EXISTING_SUBNETS" ]; then
-        # Get the last subnet's third octet and increment
-        LAST_SUBNET=$(echo "$EXISTING_SUBNETS" | tail -1)
-        LAST_THIRD_OCTET=$(echo "$LAST_SUBNET" | cut -d'.' -f3)
-        NEXT_THIRD_OCTET=$((LAST_THIRD_OCTET + 1))
-
-        # Extract base from VNet
-        VNET_BASE=$(echo "$VNET_PREFIX" | cut -d'.' -f1-2)
+        # Get all third octets, find the maximum, and add 1
+        MAX_THIRD_OCTET=$(echo "$EXISTING_SUBNETS" | cut -d'.' -f3 | sort -n | tail -1)
+        NEXT_THIRD_OCTET=$((MAX_THIRD_OCTET + 1))
         SUGGESTED_PREFIX="${VNET_BASE}.${NEXT_THIRD_OCTET}.0"
     else
         # No subnets, suggest first block after .0
-        VNET_BASE=$(echo "$VNET_PREFIX" | cut -d'.' -f1-2)
         SUGGESTED_PREFIX="${VNET_BASE}.1.0"
+    fi
+
+    # Validate the suggested prefix is within VNet range
+    if [ "$NEXT_THIRD_OCTET" -gt 255 ]; then
+        print_error "No hay espacio disponible en la VNet"
+        exit 1
     fi
 
     echo ""

@@ -704,7 +704,7 @@ select_subnet_for_deploy() {
     SUBNETS=$(az network vnet subnet list \
         --vnet-name "$SELECTED_VNET_NAME" \
         --resource-group "$SELECTED_VNET_RG" \
-        --query "[].{name:name, address:addressPrefix, delegation:delegations[0].serviceName}" \
+        --query "[].{name:name, address:addressPrefixes[0], delegation:delegations[0].serviceName}" \
         -o json 2>/dev/null)
 
     SUBNET_COUNT=$(echo "$SUBNETS" | jq 'length')
@@ -797,16 +797,16 @@ create_new_subnet_for_deploy() {
     EXISTING_SUBNETS=$(az network vnet subnet list \
         --vnet-name "$SELECTED_VNET_NAME" \
         --resource-group "$SELECTED_VNET_RG" \
-        --query "[].addressPrefix" -o tsv | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n)
+        --query "[].addressPrefixes[0]" -o tsv | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n)
+
+    VNET_BASE=$(echo "$VNET_PREFIX" | cut -d'.' -f1-2)
 
     if [ -n "$EXISTING_SUBNETS" ]; then
-        LAST_SUBNET=$(echo "$EXISTING_SUBNETS" | tail -1)
-        LAST_THIRD_OCTET=$(echo "$LAST_SUBNET" | cut -d'.' -f3)
-        NEXT_THIRD_OCTET=$((LAST_THIRD_OCTET + 1))
-        VNET_BASE=$(echo "$VNET_PREFIX" | cut -d'.' -f1-2)
+        # Find the highest third octet and add 1
+        MAX_THIRD_OCTET=$(echo "$EXISTING_SUBNETS" | cut -d'.' -f3 | sort -n | tail -1)
+        NEXT_THIRD_OCTET=$((MAX_THIRD_OCTET + 1))
         SUGGESTED_PREFIX="${VNET_BASE}.${NEXT_THIRD_OCTET}.0"
     else
-        VNET_BASE=$(echo "$VNET_PREFIX" | cut -d'.' -f1-2)
         SUGGESTED_PREFIX="${VNET_BASE}.1.0"
     fi
 
