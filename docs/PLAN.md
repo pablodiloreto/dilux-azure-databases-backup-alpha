@@ -1,6 +1,6 @@
 # Dilux Database Backup - Estado del Proyecto
 
-**Última actualización:** 2026-01-29
+**Última actualización:** 2026-01-31
 
 ---
 
@@ -102,14 +102,14 @@ Todos los problemas de deployment fueron resueltos:
 
 ---
 
-## ⚠️ EN PROGRESO: Soporte Flex Consumption (2026-01-29)
+## ✅ RESUELTO: Soporte Flex Consumption (2026-01-31)
 
 ### Contexto
 
 Microsoft anunció que el plan **Y1 (Linux Consumption)** llegará a **EOL el 30 de septiembre de 2028**.
 Se recomienda migrar a **Flex Consumption (FC1)**, que además ofrece VNet Integration.
 
-### Problemas Encontrados con FC1
+### Problemas Encontrados con FC1 (TODOS RESUELTOS)
 
 Flex Consumption tiene diferencias importantes vs Y1/Premium:
 
@@ -117,38 +117,26 @@ Flex Consumption tiene diferencias importantes vs Y1/Premium:
 |----------|-------------|--------|
 | `FUNCTIONS_WORKER_RUNTIME` | FC1 configura runtime en `functionAppConfig.runtime`, NO en appSettings | ✅ Fix en v1.0.19 |
 | 1 App por Plan | FC1 solo permite 1 Function App por App Service Plan | ✅ Fix en v1.0.20 (3 planes) |
-| No hay SCM/Kudu | `az functionapp deployment source config-zip` falla con 404 | ⏳ En progreso v1.0.21 |
+| Deployment Method | FC1 necesita `config-zip --build-remote true` (NO `deploy --src-path`) | ✅ Fix en v1.0.24 |
 
-### El Problema Actual (v1.0.21)
+### Solución Final (v1.0.24)
 
-El deployment script (`code-deployment.bicep`) se ejecuta **dentro de Azure** como un container.
-Para desplegar código a las Function Apps:
+El método correcto para **FC1 + Python** es:
 
-- **Y1/EP***: Usa `az functionapp deployment source config-zip` → Funciona (tiene SCM/Kudu)
-- **FC1**: El mismo comando falla con **404** porque FC1 no tiene SCM/Kudu
+```bash
+az functionapp deployment source config-zip \
+  --resource-group $RG \
+  --name $APP \
+  --src $ZIP \
+  --build-remote true \
+  --timeout 600
+```
 
-**Opciones para FC1:**
-1. `az functionapp deploy --src-path <zip>` - Debería funcionar con archivo local
-2. Subir ZIP a blob + `az functionapp deploy --src-url` - Más complejo
-3. Usar la API REST de deployment directamente
+**Clave:** `--build-remote true` indica a Azure que ejecute `pip install -r requirements.txt` durante el deployment.
 
-**Estado actual (v1.0.21):**
-- Se implementó la opción 2 (subir a blob) pero puede ser innecesariamente complejo
-- Necesita probarse si la opción 1 funciona (más simple)
-
-### Cómo Retomar
-
-1. Probar si `az functionapp deploy --src-path` funciona para FC1:
-   ```bash
-   # En el deployment script, cambiar de:
-   az functionapp deployment source config-zip --src $zip_file ...
-   # A:
-   az functionapp deploy --src-path $zip_file --type zip ...
-   ```
-
-2. Si funciona, simplificar `deploy_flex_consumption()` en `code-deployment.bicep`
-
-3. Si no funciona, investigar la API REST de deployment para FC1
+**Métodos que NO funcionan:**
+- `az functionapp deploy --src-path` → HTTP 415 (Unsupported Media Type)
+- `WEBSITE_RUN_FROM_PACKAGE` → No hace remote build, Python deps no se instalan
 
 ### Archivos Modificados (desde v1.0.16)
 
@@ -164,7 +152,7 @@ Para desplegar código a las Function Apps:
 
 | SKU | Nombre | VNet | Costo | Estado |
 |-----|--------|------|-------|--------|
-| **FC1** | Flex Consumption | ✅ Sí | ~$0-10/mes | ⚠️ Deployment en progreso |
+| **FC1** | Flex Consumption | ✅ Sí | ~$0-10/mes | ✅ **Funciona (v1.0.24)** |
 | Y1 | Consumption (Legacy) | ❌ No | ~$0-5/mes | ✅ Funciona |
 | EP1 | Premium | ✅ Sí | ~$150/mes | ✅ Funciona |
 | EP2 | Premium | ✅ Sí | ~$300/mes | ✅ Funciona |
@@ -180,6 +168,7 @@ Para desplegar código a las Function Apps:
 | v1.0.21 | 2026-01-29 | fix: deployment via Blob Storage para FC1 (descartado) |
 | v1.0.22 | 2026-01-29 | fix: simplificar a `az functionapp deploy --src-path` |
 | v1.0.23 | 2026-01-29 | fix: comparación case-insensitive para IS_FLEX_CONSUMPTION |
+| v1.0.24 | 2026-01-31 | **fix: FC1 deployment usando `config-zip --build-remote true`** |
 
 ### 🧪 Historial de Tests FC1
 
@@ -190,42 +179,19 @@ Para desplegar código a las Function Apps:
 | v1.0.21 | ❌ | Usaba método blob pero `IS_FLEX_CONSUMPTION` no se detectaba |
 | v1.0.22 | ❌ | Simplificado a `--src-path` pero `IS_FLEX_CONSUMPTION` = "True" vs "true" |
 | v1.0.23 | ❌ | Fix case-insensitive OK, pero `--src-path` retorna **HTTP 415** |
+| v1.0.24 | ✅ | **FUNCIONA** con `config-zip --build-remote true` |
 
-### Análisis del Error v1.0.23
+### ✅ Verificación Final (dilux68-rg)
 
-```
-Deployment mode: Flex Consumption (az functionapp deploy)  ✅ Detecta bien ahora
-ERROR: Status Code: 415, Details: Failed.
-```
+**Fecha:** 2026-01-31
 
-**HTTP 415 = Unsupported Media Type**
-
-El comando `az functionapp deploy --src-path` no funciona con Flex Consumption.
-
-### ⏸️ PAUSADO - Pendiente de Investigación
-
-**Fecha:** 2026-01-29
-**Última versión:** v1.0.23
-**Estado:** Esperando prueba con deploy.sh
-
-**Pregunta abierta:** ¿deploy.sh funciona diferente a Deploy to Azure para FC1?
-
-Ambos usan el mismo deployment script (`code-deployment.bicep`) que corre dentro de Azure.
-Si deploy.sh también falla con FC1, el problema es el método de deployment para Flex Consumption.
-
-**Próximo paso:** Probar deploy.sh con FC1 para comparar:
-```bash
-# Opción 1: Desde internet
-curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/deploy.sh | bash
-
-# Opción 2: Desde repo local
-./scripts/deploy.sh
-```
-
-**Logs del último error (dilux66):**
-```bash
-az deployment-scripts show-log --resource-group dilux66 --name deploy-application-code
-```
+| Componente | Funciones | Estado |
+|------------|-----------|--------|
+| API | 49 | ✅ Health OK |
+| Scheduler | 2 | ✅ OK |
+| Processor | 2 | ✅ OK |
+| Frontend | - | ✅ Login Azure AD OK |
+| CORS | - | ✅ Configurado automáticamente |
 
 ### Archivos Clave para Continuar
 
