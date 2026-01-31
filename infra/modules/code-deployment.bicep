@@ -105,8 +105,9 @@ echo "Deploying Dilux Database Backup"
 echo "=========================================="
 
 # Function to deploy to Flex Consumption (FC1)
-# FC1 supports az functionapp deployment source config-zip with --build-remote
-# This method triggers remote build which installs Python dependencies via pip.
+# FC1 uses az functionapp deployment source config-zip WITHOUT --build-remote
+# IMPORTANT: --build-remote sets SCM_DO_BUILD_DURING_DEPLOYMENT which FC1 doesn't support
+# FC1 handles Python dependencies automatically via its deployment pipeline.
 deploy_flex_consumption() {
   local app_name=$1
   local zip_file=$2
@@ -114,24 +115,35 @@ deploy_flex_consumption() {
   local attempt=1
   local wait_time=30
 
-  echo "    [FC1] Deploying via config-zip with remote build..."
+  echo "    [FC1] Deploying via config-zip..."
+
+  # Restart the Function App first to clear any residual deployment state
+  # This prevents "SCM_DO_BUILD_DURING_DEPLOYMENT not supported" errors
+  echo "    [FC1] Restarting Function App to clear deployment state..."
+  az functionapp restart \
+    --name $app_name \
+    --resource-group $RESOURCE_GROUP \
+    --only-show-errors 2>/dev/null || true
+
+  echo "    [FC1] Waiting 15s for restart to complete..."
+  sleep 15
 
   while [ $attempt -le $max_attempts ]; do
     echo "    [FC1] Attempt $attempt of $max_attempts..."
 
-    # Use config-zip with --build-remote true to install Python dependencies
+    # Use config-zip WITHOUT --build-remote (FC1 doesn't support SCM_DO_BUILD_DURING_DEPLOYMENT)
     if az functionapp deployment source config-zip \
       --resource-group $RESOURCE_GROUP \
       --name $app_name \
       --src $zip_file \
-      --build-remote true \
       --timeout 600 2>&1; then
-      echo "    [FC1] Success! (dependencies installed via remote build)"
+      echo "    [FC1] Success!"
       return 0
     fi
 
     if [ $attempt -lt $max_attempts ]; then
-      echo "    [FC1] Failed. Waiting ${wait_time}s before retry..."
+      echo "    [FC1] Failed. Restarting and waiting ${wait_time}s before retry..."
+      az functionapp restart --name $app_name --resource-group $RESOURCE_GROUP --only-show-errors 2>/dev/null || true
       sleep $wait_time
       wait_time=$((wait_time + 30))
     fi
@@ -408,7 +420,7 @@ echo "=========================================="
 
 echo ""
 IS_FLEX_LOWER=$(echo "$IS_FLEX_CONSUMPTION" | tr '[:upper:]' '[:lower:]')
-echo "Deployment mode: $([ "$IS_FLEX_LOWER" == "true" ] && echo "Flex Consumption (config-zip --build-remote)" || echo "Standard (config-zip --build-remote)")"
+echo "Deployment mode: $([ "$IS_FLEX_LOWER" == "true" ] && echo "Flex Consumption (config-zip + restart)" || echo "Standard (config-zip --build-remote)")"
 echo ""
 
 echo "[1/3] Deploying API Function App: $API_FUNCTION_APP_NAME"
