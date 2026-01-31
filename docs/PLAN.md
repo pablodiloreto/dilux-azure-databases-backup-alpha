@@ -184,6 +184,10 @@ az functionapp deployment source config-zip \
 | v1.0.28 | 2026-01-31 | **fix: esperar 3 min + verificar SCM endpoint antes de deploy FC1** |
 | v1.0.29 | 2026-01-31 | **feat: VNet Status en UI - query Azure en tiempo real** |
 | v1.0.30 | 2026-01-31 | fix: deploy.sh wizard VNet primero, configure-vnet.sh fixes |
+| v1.0.31 | 2026-01-31 | fix: FC1 OneDeploy fetches directly from GitHub releases |
+| v1.0.32 | 2026-01-31 | **feat: VNet Status completo con endpoint /api/vnet-status** |
+| v1.0.33 | 2026-01-31 | fix: deploy.sh mejor manejo de errores en comandos az network |
+| v1.0.34 | 2026-01-31 | **feat: algoritmo mejorado para cálculo de subnets** |
 
 ### 🧪 Historial de Tests FC1
 
@@ -519,6 +523,87 @@ GET /api/vnet-status
 | Endpoint separado vs incluir en `/api/system-status` | Cache diferente (5min vs 30s) para optimizar llamadas a Azure ARM |
 | Reader role solo en Resource Group propio | Principio de mínimo privilegio |
 | Retry manual vs automático | Usuario decide cuándo reintentar, evita spam a Azure API |
+
+### Algoritmo de Cálculo de Subnets (v1.0.34+)
+
+El script `deploy.sh` incluye un algoritmo mejorado para calcular el espacio disponible en VNets.
+
+#### Salida del Análisis
+
+```
+═══════════════════════════════════════════════════════════════
+   Análisis de Espacio de Direcciones
+═══════════════════════════════════════════════════════════════
+
+  VNet:         10.13.0.0/16
+  Rango:        10.13.0.0 - 10.13.255.255
+  Total IPs:    65536
+
+  Subnets existentes: 30
+  IPs usadas:       8192 (12%)
+  IPs disponibles:  57344
+
+Bloques libres encontrados:
+
+  [1] 10.13.29.0 - 10.13.255.255 (58112 IPs, cabe: /26+)
+```
+
+#### Pasos del Algoritmo
+
+| Paso | Descripción |
+|------|-------------|
+| 1. **Parsea VNet CIDR** | Convierte `10.13.0.0/16` a rango numérico (start: 168296448, end: 168361983) |
+| 2. **Lista subnets** | Obtiene todos los rangos usados con sus CIDRs |
+| 3. **Convierte a enteros** | Función `ip_to_int()` para comparación numérica |
+| 4. **Ordena rangos** | Por dirección de inicio ascendente |
+| 5. **Encuentra huecos** | Detecta gaps entre subnets existentes |
+| 6. **Calcula espacio libre** | Suma IPs disponibles en cada hueco |
+| 7. **Valida selección** | Verifica que el tamaño pedido cabe en el hueco |
+| 8. **Alinea dirección** | Ajusta al boundary del CIDR (ej: /27 debe empezar en múltiplo de 32) |
+
+#### Funciones Auxiliares (Bash)
+
+```bash
+# Convierte IP a entero para comparación
+ip_to_int() {
+    local ip=$1
+    local a b c d
+    IFS=. read -r a b c d <<< "$ip"
+    echo $(( (a << 24) + (b << 16) + (c << 8) + d ))
+}
+
+# Convierte entero a IP
+int_to_ip() {
+    local int=$1
+    echo "$(( (int >> 24) & 255 )).$(( (int >> 16) & 255 )).$(( (int >> 8) & 255 )).$(( int & 255 ))"
+}
+
+# Tamaño de un bloque CIDR
+cidr_to_size() {
+    local cidr=$1
+    echo $(( 1 << (32 - cidr) ))
+}
+```
+
+#### Validaciones
+
+| Validación | Acción |
+|------------|--------|
+| **VNet llena** | Muestra error: "No hay espacio disponible en esta VNet" |
+| **Bloque muy pequeño** | Indica qué tamaños caben: "/28" o "muy pequeño" |
+| **Nombre duplicado** | Pide otro nombre si ya existe un subnet con ese nombre |
+| **Tamaño vs espacio** | No permite /26 si solo caben 32 IPs en el hueco |
+| **Alineación CIDR** | /27 debe empezar en múltiplo de 32, /26 en múltiplo de 64 |
+
+#### Problemas Resueltos
+
+| Problema Anterior | Solución |
+|-------------------|----------|
+| No detectaba huecos (gaps) | Ahora encuentra todos los espacios libres entre subnets |
+| Sugería direcciones fuera del rango | Valida que la dirección esté dentro de la VNet |
+| No verificaba overlaps | Calcula rangos exactos y detecta superposiciones |
+| Script terminaba sin error | Manejo de errores con `set +e` y mensajes descriptivos |
+| Nombre duplicado fallaba silenciosamente | Verifica nombres existentes antes de crear |
 
 ---
 

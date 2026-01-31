@@ -903,3 +903,73 @@ curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-b
 #### Inconsistencias (2/3 apps conectadas)
 
 Re-ejecutar `configure-vnet.sh` para integrar las apps faltantes.
+
+### Algoritmo de Cálculo de Subnets
+
+El script `deploy.sh` incluye un algoritmo inteligente para calcular el espacio disponible en VNets.
+
+#### Ejemplo de Salida
+
+```
+═══════════════════════════════════════════════════════════════
+   Análisis de Espacio de Direcciones
+═══════════════════════════════════════════════════════════════
+
+  VNet:         10.13.0.0/16
+  Rango:        10.13.0.0 - 10.13.255.255
+  Total IPs:    65536
+
+  Subnets existentes: 30
+  IPs usadas:       8192 (12%)
+  IPs disponibles:  57344
+
+Bloques libres encontrados:
+
+  [1] 10.13.6.0 - 10.13.6.255 (256 IPs, cabe: /26+)
+  [2] 10.13.29.0 - 10.13.255.255 (58112 IPs, cabe: /26+)
+
+Tamaño del subnet:
+  1) /28 = 16 IPs
+  2) /27 = 32 IPs (recomendado)
+  3) /26 = 64 IPs
+  0) Cancelar
+```
+
+#### Cómo Funciona
+
+1. **Parsea el CIDR de la VNet** y calcula el rango total de IPs
+2. **Lista todos los subnets existentes** con sus rangos
+3. **Convierte IPs a enteros** para comparación numérica precisa
+4. **Ordena los rangos** por dirección de inicio
+5. **Encuentra huecos (gaps)** entre subnets existentes
+6. **Muestra bloques libres** con tamaño y qué CIDRs caben
+7. **Valida la selección** antes de crear el subnet
+8. **Alinea la dirección** al boundary correcto del CIDR
+
+#### Validaciones Automáticas
+
+| Validación | Comportamiento |
+|------------|----------------|
+| VNet sin espacio | Muestra error claro y no permite continuar |
+| Bloque pequeño | Indica qué tamaños caben (/28, /27, /26) |
+| Nombre duplicado | Pide otro nombre si ya existe |
+| Tamaño excede espacio | No permite seleccionar un tamaño que no cabe |
+| Alineación CIDR | Ajusta automáticamente al boundary correcto |
+
+#### Manejo de Errores
+
+El script usa `set +e` antes de comandos críticos para capturar errores:
+
+```bash
+set +e
+CREATE_OUTPUT=$(az network vnet subnet create ... 2>&1)
+CREATE_RESULT=$?
+set -e
+
+if [ $CREATE_RESULT -ne 0 ]; then
+    echo "Error: $CREATE_OUTPUT"
+    # Ofrece reintentar o seleccionar subnet existente
+fi
+```
+
+Esto evita que el script termine abruptamente sin mostrar el error.
