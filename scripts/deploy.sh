@@ -314,7 +314,17 @@ select_vnet_for_region() {
     VNET_SELECTED_RG=$(echo "$VNETS" | jq -r ".[$VNET_INDEX].rg")
     VNET_SELECTED_LOCATION=$(echo "$VNETS" | jq -r ".[$VNET_INDEX].location")
 
-    VNET_SELECTED_ID=$(az network vnet show --name "$VNET_SELECTED_NAME" --resource-group "$VNET_SELECTED_RG" --query "id" -o tsv)
+    set +e
+    VNET_SELECTED_ID=$(az network vnet show --name "$VNET_SELECTED_NAME" --resource-group "$VNET_SELECTED_RG" --query "id" -o tsv 2>&1)
+    VNET_RESULT=$?
+    set -e
+
+    if [ $VNET_RESULT -ne 0 ]; then
+        print_error "Error al obtener información de la VNet"
+        echo "Detalle: $VNET_SELECTED_ID"
+        VNET_SELECTED_ID=""
+        return 1
+    fi
 
     echo ""
     print_success "VNet: $VNET_SELECTED_NAME"
@@ -325,11 +335,21 @@ select_or_create_subnet_for_region() {
     echo ""
     echo "Buscando subnets en $VNET_SELECTED_NAME..."
 
+    set +e
     SUBNETS=$(az network vnet subnet list \
         --vnet-name "$VNET_SELECTED_NAME" \
         --resource-group "$VNET_SELECTED_RG" \
         --query "[].{name:name, address:addressPrefixes[0], delegation:delegations[0].serviceName}" \
-        -o json 2>/dev/null)
+        -o json 2>&1)
+    SUBNET_RESULT=$?
+    set -e
+
+    if [ $SUBNET_RESULT -ne 0 ]; then
+        print_error "Error al listar subnets"
+        echo "Detalle: $SUBNETS"
+        SUBNET_SELECTED_ID=""
+        return 1
+    fi
 
     SUBNET_COUNT=$(echo "$SUBNETS" | jq 'length')
 
@@ -407,11 +427,21 @@ select_or_create_subnet_for_region() {
         print_success "Delegación agregada"
     fi
 
+    set +e
     SUBNET_SELECTED_ID=$(az network vnet subnet show \
         --name "$SUBNET_SELECTED_NAME" \
         --vnet-name "$VNET_SELECTED_NAME" \
         --resource-group "$VNET_SELECTED_RG" \
-        --query "id" -o tsv)
+        --query "id" -o tsv 2>&1)
+    SHOW_RESULT=$?
+    set -e
+
+    if [ $SHOW_RESULT -ne 0 ]; then
+        print_error "Error al obtener ID del subnet"
+        echo "Detalle: $SUBNET_SELECTED_ID"
+        SUBNET_SELECTED_ID=""
+        return
+    fi
 
     print_success "Subnet: $SUBNET_SELECTED_NAME"
 }
@@ -420,15 +450,35 @@ create_subnet_for_region() {
     echo ""
     echo "Calculando espacio disponible..."
 
+    set +e
     VNET_PREFIX=$(az network vnet show \
         --name "$VNET_SELECTED_NAME" \
         --resource-group "$VNET_SELECTED_RG" \
-        --query "addressSpace.addressPrefixes[0]" -o tsv)
+        --query "addressSpace.addressPrefixes[0]" -o tsv 2>&1)
+    VNET_RESULT=$?
+    set -e
 
+    if [ $VNET_RESULT -ne 0 ]; then
+        print_error "Error al obtener información de la VNet"
+        echo "Detalle: $VNET_PREFIX"
+        SUBNET_SELECTED_ID=""
+        return
+    fi
+
+    set +e
     EXISTING_SUBNETS=$(az network vnet subnet list \
         --vnet-name "$VNET_SELECTED_NAME" \
         --resource-group "$VNET_SELECTED_RG" \
-        --query "[].addressPrefixes[0]" -o tsv | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n)
+        --query "[].addressPrefixes[0]" -o tsv 2>&1 | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n)
+    SUBNETS_RESULT=$?
+    set -e
+
+    if [ $SUBNETS_RESULT -ne 0 ]; then
+        print_error "Error al listar subnets"
+        echo "Detalle: $EXISTING_SUBNETS"
+        SUBNET_SELECTED_ID=""
+        return
+    fi
 
     VNET_BASE=$(echo "$VNET_PREFIX" | cut -d'.' -f1-2)
 
@@ -476,6 +526,8 @@ create_subnet_for_region() {
     echo ""
     echo "Creando subnet '$NEW_SUBNET_NAME' ($NEW_SUBNET_ADDRESS)..."
 
+    # Disable set -e temporarily to capture error
+    set +e
     CREATE_OUTPUT=$(az network vnet subnet create \
         --name "$NEW_SUBNET_NAME" \
         --vnet-name "$VNET_SELECTED_NAME" \
@@ -483,20 +535,54 @@ create_subnet_for_region() {
         --address-prefixes "$NEW_SUBNET_ADDRESS" \
         --delegations "Microsoft.Web/serverFarms" \
         -o json 2>&1)
+    CREATE_RESULT=$?
+    set -e
 
-    if [ $? -ne 0 ]; then
-        print_error "Error al crear subnet"
-        echo "Detalle: $CREATE_OUTPUT"
+    if [ $CREATE_RESULT -ne 0 ]; then
+        echo ""
+        echo -e "${RED}═══════════════════════════════════════════════════════════════${NC}"
+        echo -e "${RED}${BOLD}   ❌ ERROR AL CREAR SUBNET${NC}"
+        echo -e "${RED}═══════════════════════════════════════════════════════════════${NC}"
+        echo ""
+        echo -e "${YELLOW}Detalles del error:${NC}"
+        echo "$CREATE_OUTPUT"
+        echo ""
+        echo -e "${YELLOW}Posibles causas:${NC}"
+        echo "  - El rango de direcciones se superpone con otro subnet"
+        echo "  - Ya existe un subnet con ese nombre"
+        echo "  - No tienes permisos para crear subnets en esa VNet"
+        echo ""
+        echo -e "${CYAN}Sugerencia: Selecciona un subnet existente sin delegación${NC}"
+        echo ""
         SUBNET_SELECTED_ID=""
+
+        # Ask if user wants to try again
+        echo -en "${BOLD}¿Deseas intentar de nuevo? [s/N]:${NC} "
+        read RETRY_CHOICE < /dev/tty
+        if [[ "$RETRY_CHOICE" =~ ^[sS]$ ]]; then
+            select_subnet_for_vnet
+        fi
         return
     fi
 
     SUBNET_SELECTED_NAME="$NEW_SUBNET_NAME"
+
+    # Get subnet ID with error handling
+    set +e
     SUBNET_SELECTED_ID=$(az network vnet subnet show \
         --name "$SUBNET_SELECTED_NAME" \
         --vnet-name "$VNET_SELECTED_NAME" \
         --resource-group "$VNET_SELECTED_RG" \
-        --query "id" -o tsv)
+        --query "id" -o tsv 2>&1)
+    SHOW_RESULT=$?
+    set -e
+
+    if [ $SHOW_RESULT -ne 0 ]; then
+        print_error "Error al obtener ID del subnet"
+        echo "Detalle: $SUBNET_SELECTED_ID"
+        SUBNET_SELECTED_ID=""
+        return
+    fi
 
     print_success "Subnet creado: $SUBNET_SELECTED_NAME ($NEW_SUBNET_ADDRESS)"
 }
