@@ -4,9 +4,11 @@
 
 ---
 
-## ESTADO: v1 COMPLETA - SIN PENDIENTES
+## ESTADO: v1 COMPLETA (Y1/EP*) - FC1 EN PROGRESO
 
-La versión 1.0 está **100% funcional** y lista para producción. No hay tareas pendientes bloqueantes.
+La versión 1.0 está **100% funcional** para planes Y1 y EP1/EP2/EP3.
+
+⚠️ **Flex Consumption (FC1):** Deployment manual funciona, deployment automatizado tiene problemas. Ver sección "EN PROGRESO: Soporte Flex Consumption".
 
 ### Deployment Verificado (2026-01-17)
 
@@ -102,7 +104,9 @@ Todos los problemas de deployment fueron resueltos:
 
 ---
 
-## ✅ RESUELTO: Soporte Flex Consumption (2026-01-31)
+## ⚠️ EN PROGRESO: Soporte Flex Consumption (2026-01-31)
+
+**Estado actual:** Deployment MANUAL funciona. Deployment AUTOMATIZADO (deploy.sh / Deploy to Azure) NO funciona.
 
 ### Contexto
 
@@ -189,9 +193,88 @@ az functionapp deployment source config-zip \
 | v1.0.25 | ❌ | Containers OK pero `--build-remote` setea setting incompatible con FC1 |
 | v1.0.26 | ❌ | Restart OK pero `--build-remote false` no instala dependencias |
 | v1.0.27 | ❌ | Fix correcto pero SCM endpoint no está listo (404) - poco tiempo de espera |
-| v1.0.28 | ✅ | **FUNCIONA** espera 3 min + verifica SCM endpoint antes de deploy |
+| v1.0.28 | ❌ | Espera 3 min + verifica SCM, pero CLI sigue seteando SCM_DO_BUILD_DURING_DEPLOYMENT |
 
-### ✅ Verificación Final (dilux68-rg)
+**Nota:** v1.0.28 fue verificado manualmente (dilux68-rg) pero falla en deployment automatizado.
+
+### ⚠️ PROBLEMA PENDIENTE: Deployment Automatizado FC1
+
+**Fecha:** 2026-01-31
+
+**Estado:** El deployment manual funciona pero el automatizado (via deploy.sh o Deploy to Azure) falla consistentemente.
+
+#### El Problema Fundamental
+
+Azure CLI `az functionapp deployment source config-zip` **automáticamente** setea el app setting `SCM_DO_BUILD_DURING_DEPLOYMENT` incluso cuando NO se usa el flag `--build-remote`. FC1 **rechaza** este setting (ni `true` ni `false` funcionan).
+
+```
+Error: "SCM_DO_BUILD_DURING_DEPLOYMENT" is not a supported configuration setting for Flex Consumption apps
+```
+
+#### Métodos de Deployment Probados
+
+| Método | Comando | Resultado |
+|--------|---------|-----------|
+| config-zip + build-remote true | `az functionapp deployment source config-zip --build-remote true` | ❌ Setea SCM_DO_BUILD_DURING_DEPLOYMENT que FC1 rechaza |
+| config-zip + build-remote false | `az functionapp deployment source config-zip --build-remote false` | ❌ No instala dependencias Python |
+| config-zip sin flags | `az functionapp deployment source config-zip` | ❌ CLI igual setea el app setting |
+| az functionapp deploy | `az functionapp deploy --src-path` | ❌ HTTP 415 (Unsupported Media Type) |
+| Kudu API zipdeploy | `POST /api/zipdeploy` | ❌ HTTP 401 "not supported for Flex Consumption" |
+| OneDeploy API | `POST /api/publish` | ❌ HTTP 404 |
+| Blob directo | Upload a container deployments-xxx | ❌ 0 funciones cargadas |
+
+#### Lo Que SÍ Funciona (Manual)
+
+Cuando se hace **manualmente** con suficiente tiempo de espera después de crear la infra:
+
+1. Esperar 5-10 minutos después de crear Function App
+2. Eliminar app settings problemáticos:
+   ```bash
+   az functionapp config appsettings delete --name $APP --resource-group $RG --setting-names SCM_DO_BUILD_DURING_DEPLOYMENT WEBSITE_RUN_FROM_PACKAGE
+   ```
+3. Reiniciar la Function App:
+   ```bash
+   az functionapp restart --name $APP --resource-group $RG
+   ```
+4. Esperar 45+ segundos
+5. Hacer el deploy:
+   ```bash
+   az functionapp deployment source config-zip --name $APP --resource-group $RG --src $ZIP
+   ```
+
+**Esto funciona porque:**
+- El SCM endpoint ya está completamente inicializado
+- Los settings se eliminan ANTES de que CLI los vuelva a crear
+- El restart limpia el estado
+
+#### Por Qué Falla Automatizado
+
+1. **Timing**: El deployment script corre inmediatamente después de crear la infra (~3 min), pero el SCM endpoint necesita 5-10 min
+2. **Race condition**: Aunque eliminamos los settings, el CLI los vuelve a crear durante `config-zip`
+3. **No hay forma de evitar**: Azure CLI no tiene flag para NO setear `SCM_DO_BUILD_DURING_DEPLOYMENT`
+
+#### RGs de Prueba Fallidos
+
+| RG | Versión | Problema |
+|----|---------|----------|
+| dilux69-rg | v1.0.24 | Container compartido |
+| dilux70-rg | v1.0.25 | SCM_DO_BUILD_DURING_DEPLOYMENT |
+| dilux71-rg | v1.0.26 | build-remote false no instala deps |
+| dilux73-rg | v1.0.27 | SCM 404 (timing) |
+| dilux74-rg | v1.0.27 | SCM 404 (timing) |
+| dilux75-rg | v1.0.28 | SCM 404 (timing) |
+| dilux81-rg | v1.0.28 | Blob directo: 0 funciones |
+
+#### Posibles Soluciones a Investigar
+
+1. **Azure Functions Core Tools**: `func azure functionapp publish` puede tener diferente comportamiento
+2. **GitHub Actions**: Usar `azure/functions-action@v1` en lugar de CLI
+3. **REST API directo**: Investigar si hay API que no setee el app setting
+4. **Mayor tiempo de espera**: Aumentar a 10-15 minutos (pero afecta UX)
+5. **Workaround post-deploy**: Script separado que corra después del deployment inicial
+6. **Reportar bug a Microsoft**: El comportamiento del CLI parece ser un bug
+
+#### Verificación Manual Exitosa (dilux68-rg)
 
 **Fecha:** 2026-01-31
 
@@ -202,6 +285,8 @@ az functionapp deployment source config-zip \
 | Processor | 2 | ✅ OK |
 | Frontend | - | ✅ Login Azure AD OK |
 | CORS | - | ✅ Configurado automáticamente |
+
+**Nota:** Este deployment funcionó porque se hizo manualmente con tiempo de espera adecuado.
 
 ### Archivos Clave para Continuar
 
