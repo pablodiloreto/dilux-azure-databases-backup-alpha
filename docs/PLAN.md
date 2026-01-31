@@ -173,7 +173,8 @@ az functionapp deployment source config-zip \
 | v1.0.24 | 2026-01-31 | fix: FC1 deployment usando `config-zip --build-remote true` |
 | v1.0.25 | 2026-01-31 | fix: containers separados para deployment de cada Function App |
 | v1.0.26 | 2026-01-31 | fix: FC1 deployment sin --build-remote + restart previo |
-| v1.0.27 | 2026-01-31 | **fix: eliminar SCM_DO_BUILD_DURING_DEPLOYMENT + config-zip sin flags** |
+| v1.0.27 | 2026-01-31 | fix: eliminar SCM_DO_BUILD_DURING_DEPLOYMENT + config-zip sin flags |
+| v1.0.28 | 2026-01-31 | **fix: esperar 3 min + verificar SCM endpoint antes de deploy FC1** |
 
 ### 🧪 Historial de Tests FC1
 
@@ -187,7 +188,8 @@ az functionapp deployment source config-zip \
 | v1.0.24 | ❌ | `config-zip` funciona pero container compartido sobrescribe ZIPs |
 | v1.0.25 | ❌ | Containers OK pero `--build-remote` setea setting incompatible con FC1 |
 | v1.0.26 | ❌ | Restart OK pero `--build-remote false` no instala dependencias |
-| v1.0.27 | ✅ | **FUNCIONA** eliminando settings + restart + config-zip SIN flag |
+| v1.0.27 | ❌ | Fix correcto pero SCM endpoint no está listo (404) - poco tiempo de espera |
+| v1.0.28 | ✅ | **FUNCIONA** espera 3 min + verifica SCM endpoint antes de deploy |
 
 ### ✅ Verificación Final (dilux68-rg)
 

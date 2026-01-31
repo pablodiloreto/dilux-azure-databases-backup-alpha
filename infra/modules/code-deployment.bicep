@@ -104,6 +104,31 @@ echo "=========================================="
 echo "Deploying Dilux Database Backup"
 echo "=========================================="
 
+# Function to wait for SCM endpoint to be ready
+wait_for_scm() {
+  local app_name=$1
+  local max_wait=300  # 5 minutes max
+  local waited=0
+  local interval=15
+
+  echo "    [FC1] Waiting for SCM endpoint to be ready..."
+  while [ $waited -lt $max_wait ]; do
+    # Try to get SCM credentials - if it works, SCM is ready
+    if az functionapp deployment list-publishing-credentials \
+      --name $app_name \
+      --resource-group $RESOURCE_GROUP \
+      --query "scmUri" -o tsv 2>/dev/null | grep -q "scm"; then
+      echo "    [FC1] SCM endpoint is ready!"
+      return 0
+    fi
+    echo "    [FC1] SCM not ready, waiting ${interval}s... (${waited}s/${max_wait}s)"
+    sleep $interval
+    waited=$((waited + interval))
+  done
+  echo "    [FC1] Warning: SCM endpoint check timed out, proceeding anyway..."
+  return 0
+}
+
 # Function to deploy to Flex Consumption (FC1)
 # FC1 does NOT support SCM_DO_BUILD_DURING_DEPLOYMENT setting (neither true nor false)
 # The fix is: delete the setting, restart, wait, then deploy WITHOUT --build-remote flag
@@ -115,6 +140,9 @@ deploy_flex_consumption() {
   local wait_time=30
 
   echo "    [FC1] Deploying via config-zip..."
+
+  # Wait for SCM endpoint to be ready (FC1 takes time to initialize)
+  wait_for_scm $app_name
 
   # CRITICAL: Delete SCM_DO_BUILD_DURING_DEPLOYMENT and ENABLE_ORYX_BUILD settings
   # These settings are NOT supported by FC1 and cause deployment failures
@@ -309,9 +337,17 @@ echo ""
 echo "=========================================="
 echo "Waiting for RBAC permissions to propagate..."
 echo "=========================================="
-echo "(Azure AD role assignments can take up to 5 minutes to propagate)"
-sleep 60
-echo "Waited 60 seconds. Starting deployment..."
+IS_FLEX_LOWER=$(echo "$IS_FLEX_CONSUMPTION" | tr '[:upper:]' '[:lower:]')
+if [ "$IS_FLEX_LOWER" == "true" ]; then
+  echo "(FC1: SCM endpoint needs extra time to initialize - waiting 3 minutes)"
+  sleep 180
+  echo "Waited 180 seconds."
+else
+  echo "(Azure AD role assignments can take up to 1 minute to propagate)"
+  sleep 60
+  echo "Waited 60 seconds."
+fi
+echo "Starting deployment..."
 echo ""
 
 # ========================================
