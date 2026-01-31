@@ -411,46 +411,88 @@ create_new_subnet() {
         --resource-group "$VNET_RG" \
         --query "addressSpace.addressPrefixes[0]" -o tsv)
 
-    # Get all existing subnet prefixes (use addressPrefixes[0] as it's an array)
-    EXISTING_SUBNETS=$(az network vnet subnet list \
-        --vnet-name "$VNET_NAME" \
-        --resource-group "$VNET_RG" \
-        --query "[].addressPrefixes[0]" -o tsv | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n)
+    # Get VNet CIDR to understand available space
+    VNET_CIDR=$(echo "$VNET_PREFIX" | cut -d'/' -f2)
+    VNET_BASE=$(echo "$VNET_PREFIX" | cut -d'/' -f1 | cut -d'.' -f1-3)
 
-    # Extract base from VNet (first two octets)
-    VNET_BASE=$(echo "$VNET_PREFIX" | cut -d'.' -f1-2)
+    # For small VNets (/24 or smaller), we need to find space within the fourth octet
+    # For larger VNets, we can use different third octets
+    if [ "$VNET_CIDR" -ge 24 ]; then
+        # Small VNet - need to find space in fourth octet
+        # Get existing subnets and find a gap
+        EXISTING_SUBNETS=$(az network vnet subnet list \
+            --vnet-name "$VNET_NAME" \
+            --resource-group "$VNET_RG" \
+            --query "[].addressPrefixes[0]" -o tsv 2>/dev/null)
 
-    # Find the highest third octet in use and add 1
-    if [ -n "$EXISTING_SUBNETS" ]; then
-        # Get all third octets, find the maximum, and add 1
-        MAX_THIRD_OCTET=$(echo "$EXISTING_SUBNETS" | cut -d'.' -f3 | sort -n | tail -1)
-        NEXT_THIRD_OCTET=$((MAX_THIRD_OCTET + 1))
-        SUGGESTED_PREFIX="${VNET_BASE}.${NEXT_THIRD_OCTET}.0"
+        # For a /24, suggest starting at .64 if available (leaves room for /26 subnets)
+        # Check what's already used
+        USED_STARTS=$(echo "$EXISTING_SUBNETS" | cut -d'.' -f4 | cut -d'/' -f1 | sort -n)
+
+        # Try to find a free /27 block (needs 32 IPs)
+        # In a /24, possible /27 starts are: 0, 32, 64, 96, 128, 160, 192, 224
+        SUGGESTED_START=""
+        for START in 32 64 96 128 160 192; do
+            if ! echo "$USED_STARTS" | grep -q "^${START}$"; then
+                SUGGESTED_START=$START
+                break
+            fi
+        done
+
+        if [ -z "$SUGGESTED_START" ]; then
+            print_error "No hay espacio disponible para un nuevo subnet en esta VNet"
+            echo ""
+            echo "La VNet $VNET_NAME ($VNET_PREFIX) está muy fragmentada."
+            echo "Considera usar una VNet más grande o limpiar subnets no usados."
+            exit 1
+        fi
+
+        SUGGESTED_PREFIX="${VNET_BASE}.${SUGGESTED_START}"
     else
-        # No subnets, suggest first block after .0
-        SUGGESTED_PREFIX="${VNET_BASE}.1.0"
-    fi
+        # Larger VNet - can use different third octets
+        EXISTING_SUBNETS=$(az network vnet subnet list \
+            --vnet-name "$VNET_NAME" \
+            --resource-group "$VNET_RG" \
+            --query "[].addressPrefixes[0]" -o tsv | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n)
 
-    # Validate the suggested prefix is within VNet range
-    if [ "$NEXT_THIRD_OCTET" -gt 255 ]; then
-        print_error "No hay espacio disponible en la VNet"
-        exit 1
+        VNET_BASE_2=$(echo "$VNET_PREFIX" | cut -d'.' -f1-2)
+
+        if [ -n "$EXISTING_SUBNETS" ]; then
+            MAX_THIRD_OCTET=$(echo "$EXISTING_SUBNETS" | cut -d'.' -f3 | sort -n | tail -1)
+            NEXT_THIRD_OCTET=$((MAX_THIRD_OCTET + 1))
+            if [ "$NEXT_THIRD_OCTET" -gt 255 ]; then
+                print_error "No hay espacio disponible en la VNet"
+                exit 1
+            fi
+            SUGGESTED_PREFIX="${VNET_BASE_2}.${NEXT_THIRD_OCTET}.0"
+        else
+            SUGGESTED_PREFIX="${VNET_BASE_2}.1.0"
+        fi
     fi
 
     echo ""
     echo -e "${CYAN}Espacio de VNet:${NC} $VNET_PREFIX"
-    echo -e "${CYAN}Siguiente bloque disponible:${NC} $SUGGESTED_PREFIX"
+    echo -e "${CYAN}Bloque sugerido:${NC} $SUGGESTED_PREFIX"
     echo ""
 
     echo "Selecciona el tamaño del subnet:"
     echo ""
     echo -e "  ${GREEN}1)${NC} /28 = 16 IPs   (mínimo para Dilux)"
     echo -e "  ${GREEN}2)${NC} /27 = 32 IPs   ${GREEN}(recomendado)${NC}"
-    echo -e "  ${YELLOW}3)${NC} /26 = 64 IPs   (para futuras apps)"
-    echo -e "  ${YELLOW}4)${NC} /24 = 256 IPs  (grande)"
+
+    # Only show larger options if VNet is big enough
+    if [ "$VNET_CIDR" -lt 24 ]; then
+        echo -e "  ${YELLOW}3)${NC} /26 = 64 IPs   (para futuras apps)"
+        echo -e "  ${YELLOW}4)${NC} /24 = 256 IPs  (grande)"
+        MAX_OPTION=4
+    else
+        echo -e "  ${YELLOW}3)${NC} /26 = 64 IPs"
+        MAX_OPTION=3
+    fi
+
     echo -e "  ${YELLOW}0)${NC} Cancelar"
     echo ""
-    echo -en "${BOLD}Selecciona [0-4] (default: 2):${NC} "
+    echo -en "${BOLD}Selecciona [0-$MAX_OPTION] (default: 2):${NC} "
     read SIZE_CHOICE < /dev/tty
     SIZE_CHOICE="${SIZE_CHOICE:-2}"
 
@@ -462,7 +504,14 @@ create_new_subnet() {
         1) SUBNET_CIDR="/28" ;;
         2) SUBNET_CIDR="/27" ;;
         3) SUBNET_CIDR="/26" ;;
-        4) SUBNET_CIDR="/24" ;;
+        4)
+            if [ "$VNET_CIDR" -lt 24 ]; then
+                SUBNET_CIDR="/24"
+            else
+                print_warning "Opción inválida para esta VNet, usando /27"
+                SUBNET_CIDR="/27"
+            fi
+            ;;
         *)
             print_warning "Opción inválida, usando /27"
             SUBNET_CIDR="/27"
