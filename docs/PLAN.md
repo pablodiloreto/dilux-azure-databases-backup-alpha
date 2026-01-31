@@ -407,37 +407,118 @@ Para acceder a bases de datos en redes privadas (Private Endpoints, VNets), los 
 - **EP1/EP2/EP3 (Premium)**
 - **Y1 (Consumption)** - NO soportado
 
-### Scripts
+### Scripts de Configuración
 
 | Script | Descripción |
 |--------|-------------|
-| `deploy.sh` | Pregunta por VNet ANTES del deployment para determinar la región |
+| `deploy.sh` | Wizard de instalación - pregunta por VNet ANTES del deployment para determinar la región automáticamente |
 | `configure-vnet.sh` | Integra Function Apps a VNet existente post-deployment |
 
-### VNet Status en UI
+#### deploy.sh - Flujo de Instalación (7 pasos)
 
-La página Status (`/status`) muestra el estado de VNet integration en tiempo real:
+```
+[1/7] VNet Requirement    → ¿Necesitas conectar a bases de datos en VNet?
+[2/7] Virtual Network     → Seleccionar VNet existente (determina región)
+[3/7] App Name            → Nombre de la instalación
+[4/7] Admin Email         → Email del administrador
+[5/7] Function App SKU    → FC1/EP1/EP2/EP3 (Y1 oculto si VNet seleccionada)
+[6/7] Confirmation        → Resumen y confirmación
+[7/7] Deployment          → Ejecución del deployment
+```
 
-- **Endpoint**: `GET /api/vnet-status`
-- **Cache**: 5 minutos (VNet changes are infrequent)
-- **Permisos**: API Function App necesita rol Reader en Resource Group
+**Importante:** La región se determina automáticamente de la VNet seleccionada para evitar problemas de ubicación.
 
-**Información mostrada:**
-- VNets conectadas con sus subnets
-- Estado por Function App (api, scheduler, processor)
-- Inconsistencias (ej: solo 2/3 apps conectadas)
-- Errores de query con opción de retry
+#### configure-vnet.sh - Características
+
+- Normalización de ubicación ("East US" → "eastus")
+- Cálculo automático de subnet para VNets pequeñas (/24 o menores)
+- Validación de ubicación VNet vs Function Apps
+- Integración de las 3 Function Apps (api, scheduler, processor)
+- Manejo de errores con mensajes descriptivos
+
+### VNet Status en UI (v1.0.32+)
+
+La página Status (`/status`) muestra el estado de VNet integration **en tiempo real** consultando Azure ARM API.
+
+#### Endpoint API
+
+```
+GET /api/vnet-status
+```
+
+**Response:**
+```json
+{
+  "has_vnet_integration": true,
+  "vnets": [
+    {
+      "vnet_name": "my-vnet",
+      "vnet_resource_group": "network-rg",
+      "subnet_name": "dilux-subnet",
+      "connected_apps": ["api", "scheduler", "processor"],
+      "connection_status": "3/3",
+      "is_complete": true
+    }
+  ],
+  "function_apps": [
+    {
+      "name": "myapp-abc123-api",
+      "type": "api",
+      "vnet_name": "my-vnet",
+      "subnet_name": "dilux-subnet",
+      "is_connected": true,
+      "error": null
+    }
+  ],
+  "inconsistencies": [],
+  "query_error": null
+}
+```
+
+#### Características del Frontend
+
+| Característica | Descripción |
+|----------------|-------------|
+| **Query separado** | React Query independiente con `staleTime: 5min` |
+| **Cache inteligente** | VNet changes son infrecuentes, no necesita refresh cada 30s |
+| **Retry on error** | Botón de retry si falla la consulta a Azure |
+| **Detección de inconsistencias** | Alerta si solo 2/3 apps están conectadas |
+| **Multi-VNet** | Detecta si las apps están en VNets diferentes |
+| **Graceful degradation** | Muestra "not configured" si no hay VNet |
+
+### Archivos Implementados
+
+| Archivo | Descripción |
+|---------|-------------|
+| `src/shared/services/azure_service.py` | Servicio Python para queries a Azure ARM |
+| `src/functions/api/function_app.py` | Endpoint `/api/vnet-status` |
+| `src/frontend/src/api/system.ts` | Tipos TypeScript y método `getVNetStatus()` |
+| `src/frontend/src/features/status/StatusPage.tsx` | Componente `VNetStatusCard` |
+| `infra/main.bicep` | Variables de entorno + Reader role assignment |
 
 ### Requisitos Técnicos
 
 1. **Variables de entorno** (configuradas automáticamente por Bicep):
-   - `AZURE_SUBSCRIPTION_ID`
-   - `DILUX_RESOURCE_GROUP`
-   - `DILUX_API_APP_NAME`, `DILUX_SCHEDULER_APP_NAME`, `DILUX_PROCESSOR_APP_NAME`
+   ```
+   AZURE_SUBSCRIPTION_ID     # ID de la suscripción
+   DILUX_RESOURCE_GROUP      # Resource Group de la instalación
+   DILUX_API_APP_NAME        # Nombre del Function App API
+   DILUX_SCHEDULER_APP_NAME  # Nombre del Function App Scheduler
+   DILUX_PROCESSOR_APP_NAME  # Nombre del Function App Processor
+   ```
 
-2. **RBAC**: API Function App necesita rol Reader en Resource Group
+2. **RBAC**: API Function App tiene rol **Reader** en Resource Group (asignado por Bicep)
 
-3. **SDK**: `azure-mgmt-web>=7.0.0` para queries a Azure Resource Manager
+3. **SDK Python**: `azure-mgmt-web>=7.0.0` para queries a Azure Resource Manager
+
+### Decisiones de Diseño
+
+| Decisión | Justificación |
+|----------|---------------|
+| Query en tiempo real vs variable estática | Si el usuario desconecta la VNet manualmente, el status debe actualizarse |
+| Endpoint separado vs incluir en `/api/system-status` | Cache diferente (5min vs 30s) para optimizar llamadas a Azure ARM |
+| Reader role solo en Resource Group propio | Principio de mínimo privilegio |
+| Retry manual vs automático | Usuario decide cuándo reintentar, evita spam a Azure API |
 
 ---
 

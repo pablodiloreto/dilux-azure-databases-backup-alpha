@@ -720,6 +720,117 @@ Get comprehensive system status and health information.
 
 ---
 
+### VNet Status
+
+#### `GET /api/vnet-status`
+
+Get VNet integration status for all Function Apps. Queries Azure Resource Manager in real-time.
+
+**Response (VNet configured):**
+```json
+{
+  "has_vnet_integration": true,
+  "vnets": [
+    {
+      "vnet_name": "my-vnet",
+      "vnet_resource_group": "network-rg",
+      "subnet_name": "dilux-subnet",
+      "connected_apps": ["api", "scheduler", "processor"],
+      "connection_status": "3/3",
+      "is_complete": true
+    }
+  ],
+  "function_apps": [
+    {
+      "name": "myapp-abc123-api",
+      "type": "api",
+      "vnet_name": "my-vnet",
+      "subnet_name": "dilux-subnet",
+      "vnet_resource_group": "network-rg",
+      "is_connected": true,
+      "error": null
+    },
+    {
+      "name": "myapp-abc123-scheduler",
+      "type": "scheduler",
+      "vnet_name": "my-vnet",
+      "subnet_name": "dilux-subnet",
+      "vnet_resource_group": "network-rg",
+      "is_connected": true,
+      "error": null
+    },
+    {
+      "name": "myapp-abc123-processor",
+      "type": "processor",
+      "vnet_name": "my-vnet",
+      "subnet_name": "dilux-subnet",
+      "vnet_resource_group": "network-rg",
+      "is_connected": true,
+      "error": null
+    }
+  ],
+  "inconsistencies": [],
+  "query_error": null
+}
+```
+
+**Response (no VNet):**
+```json
+{
+  "has_vnet_integration": false,
+  "vnets": [],
+  "function_apps": [
+    {
+      "name": "myapp-abc123-api",
+      "type": "api",
+      "vnet_name": null,
+      "subnet_name": null,
+      "vnet_resource_group": null,
+      "is_connected": false,
+      "error": null
+    }
+  ],
+  "inconsistencies": [],
+  "query_error": null
+}
+```
+
+**Response (inconsistencies):**
+```json
+{
+  "has_vnet_integration": true,
+  "vnets": [
+    {
+      "vnet_name": "my-vnet",
+      "connection_status": "2/3",
+      "is_complete": false
+    }
+  ],
+  "inconsistencies": [
+    "VNet 'my-vnet' has only 2/3 apps connected. Missing: processor"
+  ],
+  "query_error": null
+}
+```
+
+**Response (query error):**
+```json
+{
+  "has_vnet_integration": false,
+  "vnets": [],
+  "function_apps": [],
+  "inconsistencies": [],
+  "query_error": "DILUX_RESOURCE_GROUP not configured"
+}
+```
+
+**Notes:**
+- This endpoint queries Azure ARM API and may take 1-2 seconds
+- Frontend caches responses for 5 minutes (VNet changes are infrequent)
+- Requires Reader role on Resource Group (configured automatically by Bicep)
+
+---
+
 ### Settings
 
 #### `GET /api/settings`

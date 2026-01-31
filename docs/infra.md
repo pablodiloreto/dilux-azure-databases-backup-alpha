@@ -707,3 +707,199 @@ Or in Azure Portal:
 1. Go to Resource Group
 2. Find "deploy-application-code" resource
 3. Click on it → Logs
+
+---
+
+## VNet Integration
+
+### Overview
+
+VNet Integration permite a los Function Apps conectarse a bases de datos en redes privadas (Private Endpoints, VNets).
+
+**Planes soportados:**
+| Plan | VNet Support | Recomendación |
+|------|--------------|---------------|
+| FC1 (Flex Consumption) | ✅ Sí | **Recomendado** |
+| EP1/EP2/EP3 (Premium) | ✅ Sí | Para workloads enterprise |
+| Y1 (Consumption) | ❌ No | EOL en 2028 |
+
+### Scripts de Configuración
+
+#### deploy.sh (Wizard de Instalación)
+
+El wizard de instalación pregunta por VNet **ANTES** del deployment:
+
+```bash
+curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/deploy.sh | bash
+```
+
+**Flujo:**
+1. `[1/7]` Pregunta si necesita VNet
+2. `[2/7]` Lista VNets disponibles → **determina la región automáticamente**
+3. `[3/7]` Nombre de la app
+4. `[4/7]` Email del admin
+5. `[5/7]` SKU (Y1 oculto si VNet seleccionada)
+6. `[6/7]` Confirmación
+7. `[7/7]` Deployment
+
+#### configure-vnet.sh (Post-Deployment)
+
+Para instalaciones existentes que necesitan VNet Integration:
+
+```bash
+curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/configure-vnet.sh | bash
+```
+
+**Características:**
+- Detecta instalaciones de Dilux en la suscripción
+- Lista VNets en la misma región
+- Calcula subnet automáticamente (incluso para VNets pequeñas /24)
+- Crea subnet con delegación a Microsoft.Web/serverFarms
+- Integra las 3 Function Apps
+
+### VNet Status API
+
+El endpoint `/api/vnet-status` consulta Azure ARM en tiempo real.
+
+**Request:**
+```
+GET /api/vnet-status
+Authorization: Bearer <token>
+```
+
+**Response:**
+```json
+{
+  "has_vnet_integration": true,
+  "vnets": [
+    {
+      "vnet_name": "my-vnet",
+      "vnet_resource_group": "network-rg",
+      "subnet_name": "dilux-subnet",
+      "connected_apps": ["api", "scheduler", "processor"],
+      "connection_status": "3/3",
+      "is_complete": true
+    }
+  ],
+  "function_apps": [
+    {
+      "name": "myapp-abc123-api",
+      "type": "api",
+      "vnet_name": "my-vnet",
+      "subnet_name": "dilux-subnet",
+      "is_connected": true,
+      "error": null
+    }
+  ],
+  "inconsistencies": [],
+  "query_error": null
+}
+```
+
+**Casos de error:**
+```json
+{
+  "has_vnet_integration": false,
+  "vnets": [],
+  "function_apps": [],
+  "inconsistencies": [],
+  "query_error": "DILUX_RESOURCE_GROUP not configured"
+}
+```
+
+### Variables de Entorno (Bicep)
+
+Configuradas automáticamente por `infra/main.bicep`:
+
+```bicep
+additionalAppSettings: {
+  // ... otras settings ...
+  AZURE_SUBSCRIPTION_ID: subscription().subscriptionId
+  DILUX_RESOURCE_GROUP: resourceGroup().name
+  DILUX_API_APP_NAME: functionAppApiName
+  DILUX_SCHEDULER_APP_NAME: functionAppSchedulerName
+  DILUX_PROCESSOR_APP_NAME: functionAppProcessorName
+}
+```
+
+### RBAC para VNet Status
+
+El API Function App necesita rol **Reader** en el Resource Group para poder consultar la configuración de VNet de los otros Function Apps:
+
+```bicep
+// infra/main.bicep
+var readerRoleId = 'acdd72a7-3385-48ef-bd42-f606fba81ae7'
+resource apiReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, functionAppApiName, readerRoleId, 'vnet-status')
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', readerRoleId)
+    principalId: functionAppApi.outputs.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+```
+
+### Arquitectura del Servicio
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         Frontend (React)                             │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │  StatusPage.tsx                                              │    │
+│  │  └── VNetStatusCard                                          │    │
+│  │      └── useQuery('vnet-status', { staleTime: 5min })       │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ GET /api/vnet-status
+┌─────────────────────────────────────────────────────────────────────┐
+│                      API Function App                                │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │  function_app.py                                             │    │
+│  │  └── vnet_status()                                           │    │
+│  │      └── AzureService.get_vnet_status()                     │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ Managed Identity + Reader Role
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Azure Resource Manager                            │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │  WebSiteManagementClient.web_apps.list_vnet_connections()   │    │
+│  │  - Query API Function App VNet                               │    │
+│  │  - Query Scheduler Function App VNet                         │    │
+│  │  - Query Processor Function App VNet                         │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Troubleshooting VNet
+
+#### VNet Status muestra "error"
+
+1. Verificar que las variables de entorno estén configuradas:
+   ```bash
+   az functionapp config appsettings list \
+     --name <app>-api \
+     --resource-group <rg> \
+     --query "[?name=='DILUX_RESOURCE_GROUP'].value" -o tsv
+   ```
+
+2. Verificar el rol Reader:
+   ```bash
+   az role assignment list \
+     --assignee <api-principal-id> \
+     --scope /subscriptions/<sub>/resourceGroups/<rg> \
+     --query "[?roleDefinitionName=='Reader']"
+   ```
+
+#### VNet Status muestra "not configured"
+
+Ejecutar el script de configuración:
+```bash
+curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/configure-vnet.sh | bash
+```
+
+#### Inconsistencias (2/3 apps conectadas)
+
+Re-ejecutar `configure-vnet.sh` para integrar las apps faltantes.
