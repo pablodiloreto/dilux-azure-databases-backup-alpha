@@ -118,6 +118,7 @@ Flex Consumption tiene diferencias importantes vs Y1/Premium:
 | `FUNCTIONS_WORKER_RUNTIME` | FC1 configura runtime en `functionAppConfig.runtime`, NO en appSettings | ✅ Fix en v1.0.19 |
 | 1 App por Plan | FC1 solo permite 1 Function App por App Service Plan | ✅ Fix en v1.0.20 (3 planes) |
 | Deployment Method | FC1 necesita `config-zip --build-remote true` (NO `deploy --src-path`) | ✅ Fix en v1.0.24 |
+| Shared Deploy Container | FC1 usa blob container para deploy; compartido sobrescribe ZIPs | ✅ Fix en v1.0.25 |
 
 ### Solución Final (v1.0.24)
 
@@ -168,7 +169,8 @@ az functionapp deployment source config-zip \
 | v1.0.21 | 2026-01-29 | fix: deployment via Blob Storage para FC1 (descartado) |
 | v1.0.22 | 2026-01-29 | fix: simplificar a `az functionapp deploy --src-path` |
 | v1.0.23 | 2026-01-29 | fix: comparación case-insensitive para IS_FLEX_CONSUMPTION |
-| v1.0.24 | 2026-01-31 | **fix: FC1 deployment usando `config-zip --build-remote true`** |
+| v1.0.24 | 2026-01-31 | fix: FC1 deployment usando `config-zip --build-remote true` |
+| v1.0.25 | 2026-01-31 | **fix: containers separados para deployment de cada Function App** |
 
 ### 🧪 Historial de Tests FC1
 
@@ -179,7 +181,8 @@ az functionapp deployment source config-zip \
 | v1.0.21 | ❌ | Usaba método blob pero `IS_FLEX_CONSUMPTION` no se detectaba |
 | v1.0.22 | ❌ | Simplificado a `--src-path` pero `IS_FLEX_CONSUMPTION` = "True" vs "true" |
 | v1.0.23 | ❌ | Fix case-insensitive OK, pero `--src-path` retorna **HTTP 415** |
-| v1.0.24 | ✅ | **FUNCIONA** con `config-zip --build-remote true` |
+| v1.0.24 | ❌ | `config-zip` funciona pero container compartido sobrescribe ZIPs |
+| v1.0.25 | ✅ | **FUNCIONA** con containers separados `deployments-{api,scheduler,processor}` |
 
 ### ✅ Verificación Final (dilux68-rg)
 

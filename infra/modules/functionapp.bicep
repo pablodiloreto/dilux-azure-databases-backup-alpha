@@ -66,6 +66,10 @@ param additionalAppSettings object = {}
 @description('Frontend URL for CORS (specific origin required for credentials)')
 param frontendUrl string = ''
 
+@description('Function App type (api, scheduler, processor) - used for unique deployment container')
+@allowed(['api', 'scheduler', 'processor'])
+param functionAppType string = 'api'
+
 // ============================================================================
 // Variables
 // ============================================================================
@@ -190,7 +194,7 @@ resource functionAppFlex 'Microsoft.Web/sites@2024-04-01' = if (isFlexConsumptio
       deployment: {
         storage: {
           type: 'blobContainer'
-          value: '${storageBlobEndpoint}deployments'
+          value: '${storageBlobEndpoint}deployments-${functionAppType}'
           authentication: {
             type: 'SystemAssignedIdentity'
           }

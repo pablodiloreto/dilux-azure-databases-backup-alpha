@@ -16,6 +16,9 @@ param location string
 @description('Tags to apply')
 param tags object
 
+@description('Is Flex Consumption plan (requires deployment containers)')
+param isFlexConsumption bool = false
+
 // ============================================================================
 // Storage Account
 // ============================================================================
@@ -56,6 +59,32 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-01-01'
 resource backupsContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-01-01' = {
   parent: blobService
   name: 'backups'
+  properties: {
+    publicAccess: 'None'
+  }
+}
+
+// Deployment containers for Flex Consumption (FC1)
+// Each Function App needs its own container to avoid deployment conflicts
+resource deploymentsApiContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-01-01' = if (isFlexConsumption) {
+  parent: blobService
+  name: 'deployments-api'
+  properties: {
+    publicAccess: 'None'
+  }
+}
+
+resource deploymentsSchedulerContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-01-01' = if (isFlexConsumption) {
+  parent: blobService
+  name: 'deployments-scheduler'
+  properties: {
+    publicAccess: 'None'
+  }
+}
+
+resource deploymentsProcessorContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-01-01' = if (isFlexConsumption) {
+  parent: blobService
+  name: 'deployments-processor'
   properties: {
     publicAccess: 'None'
   }

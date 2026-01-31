@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "14738256567760116468"
+      "templateHash": "4061664586053085161"
     }
   },
   "parameters": {
@@ -86,13 +86,13 @@
     "deploymentIdentityName": "[format('{0}-deploy-identity', parameters('appName'))]",
     "installationId": "[variables('uniqueSuffix')]",
     "tenantId": "[subscription().tenantId]",
+    "isFlexConsumption": "[equals(parameters('functionAppSku'), 'FC1')]",
     "tags": {
       "Application": "Dilux Database Backup",
       "Environment": "Production",
       "ManagedBy": "Bicep",
       "Version": "[parameters('appVersion')]"
-    },
-    "isFlexConsumption": "[equals(parameters('functionAppSku'), 'FC1')]"
+    }
   },
   "resources": [
     {
@@ -113,6 +113,9 @@
           },
           "tags": {
             "value": "[variables('tags')]"
+          },
+          "isFlexConsumption": {
+            "value": "[variables('isFlexConsumption')]"
           }
         },
         "template": {
@@ -122,7 +125,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "11228603459106108061"
+              "templateHash": "17653728332193135658"
             }
           },
           "parameters": {
@@ -142,6 +145,13 @@
               "type": "object",
               "metadata": {
                 "description": "Tags to apply"
+              }
+            },
+            "isFlexConsumption": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Is Flex Consumption plan (requires deployment containers)"
               }
             }
           },
@@ -185,6 +195,42 @@
               "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
               "apiVersion": "2023-01-01",
               "name": "[format('{0}/{1}/{2}', parameters('storageAccountName'), 'default', 'backups')]",
+              "properties": {
+                "publicAccess": "None"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/blobServices', parameters('storageAccountName'), 'default')]"
+              ]
+            },
+            {
+              "condition": "[parameters('isFlexConsumption')]",
+              "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+              "apiVersion": "2023-01-01",
+              "name": "[format('{0}/{1}/{2}', parameters('storageAccountName'), 'default', 'deployments-api')]",
+              "properties": {
+                "publicAccess": "None"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/blobServices', parameters('storageAccountName'), 'default')]"
+              ]
+            },
+            {
+              "condition": "[parameters('isFlexConsumption')]",
+              "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+              "apiVersion": "2023-01-01",
+              "name": "[format('{0}/{1}/{2}', parameters('storageAccountName'), 'default', 'deployments-scheduler')]",
+              "properties": {
+                "publicAccess": "None"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/blobServices', parameters('storageAccountName'), 'default')]"
+              ]
+            },
+            {
+              "condition": "[parameters('isFlexConsumption')]",
+              "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+              "apiVersion": "2023-01-01",
+              "name": "[format('{0}/{1}/{2}', parameters('storageAccountName'), 'default', 'deployments-processor')]",
               "properties": {
                 "publicAccess": "None"
               },
@@ -1376,6 +1422,9 @@
           "functionAppName": {
             "value": "[variables('functionAppApiName')]"
           },
+          "functionAppType": {
+            "value": "api"
+          },
           "location": {
             "value": "[parameters('location')]"
           },
@@ -1430,7 +1479,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "5458448374704653700"
+              "templateHash": "7283587711428679460"
             }
           },
           "parameters": {
@@ -1552,6 +1601,18 @@
               "metadata": {
                 "description": "Frontend URL for CORS (specific origin required for credentials)"
               }
+            },
+            "functionAppType": {
+              "type": "string",
+              "defaultValue": "api",
+              "allowedValues": [
+                "api",
+                "scheduler",
+                "processor"
+              ],
+              "metadata": {
+                "description": "Function App type (api, scheduler, processor) - used for unique deployment container"
+              }
             }
           },
           "variables": {
@@ -1640,7 +1701,7 @@
                   "deployment": {
                     "storage": {
                       "type": "blobContainer",
-                      "value": "[format('{0}deployments', parameters('storageBlobEndpoint'))]",
+                      "value": "[format('{0}deployments-{1}', parameters('storageBlobEndpoint'), parameters('functionAppType'))]",
                       "authentication": {
                         "type": "SystemAssignedIdentity"
                       }
@@ -1743,6 +1804,9 @@
           "functionAppName": {
             "value": "[variables('functionAppSchedulerName')]"
           },
+          "functionAppType": {
+            "value": "scheduler"
+          },
           "location": {
             "value": "[parameters('location')]"
           },
@@ -1792,7 +1856,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "5458448374704653700"
+              "templateHash": "7283587711428679460"
             }
           },
           "parameters": {
@@ -1914,6 +1978,18 @@
               "metadata": {
                 "description": "Frontend URL for CORS (specific origin required for credentials)"
               }
+            },
+            "functionAppType": {
+              "type": "string",
+              "defaultValue": "api",
+              "allowedValues": [
+                "api",
+                "scheduler",
+                "processor"
+              ],
+              "metadata": {
+                "description": "Function App type (api, scheduler, processor) - used for unique deployment container"
+              }
             }
           },
           "variables": {
@@ -2002,7 +2078,7 @@
                   "deployment": {
                     "storage": {
                       "type": "blobContainer",
-                      "value": "[format('{0}deployments', parameters('storageBlobEndpoint'))]",
+                      "value": "[format('{0}deployments-{1}', parameters('storageBlobEndpoint'), parameters('functionAppType'))]",
                       "authentication": {
                         "type": "SystemAssignedIdentity"
                       }
@@ -2106,6 +2182,9 @@
           "functionAppName": {
             "value": "[variables('functionAppProcessorName')]"
           },
+          "functionAppType": {
+            "value": "processor"
+          },
           "location": {
             "value": "[parameters('location')]"
           },
@@ -2155,7 +2234,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "5458448374704653700"
+              "templateHash": "7283587711428679460"
             }
           },
           "parameters": {
@@ -2277,6 +2356,18 @@
               "metadata": {
                 "description": "Frontend URL for CORS (specific origin required for credentials)"
               }
+            },
+            "functionAppType": {
+              "type": "string",
+              "defaultValue": "api",
+              "allowedValues": [
+                "api",
+                "scheduler",
+                "processor"
+              ],
+              "metadata": {
+                "description": "Function App type (api, scheduler, processor) - used for unique deployment container"
+              }
             }
           },
           "variables": {
@@ -2365,7 +2456,7 @@
                   "deployment": {
                     "storage": {
                       "type": "blobContainer",
-                      "value": "[format('{0}deployments', parameters('storageBlobEndpoint'))]",
+                      "value": "[format('{0}deployments-{1}', parameters('storageBlobEndpoint'), parameters('functionAppType'))]",
                       "authentication": {
                         "type": "SystemAssignedIdentity"
                       }

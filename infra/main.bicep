@@ -76,6 +76,9 @@ var deploymentIdentityName = '${appName}-deploy-identity'
 var installationId = uniqueSuffix
 var tenantId = subscription().tenantId
 
+// Determine if Flex Consumption (requires separate containers for deployment)
+var isFlexConsumption = functionAppSku == 'FC1'
+
 // Tags applied to all resources
 var tags = {
   Application: 'Dilux Database Backup'
@@ -95,6 +98,7 @@ module storage 'modules/storage.bicep' = {
     storageAccountName: storageAccountName
     location: location
     tags: tags
+    isFlexConsumption: isFlexConsumption
   }
 }
 
@@ -118,9 +122,6 @@ module appInsights 'modules/appinsights.bicep' = if (enableAppInsights) {
     tags: tags
   }
 }
-
-// Determine if Flex Consumption (requires separate plan per Function App)
-var isFlexConsumption = functionAppSku == 'FC1'
 
 // App Service Plan - shared for Y1/EP* or separate for FC1
 // For Flex Consumption: one plan per Function App (Azure limitation)
@@ -222,6 +223,7 @@ module functionAppApi 'modules/functionapp.bicep' = {
   dependsOn: (skipAppRegistration || !empty(azureAdClientId)) ? [] : [appRegistration]
   params: {
     functionAppName: functionAppApiName
+    functionAppType: 'api'
     location: location
     tags: tags
     appServicePlanId: appServicePlanApi.outputs.planId
@@ -253,6 +255,7 @@ module functionAppScheduler 'modules/functionapp.bicep' = {
   dependsOn: (skipAppRegistration || !empty(azureAdClientId)) ? [] : [appRegistration]
   params: {
     functionAppName: functionAppSchedulerName
+    functionAppType: 'scheduler'
     location: location
     tags: tags
     appServicePlanId: isFlexConsumption ? appServicePlanScheduler.outputs.planId : appServicePlanApi.outputs.planId
@@ -281,6 +284,7 @@ module functionAppProcessor 'modules/functionapp.bicep' = {
   dependsOn: (skipAppRegistration || !empty(azureAdClientId)) ? [] : [appRegistration]
   params: {
     functionAppName: functionAppProcessorName
+    functionAppType: 'processor'
     location: location
     tags: tags
     appServicePlanId: isFlexConsumption ? appServicePlanProcessor.outputs.planId : appServicePlanApi.outputs.planId
