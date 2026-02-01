@@ -471,7 +471,7 @@ create_subnet_for_region() {
     EXISTING_SUBNETS=$(az network vnet subnet list \
         --vnet-name "$VNET_SELECTED_NAME" \
         --resource-group "$VNET_SELECTED_RG" \
-        --query "[].{name:name, prefix:addressPrefix}" -o json 2>&1)
+        --query "[].{name:name, prefix:addressPrefixes[0]}" -o json 2>&1)
     SUBNETS_RESULT=$?
     set -e
 
