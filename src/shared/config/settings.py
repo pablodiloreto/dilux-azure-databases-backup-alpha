@@ -88,6 +88,10 @@ class Settings(BaseSettings):
 
     # Key Vault (Optional)
     keyvault_url: Optional[str] = Field(default=None)
+    key_vault_name: Optional[str] = Field(
+        default=None,
+        alias="KEY_VAULT_NAME"
+    )
 
     class Config:
         env_file = ".env"
@@ -104,6 +108,18 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """Check if running in production environment."""
         return self.environment.lower() in ("production", "prod")
+
+    @property
+    def key_vault_url(self) -> Optional[str]:
+        """Get Key Vault URL from name."""
+        if self.key_vault_name:
+            return f"https://{self.key_vault_name}.vault.azure.net/"
+        return self.keyvault_url
+
+    @property
+    def use_key_vault(self) -> bool:
+        """Check if Key Vault is available (production)."""
+        return bool(self.key_vault_name or self.keyvault_url) and not self.is_development
 
     @property
     def use_managed_identity_for_storage(self) -> bool:

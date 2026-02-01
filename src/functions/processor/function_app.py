@@ -32,7 +32,7 @@ if str(shared_path.parent) not in sys.path:
 
 from shared.config import get_settings
 from shared.models import BackupJob, BackupResult, BackupStatus, DatabaseType
-from shared.services import StorageService, DatabaseConfigService
+from shared.services import StorageService, DatabaseConfigService, EngineService
 
 from backup_engines import get_backup_engine
 
@@ -43,6 +43,7 @@ app = func.FunctionApp()
 settings = get_settings()
 storage_service = StorageService()
 db_config_service = DatabaseConfigService()
+engine_service = EngineService()
 
 logger = logging.getLogger(__name__)
 
@@ -96,14 +97,18 @@ def backup_processor(msg: func.QueueMessage) -> None:
         # Get the appropriate backup engine
         engine = get_backup_engine(job.database_type)
 
-        # Get password from config or Key Vault
+        # Get password from config (Key Vault retrieval is handled by the service layer)
         password = None
         config = db_config_service.get(job.database_id)
         if config:
-            password = config.password
-            # TODO: Implement Key Vault password retrieval
-            # if config.password_secret_name:
-            #     password = keyvault_service.get_secret(config.password_secret_name)
+            # Check if using engine credentials
+            if config.use_engine_credentials and config.engine_id:
+                db_engine = engine_service.get(config.engine_id)
+                if db_engine:
+                    password = db_engine.password
+            else:
+                # Use database-specific credentials
+                password = config.password
 
         if not password:
             raise ValueError("No password available for database")

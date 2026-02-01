@@ -75,7 +75,16 @@ class DatabaseConfigService:
         except ResourceNotFoundError:
             pass
 
-        # Create entity (include password in dev mode for testing)
+        # Save password to Key Vault in production (only if not using engine credentials)
+        if config.password and not config.use_engine_credentials and self._settings.use_key_vault:
+            secret_name = f"database-{config.id}"
+            if self._clients.set_secret(secret_name, config.password):
+                config.password_secret_name = secret_name
+                config.password = None  # Don't store in Table
+            else:
+                logger.warning(f"Failed to save database password to Key Vault, keeping in memory only")
+
+        # Create entity (include password only in dev mode)
         include_password = self._settings.is_development
         entity = config.to_table_entity(include_password=include_password)
         table_client.create_entity(entity)
@@ -97,7 +106,15 @@ class DatabaseConfigService:
 
         try:
             entity = table_client.get_entity("database", database_id)
-            return DatabaseConfig.from_table_entity(entity)
+            config = DatabaseConfig.from_table_entity(entity)
+
+            # Load password from Key Vault in production
+            if config.password_secret_name and self._settings.use_key_vault:
+                password = self._clients.get_secret(config.password_secret_name)
+                if password:
+                    config.password = password
+
+            return config
         except ResourceNotFoundError:
             return None
 
@@ -226,7 +243,16 @@ class DatabaseConfigService:
         # Update timestamp
         config.updated_at = datetime.utcnow()
 
-        # Update entity (include password in dev mode for testing)
+        # Handle password update in Key Vault (only if not using engine credentials)
+        if config.password and not config.use_engine_credentials and self._settings.use_key_vault:
+            secret_name = config.password_secret_name or f"database-{config.id}"
+            if self._clients.set_secret(secret_name, config.password):
+                config.password_secret_name = secret_name
+                config.password = None  # Don't store in Table
+            else:
+                logger.warning(f"Failed to update database password in Key Vault")
+
+        # Update entity (include password only in dev mode)
         include_password = self._settings.is_development
         entity = config.to_table_entity(include_password=include_password)
         table_client.update_entity(entity, mode="replace")
@@ -245,6 +271,11 @@ class DatabaseConfigService:
             True if deleted, False if not found
         """
         table_client = self._get_table_client()
+
+        # Get config first to check for Key Vault secret
+        config = self.get(database_id)
+        if config and config.password_secret_name and self._settings.use_key_vault:
+            self._clients.delete_secret(config.password_secret_name)
 
         try:
             table_client.delete_entity("database", database_id)

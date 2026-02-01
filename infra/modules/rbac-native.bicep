@@ -23,7 +23,8 @@ param processorPrincipalId string
 // ============================================================================
 // Role Definition IDs
 // ============================================================================
-var keyVaultSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
+// Key Vault Secrets Officer - allows read, write, and delete of secrets
+var keyVaultSecretsOfficerRoleId = 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7'
 var storageBlobDataContributorRoleId = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
 var storageQueueDataContributorRoleId = '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
 var storageTableDataContributorRoleId = '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
@@ -44,10 +45,10 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
 // ============================================================================
 
 resource apiKeyVaultRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(keyVaultId, apiPrincipalId, keyVaultSecretsUserRoleId)
+  name: guid(keyVaultId, apiPrincipalId, keyVaultSecretsOfficerRoleId)
   scope: keyVault
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUserRoleId)
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsOfficerRoleId)
     principalId: apiPrincipalId
     principalType: 'ServicePrincipal'
   }
@@ -88,10 +89,10 @@ resource apiTableRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 // ============================================================================
 
 resource schedulerKeyVaultRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(keyVaultId, schedulerPrincipalId, keyVaultSecretsUserRoleId)
+  name: guid(keyVaultId, schedulerPrincipalId, keyVaultSecretsOfficerRoleId)
   scope: keyVault
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUserRoleId)
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsOfficerRoleId)
     principalId: schedulerPrincipalId
     principalType: 'ServicePrincipal'
   }
@@ -132,10 +133,10 @@ resource schedulerTableRole 'Microsoft.Authorization/roleAssignments@2022-04-01'
 // ============================================================================
 
 resource processorKeyVaultRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(keyVaultId, processorPrincipalId, keyVaultSecretsUserRoleId)
+  name: guid(keyVaultId, processorPrincipalId, keyVaultSecretsOfficerRoleId)
   scope: keyVault
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUserRoleId)
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsOfficerRoleId)
     principalId: processorPrincipalId
     principalType: 'ServicePrincipal'
   }

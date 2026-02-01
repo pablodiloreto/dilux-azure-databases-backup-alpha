@@ -85,7 +85,18 @@ class EngineService:
                     f"An engine for {engine.engine_type.value} at {engine.host}:{engine.port} already exists"
                 )
 
-        # Create entity (include password in dev mode for testing)
+        # Save password to Key Vault in production
+        if engine.password and self._settings.use_key_vault:
+            secret_name = f"engine-{engine.id}"
+            if self._clients.set_secret(secret_name, engine.password):
+                engine.password_secret_name = secret_name
+                # Clear password so it's not stored in Table Storage
+                password_for_entity = engine.password
+                engine.password = None
+            else:
+                logger.warning(f"Failed to save engine password to Key Vault, keeping in memory only")
+
+        # Create entity (include password only in dev mode)
         include_password = self._settings.is_development
         entity = engine.to_table_entity(include_password=include_password)
         table_client.create_entity(entity)
@@ -107,7 +118,15 @@ class EngineService:
 
         try:
             entity = table_client.get_entity("engine", engine_id)
-            return Engine.from_table_entity(entity)
+            engine = Engine.from_table_entity(entity)
+
+            # Load password from Key Vault in production
+            if engine.password_secret_name and self._settings.use_key_vault:
+                password = self._clients.get_secret(engine.password_secret_name)
+                if password:
+                    engine.password = password
+
+            return engine
         except ResourceNotFoundError:
             return None
 
@@ -209,7 +228,16 @@ class EngineService:
         # Update timestamp
         engine.updated_at = datetime.utcnow()
 
-        # Update entity (include password in dev mode for testing)
+        # Handle password update in Key Vault
+        if engine.password and self._settings.use_key_vault:
+            secret_name = engine.password_secret_name or f"engine-{engine.id}"
+            if self._clients.set_secret(secret_name, engine.password):
+                engine.password_secret_name = secret_name
+                engine.password = None  # Don't store in Table
+            else:
+                logger.warning(f"Failed to update engine password in Key Vault")
+
+        # Update entity (include password only in dev mode)
         include_password = self._settings.is_development
         entity = engine.to_table_entity(include_password=include_password)
         table_client.update_entity(entity, mode="replace")
@@ -228,6 +256,11 @@ class EngineService:
             True if deleted, False if not found
         """
         table_client = self._get_table_client()
+
+        # Get engine first to check for Key Vault secret
+        engine = self.get(engine_id)
+        if engine and engine.password_secret_name and self._settings.use_key_vault:
+            self._clients.delete_secret(engine.password_secret_name)
 
         try:
             table_client.delete_entity("engine", engine_id)

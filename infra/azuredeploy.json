@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "2556999171065275366"
+      "templateHash": "16499477310314493515"
     }
   },
   "parameters": {
@@ -2725,7 +2725,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "2654094930860618107"
+              "templateHash": "1558708535655222763"
             }
           },
           "parameters": {
@@ -2761,7 +2761,7 @@
             }
           },
           "variables": {
-            "keyVaultSecretsUserRoleId": "4633458b-17de-408a-b874-0445c86b69e6",
+            "keyVaultSecretsOfficerRoleId": "b86a8fe4-44ce-4948-aee5-eccb2c155cd7",
             "storageBlobDataContributorRoleId": "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
             "storageQueueDataContributorRoleId": "974c5e8b-45b9-4653-ba55-5f855dd0fb88",
             "storageTableDataContributorRoleId": "0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3"
@@ -2771,9 +2771,9 @@
               "type": "Microsoft.Authorization/roleAssignments",
               "apiVersion": "2022-04-01",
               "scope": "[format('Microsoft.KeyVault/vaults/{0}', last(split(parameters('keyVaultId'), '/')))]",
-              "name": "[guid(parameters('keyVaultId'), parameters('apiPrincipalId'), variables('keyVaultSecretsUserRoleId'))]",
+              "name": "[guid(parameters('keyVaultId'), parameters('apiPrincipalId'), variables('keyVaultSecretsOfficerRoleId'))]",
               "properties": {
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('keyVaultSecretsUserRoleId'))]",
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('keyVaultSecretsOfficerRoleId'))]",
                 "principalId": "[parameters('apiPrincipalId')]",
                 "principalType": "ServicePrincipal"
               }
@@ -2815,9 +2815,9 @@
               "type": "Microsoft.Authorization/roleAssignments",
               "apiVersion": "2022-04-01",
               "scope": "[format('Microsoft.KeyVault/vaults/{0}', last(split(parameters('keyVaultId'), '/')))]",
-              "name": "[guid(parameters('keyVaultId'), parameters('schedulerPrincipalId'), variables('keyVaultSecretsUserRoleId'))]",
+              "name": "[guid(parameters('keyVaultId'), parameters('schedulerPrincipalId'), variables('keyVaultSecretsOfficerRoleId'))]",
               "properties": {
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('keyVaultSecretsUserRoleId'))]",
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('keyVaultSecretsOfficerRoleId'))]",
                 "principalId": "[parameters('schedulerPrincipalId')]",
                 "principalType": "ServicePrincipal"
               }
@@ -2859,9 +2859,9 @@
               "type": "Microsoft.Authorization/roleAssignments",
               "apiVersion": "2022-04-01",
               "scope": "[format('Microsoft.KeyVault/vaults/{0}', last(split(parameters('keyVaultId'), '/')))]",
-              "name": "[guid(parameters('keyVaultId'), parameters('processorPrincipalId'), variables('keyVaultSecretsUserRoleId'))]",
+              "name": "[guid(parameters('keyVaultId'), parameters('processorPrincipalId'), variables('keyVaultSecretsOfficerRoleId'))]",
               "properties": {
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('keyVaultSecretsUserRoleId'))]",
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('keyVaultSecretsOfficerRoleId'))]",
                 "principalId": "[parameters('processorPrincipalId')]",
                 "principalType": "ServicePrincipal"
               }

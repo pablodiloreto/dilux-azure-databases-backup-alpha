@@ -11,6 +11,7 @@ from typing import Optional
 
 from azure.data.tables import TableServiceClient
 from azure.identity import DefaultAzureCredential
+from azure.keyvault.secrets import SecretClient
 from azure.storage.blob import BlobServiceClient
 from azure.storage.queue import QueueServiceClient
 
@@ -164,6 +165,81 @@ class AzureClients:
             TableClient instance.
         """
         return self.table_service_client.get_table_client(table_name)
+
+    @cached_property
+    def secret_client(self) -> Optional[SecretClient]:
+        """
+        Get Key Vault SecretClient (production only).
+
+        Returns None if Key Vault is not configured.
+        """
+        if not self._settings.key_vault_url:
+            return None
+        logger.info(f"Creating SecretClient for {self._settings.key_vault_url}")
+        return SecretClient(
+            vault_url=self._settings.key_vault_url,
+            credential=self.credential
+        )
+
+    def get_secret(self, secret_name: str) -> Optional[str]:
+        """
+        Get secret from Key Vault.
+
+        Args:
+            secret_name: Name of the secret to retrieve.
+
+        Returns:
+            Secret value or None if not found or Key Vault not configured.
+        """
+        if not self.secret_client:
+            return None
+        try:
+            secret = self.secret_client.get_secret(secret_name)
+            return secret.value
+        except Exception as e:
+            logger.warning(f"Failed to get secret '{secret_name}': {e}")
+            return None
+
+    def set_secret(self, secret_name: str, value: str) -> bool:
+        """
+        Set secret in Key Vault.
+
+        Args:
+            secret_name: Name of the secret.
+            value: Secret value.
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        if not self.secret_client:
+            return False
+        try:
+            self.secret_client.set_secret(secret_name, value)
+            logger.info(f"Saved secret '{secret_name}' to Key Vault")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to set secret '{secret_name}': {e}")
+            return False
+
+    def delete_secret(self, secret_name: str) -> bool:
+        """
+        Delete secret from Key Vault.
+
+        Args:
+            secret_name: Name of the secret to delete.
+
+        Returns:
+            True if deletion was initiated, False otherwise.
+        """
+        if not self.secret_client:
+            return False
+        try:
+            self.secret_client.begin_delete_secret(secret_name)
+            logger.info(f"Initiated deletion of secret '{secret_name}'")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to delete secret '{secret_name}': {e}")
+            return False
 
     async def ensure_resources_exist(self) -> None:
         """
