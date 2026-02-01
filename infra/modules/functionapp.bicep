@@ -2,12 +2,9 @@
 // Function App Module
 // ============================================================================
 // Creates an Azure Function App with:
-// - Python 3.10 runtime
+// - Docker container with database tools (mysqldump, pg_dump, sqlcmd)
 // - System-assigned Managed Identity
-// - Conditional auth based on SKU:
-//   - FC1 (Flex Consumption): Managed Identity + scaleAndConcurrency config
-//   - Y1 (Consumption): Connection String for runtime
-//   - EP1/EP2/EP3 (Premium): Managed Identity for runtime
+// - Support for FC1 (Flex Consumption) and EP1/EP2/EP3 (Premium)
 // ============================================================================
 
 @description('Name of the Function App')
@@ -22,7 +19,8 @@ param tags object
 @description('App Service Plan resource ID')
 param appServicePlanId string
 
-@description('App Service Plan SKU (FC1, Y1, EP1, EP2, EP3)')
+@description('App Service Plan SKU (FC1, EP1, EP2, EP3)')
+@allowed(['FC1', 'EP1', 'EP2', 'EP3'])
 param sku string
 
 @description('Is Flex Consumption plan')
@@ -37,10 +35,6 @@ param instanceMemoryMB int = 2048
 
 @description('Storage Account name')
 param storageAccountName string
-
-@description('Storage Account connection string (for Y1/Consumption plan)')
-@secure()
-param storageConnectionString string
 
 @description('Storage Account blob endpoint')
 param storageBlobEndpoint string
@@ -66,9 +60,12 @@ param additionalAppSettings object = {}
 @description('Frontend URL for CORS (specific origin required for credentials)')
 param frontendUrl string = ''
 
-@description('Function App type (api, scheduler, processor) - used for unique deployment container')
+@description('Function App type (api, scheduler, processor)')
 @allowed(['api', 'scheduler', 'processor'])
 param functionAppType string = 'api'
+
+@description('Docker image URL (e.g., ghcr.io/owner/image:tag)')
+param dockerImageUrl string
 
 // ============================================================================
 // Variables
@@ -86,17 +83,7 @@ var corsOrigins = empty(frontendUrl) ? [
   frontendUrl
 ]
 
-// Determine if using legacy Consumption plan (Y1 - requires connection string)
-var isLegacyConsumptionPlan = sku == 'Y1'
-
-// Storage settings for legacy Consumption plan (Y1) - uses connection string
-var consumptionStorageSettings = {
-  AzureWebJobsStorage: storageConnectionString
-  WEBSITE_CONTENTAZUREFILECONNECTIONSTRING: storageConnectionString
-  WEBSITE_CONTENTSHARE: toLower(functionAppName)
-}
-
-// Storage settings for Flex Consumption (FC1) - uses Managed Identity with credential
+// Storage settings for Flex Consumption (FC1) - uses Managed Identity
 var flexConsumptionStorageSettings = {
   AzureWebJobsStorage__accountName: storageAccountName
 }
@@ -110,12 +97,15 @@ var premiumStorageSettings = {
 }
 
 // Select storage settings based on plan
-var runtimeStorageSettings = isFlexConsumption ? flexConsumptionStorageSettings : (isLegacyConsumptionPlan ? consumptionStorageSettings : premiumStorageSettings)
+var runtimeStorageSettings = isFlexConsumption ? flexConsumptionStorageSettings : premiumStorageSettings
 
-// Runtime settings - NOT used for Flex Consumption (configured in functionAppConfig.runtime)
-var runtimeSettings = isFlexConsumption ? {} : {
+// Runtime settings for Docker
+var runtimeSettings = {
   FUNCTIONS_EXTENSION_VERSION: '~4'
   FUNCTIONS_WORKER_RUNTIME: 'python'
+  // Docker configuration
+  DOCKER_REGISTRY_SERVER_URL: 'https://ghcr.io'
+  WEBSITES_ENABLE_APP_SERVICE_STORAGE: 'false'
 }
 
 // Base app settings (common to all plans)
@@ -143,14 +133,14 @@ var appInsightsSettings = !empty(appInsightsConnectionString) ? {
 var appSettings = union(runtimeStorageSettings, runtimeSettings, baseAppSettings, appInsightsSettings, additionalAppSettings)
 
 // ============================================================================
-// Function App - Standard (Y1, EP1, EP2, EP3)
+// Function App - Standard (EP1, EP2, EP3)
 // ============================================================================
 
-resource functionAppStandard 'Microsoft.Web/sites@2023-01-01' = if (!isFlexConsumption) {
+resource functionAppStandard 'Microsoft.Web/sites@2023-12-01' = if (!isFlexConsumption) {
   name: functionAppName
   location: location
   tags: tags
-  kind: 'functionapp,linux'
+  kind: 'functionapp,linux,container'
   identity: {
     type: 'SystemAssigned'
   }
@@ -159,7 +149,7 @@ resource functionAppStandard 'Microsoft.Web/sites@2023-01-01' = if (!isFlexConsu
     httpsOnly: true
     reserved: true // Required for Linux
     siteConfig: {
-      linuxFxVersion: 'PYTHON|3.10'
+      linuxFxVersion: 'DOCKER|${dockerImageUrl}'
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       cors: {
@@ -182,7 +172,7 @@ resource functionAppFlex 'Microsoft.Web/sites@2024-04-01' = if (isFlexConsumptio
   name: functionAppName
   location: location
   tags: tags
-  kind: 'functionapp,linux'
+  kind: 'functionapp,linux,container'
   identity: {
     type: 'SystemAssigned'
   }
@@ -205,11 +195,12 @@ resource functionAppFlex 'Microsoft.Web/sites@2024-04-01' = if (isFlexConsumptio
         instanceMemoryMB: instanceMemoryMB
       }
       runtime: {
-        name: 'python'
-        version: '3.10'
+        name: 'custom'
+        version: ''
       }
     }
     siteConfig: {
+      linuxFxVersion: 'DOCKER|${dockerImageUrl}'
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       cors: {
@@ -239,9 +230,6 @@ output principalId string = isFlexConsumption ? functionAppFlex.identity.princip
 
 @description('Function App resource ID')
 output resourceId string = isFlexConsumption ? functionAppFlex.id : functionAppStandard.id
-
-@description('Is using legacy Consumption plan (Y1)')
-output isLegacyConsumptionPlan bool = isLegacyConsumptionPlan
 
 @description('Is using Flex Consumption plan (FC1)')
 output isFlexConsumptionPlan bool = isFlexConsumption

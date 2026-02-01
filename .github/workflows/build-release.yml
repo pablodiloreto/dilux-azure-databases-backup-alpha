@@ -3,17 +3,12 @@
 # ============================================================================
 # This workflow runs when a version tag is pushed (v*) and:
 # 1. Creates a GitHub Release automatically
-# 2. Builds the frontend (React)
-# 3. Packages each Function App (source code only, NO dependencies)
-# 4. Uploads all ZIPs as release assets
-#
-# IMPORTANT: ZIPs do NOT include .python_packages/ because:
-# - Dependencies must be installed on Azure's runtime (glibc compatibility)
-# - Azure Functions uses "remote build" to install from requirements.txt
-# - This avoids GLIBC version mismatch errors with cryptography package
+# 2. Builds the frontend (React) as ZIP for Static Web App
+# 3. Builds Docker images for each Function App with database tools
+# 4. Pushes images to GitHub Container Registry (ghcr.io)
 #
 # Usage:
-#   git tag v1.0.1
+#   git tag v1.0.37
 #   git push --tags
 # ============================================================================
 
@@ -24,9 +19,14 @@ on:
     tags:
       - 'v*'
 
-# Required for softprops/action-gh-release to create releases
+# Required permissions
 permissions:
   contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/dilux-backup
 
 jobs:
   build-and-release:
@@ -44,6 +44,22 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Building version: $VERSION"
 
+      # ========================================
+      # Setup Docker Buildx
+      # ========================================
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ========================================
+      # Build Frontend (still ZIP for Static Web App)
+      # ========================================
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -51,12 +67,6 @@ jobs:
           cache: 'npm'
           cache-dependency-path: src/frontend/package-lock.json
 
-      # Note: Python setup not needed - we don't install dependencies locally
-      # Azure Functions will install deps via remote build using requirements.txt
-
-      # ========================================
-      # Build Frontend
-      # ========================================
       - name: Build Frontend
         run: |
           cd src/frontend
@@ -71,89 +81,46 @@ jobs:
           echo "✅ Frontend built and zipped"
 
       # ========================================
-      # Prepare shared code for Function Apps
+      # Build and Push Docker Images
       # ========================================
-      - name: Prepare shared code
-        run: |
-          # Copy shared folder to each function (replacing symlinks)
-          rm -rf src/functions/api/shared 2>/dev/null || true
-          rm -rf src/functions/scheduler/shared 2>/dev/null || true
-          rm -rf src/functions/processor/shared 2>/dev/null || true
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: infra/docker/api.Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-          cp -r src/shared src/functions/api/shared
-          cp -r src/shared src/functions/scheduler/shared
-          cp -r src/shared src/functions/processor/shared
+      - name: Build and push Scheduler image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: infra/docker/scheduler.Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-scheduler:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-scheduler:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-          echo "✅ Shared code copied to all function apps"
-
-      # ========================================
-      # Build API Function App
-      # ========================================
-      - name: Build API Function App
-        run: |
-          cd src/functions/api
-
-          # Create ZIP with source code only (NO .python_packages/)
-          # Azure will install dependencies via remote build using requirements.txt
-          zip -r ../../../api.zip . \
-            -x "*.pyc" \
-            -x "*__pycache__*" \
-            -x ".venv/*" \
-            -x ".python_packages/*" \
-            -x "local.settings.json" \
-            -x ".funcignore" \
-            -x "*.md"
-
-          echo "✅ API Function App packaged (source only, ~100KB)"
-
-      # ========================================
-      # Build Scheduler Function App
-      # ========================================
-      - name: Build Scheduler Function App
-        run: |
-          cd src/functions/scheduler
-
-          # Create ZIP with source code only (NO .python_packages/)
-          zip -r ../../../scheduler.zip . \
-            -x "*.pyc" \
-            -x "*__pycache__*" \
-            -x ".venv/*" \
-            -x ".python_packages/*" \
-            -x "local.settings.json" \
-            -x ".funcignore" \
-            -x "*.md"
-
-          echo "✅ Scheduler Function App packaged (source only)"
+      - name: Build and push Processor image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: infra/docker/processor.Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-processor:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-processor:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       # ========================================
-      # Build Processor Function App
-      # ========================================
-      - name: Build Processor Function App
-        run: |
-          cd src/functions/processor
-
-          # Create ZIP with source code only (NO .python_packages/)
-          zip -r ../../../processor.zip . \
-            -x "*.pyc" \
-            -x "*__pycache__*" \
-            -x ".venv/*" \
-            -x ".python_packages/*" \
-            -x "local.settings.json" \
-            -x ".funcignore" \
-            -x "*.md"
-
-          echo "✅ Processor Function App packaged (source only)"
-
-      # ========================================
-      # Show built assets
-      # ========================================
-      - name: Show built assets
-        run: |
-          echo "Built assets:"
-          ls -lh *.zip
-
-      # ========================================
-      # Create Release and Upload Assets
+      # Create Release
       # ========================================
       - name: Create Release with Assets
         uses: softprops/action-gh-release@v1
@@ -162,29 +129,27 @@ jobs:
           body: |
             ## Dilux Database Backup ${{ steps.version.outputs.version }}
 
-            ### Pre-built Assets
-            This release includes deployment packages:
-            - `frontend.zip` - React frontend (ready to deploy to Static Web App)
-            - `api.zip` - API Function App (source code, deps installed via remote build)
-            - `scheduler.zip` - Scheduler Function App (source code)
-            - `processor.zip` - Processor Function App (source code)
+            ### Deployment Assets
 
-            > **Note**: Function App ZIPs contain source code only. Dependencies are installed
-            > automatically during deployment using Azure's remote build feature.
+            **Frontend:**
+            - `frontend.zip` - React frontend for Static Web App
+
+            **Function Apps (Docker images):**
+            - `ghcr.io/${{ env.IMAGE_PREFIX }}-api:${{ steps.version.outputs.version }}`
+            - `ghcr.io/${{ env.IMAGE_PREFIX }}-scheduler:${{ steps.version.outputs.version }}`
+            - `ghcr.io/${{ env.IMAGE_PREFIX }}-processor:${{ steps.version.outputs.version }}`
+
+            > **Note**: Docker images include database CLI tools (mysqldump, pg_dump, sqlcmd)
+            > for connection testing, discovery, and backups.
 
             ### Deploy to Azure
-            Use the "Deploy to Azure" button in the README, or run:
             ```bash
-            az deployment group create \
-              --resource-group <your-rg> \
-              --template-file infra/main.bicep \
-              --parameters appName=<name> adminEmail=<email> appVersion=${{ steps.version.outputs.version }}
+            curl -sL https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/deploy.sh | bash
             ```
+
+            When prompted for version, enter: `${{ steps.version.outputs.version }}`
           files: |
             frontend.zip
-            api.zip
-            scheduler.zip
-            processor.zip
           draft: false
           prerelease: false
         env:
@@ -196,11 +161,10 @@ jobs:
           echo "✅ Release ${{ steps.version.outputs.version }} created!"
           echo "=========================================="
           echo ""
-          echo "Assets uploaded:"
-          echo "  - frontend.zip"
-          echo "  - api.zip"
-          echo "  - scheduler.zip"
-          echo "  - processor.zip"
+          echo "Assets:"
+          echo "  - frontend.zip (GitHub Release)"
+          echo "  - ghcr.io/${{ env.IMAGE_PREFIX }}-api:${{ steps.version.outputs.version }}"
+          echo "  - ghcr.io/${{ env.IMAGE_PREFIX }}-scheduler:${{ steps.version.outputs.version }}"
+          echo "  - ghcr.io/${{ env.IMAGE_PREFIX }}-processor:${{ steps.version.outputs.version }}"
           echo ""
-          echo "The 'Deploy to Azure' button will now use these pre-built assets."
           echo "=========================================="

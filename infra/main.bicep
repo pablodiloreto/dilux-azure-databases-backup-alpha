@@ -28,16 +28,17 @@ SKU for the Function Apps hosting plan.
 
 Available options:
 - FC1: Flex Consumption (RECOMMENDED) - Serverless, VNet integration, fast cold starts, ~$0-10/month
-- Y1:  Consumption (Legacy) - Serverless, NO VNet support, EOL September 2028, ~$0-5/month
 - EP1: Premium - Reserved instances, VNet support, no cold starts, ~$150/month
 - EP2: Premium - Higher performance, VNet support, ~$300/month
 - EP3: Premium - Maximum performance, VNet support, ~$600/month
 
-IMPORTANT: If you need to connect to databases in Azure Virtual Networks (Private Endpoints),
-you MUST use FC1 (Flex Consumption) or EP1/EP2/EP3 (Premium). Y1 does NOT support VNet integration.
+All plans use Docker containers with database tools (mysqldump, pg_dump, sqlcmd).
 ''')
-@allowed(['FC1', 'Y1', 'EP1', 'EP2', 'EP3'])
+@allowed(['FC1', 'EP1', 'EP2', 'EP3'])
 param functionAppSku string = 'FC1'
+
+@description('Docker image prefix (e.g., ghcr.io/owner/dilux-backup). Images will be suffixed with -api, -scheduler, -processor')
+param dockerImagePrefix string = 'ghcr.io/pablodiloreto/dilux-backup'
 
 @description('Enable Application Insights.')
 param enableAppInsights bool = true
@@ -78,6 +79,12 @@ var tenantId = subscription().tenantId
 
 // Determine if Flex Consumption (requires separate containers for deployment)
 var isFlexConsumption = functionAppSku == 'FC1'
+
+// Docker image URLs for each function app
+var dockerImageTag = appVersion == 'latest' ? 'latest' : appVersion
+var dockerImageApi = '${dockerImagePrefix}-api:${dockerImageTag}'
+var dockerImageScheduler = '${dockerImagePrefix}-scheduler:${dockerImageTag}'
+var dockerImageProcessor = '${dockerImagePrefix}-processor:${dockerImageTag}'
 
 // Tags applied to all resources
 var tags = {
@@ -240,13 +247,13 @@ module functionAppApi 'modules/functionapp.bicep' = {
     sku: functionAppSku
     isFlexConsumption: isFlexConsumption
     storageAccountName: storage.outputs.storageAccountName
-    storageConnectionString: storage.outputs.connectionString
     storageBlobEndpoint: storage.outputs.blobEndpoint
     storageQueueEndpoint: storage.outputs.queueEndpoint
     storageTableEndpoint: storage.outputs.tableEndpoint
     appInsightsConnectionString: enableAppInsights ? appInsights.outputs.connectionString : ''
     appInsightsInstrumentationKey: enableAppInsights ? appInsights.outputs.instrumentationKey : ''
     keyVaultName: keyVault.outputs.keyVaultName
+    dockerImageUrl: dockerImageApi
     additionalAppSettings: {
       FUNCTION_APP_TYPE: 'api'
       ADMIN_EMAIL: adminEmail
@@ -278,13 +285,13 @@ module functionAppScheduler 'modules/functionapp.bicep' = {
     sku: functionAppSku
     isFlexConsumption: isFlexConsumption
     storageAccountName: storage.outputs.storageAccountName
-    storageConnectionString: storage.outputs.connectionString
     storageBlobEndpoint: storage.outputs.blobEndpoint
     storageQueueEndpoint: storage.outputs.queueEndpoint
     storageTableEndpoint: storage.outputs.tableEndpoint
     appInsightsConnectionString: enableAppInsights ? appInsights.outputs.connectionString : ''
     appInsightsInstrumentationKey: enableAppInsights ? appInsights.outputs.instrumentationKey : ''
     keyVaultName: keyVault.outputs.keyVaultName
+    dockerImageUrl: dockerImageScheduler
     additionalAppSettings: {
       FUNCTION_APP_TYPE: 'scheduler'
       APP_VERSION: appVersion
@@ -307,13 +314,13 @@ module functionAppProcessor 'modules/functionapp.bicep' = {
     sku: functionAppSku
     isFlexConsumption: isFlexConsumption
     storageAccountName: storage.outputs.storageAccountName
-    storageConnectionString: storage.outputs.connectionString
     storageBlobEndpoint: storage.outputs.blobEndpoint
     storageQueueEndpoint: storage.outputs.queueEndpoint
     storageTableEndpoint: storage.outputs.tableEndpoint
     appInsightsConnectionString: enableAppInsights ? appInsights.outputs.connectionString : ''
     appInsightsInstrumentationKey: enableAppInsights ? appInsights.outputs.instrumentationKey : ''
     keyVaultName: keyVault.outputs.keyVaultName
+    dockerImageUrl: dockerImageProcessor
     additionalAppSettings: {
       FUNCTION_APP_TYPE: 'processor'
       APP_VERSION: appVersion

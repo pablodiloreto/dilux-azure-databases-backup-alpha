@@ -878,95 +878,43 @@ get_configuration() {
     echo -e "${BOLD}Selecciona el plan de hosting para las Function Apps:${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
     echo ""
+    echo -e "${GREEN}1) FC1 - Flex Consumption (RECOMENDADO)${NC}"
+    echo "   ✅ Serverless (pago por ejecución)"
+    echo "   ✅ VNet Integration"
+    echo "   ✅ Docker con herramientas de backup"
+    echo "   💰 Costo: ~\$0-10/mes"
+    echo ""
+    echo -e "${BLUE}2) EP1 - Premium${NC}"
+    echo "   ✅ Instancias reservadas (sin cold starts)"
+    echo "   ✅ VNet Integration"
+    echo "   💰 Costo: ~\$150/mes"
+    echo ""
+    echo -e "${BLUE}3) EP2 - Premium (Alto rendimiento)${NC}"
+    echo "   ✅ Todo lo de EP1 + más CPU/memoria"
+    echo "   💰 Costo: ~\$300/mes"
+    echo ""
+    echo -e "${BLUE}4) EP3 - Premium (Máximo rendimiento)${NC}"
+    echo "   ✅ Todo lo de EP2 + máximos recursos"
+    echo "   💰 Costo: ~\$600/mes"
+    echo ""
+    echo -e "${CYAN}───────────────────────────────────────────────────────────────${NC}"
+    echo -e "${CYAN}ℹ️  Todos los planes usan Docker con mysqldump, pg_dump y sqlcmd${NC}"
+    echo -e "${CYAN}───────────────────────────────────────────────────────────────${NC}"
+    echo ""
+    echo -en "${BOLD}Selecciona una opción [1-4] (default: 1):${NC} "
+    read PLAN_CHOICE < /dev/tty
+    PLAN_CHOICE="${PLAN_CHOICE:-1}"
 
-    if [ "$VNET_INTEGRATION_WANTED" = true ]; then
-        # VNet selected - don't show Y1 (not compatible)
-        echo -e "${GREEN}1) FC1 - Flex Consumption (RECOMENDADO)${NC}"
-        echo "   ✅ Serverless (pago por ejecución)"
-        echo "   ✅ VNet Integration"
-        echo "   ✅ Cold starts rápidos"
-        echo "   💰 Costo: ~\$0-10/mes"
-        echo ""
-        echo -e "${BLUE}2) EP1 - Premium${NC}"
-        echo "   ✅ Instancias reservadas (sin cold starts)"
-        echo "   ✅ VNet Integration"
-        echo "   💰 Costo: ~\$150/mes"
-        echo ""
-        echo -e "${BLUE}3) EP2 - Premium (Alto rendimiento)${NC}"
-        echo "   ✅ Todo lo de EP1 + más CPU/memoria"
-        echo "   💰 Costo: ~\$300/mes"
-        echo ""
-        echo -e "${BLUE}4) EP3 - Premium (Máximo rendimiento)${NC}"
-        echo "   ✅ Todo lo de EP2 + máximos recursos"
-        echo "   💰 Costo: ~\$600/mes"
-        echo ""
-        echo -e "${CYAN}───────────────────────────────────────────────────────────────${NC}"
-        echo -e "${CYAN}ℹ️  El plan Y1 no se muestra porque no soporta VNet Integration.${NC}"
-        echo -e "${CYAN}───────────────────────────────────────────────────────────────${NC}"
-        echo ""
-        echo -en "${BOLD}Selecciona una opción [1-4] (default: 1):${NC} "
-        read PLAN_CHOICE < /dev/tty
-        PLAN_CHOICE="${PLAN_CHOICE:-1}"
-
-        case $PLAN_CHOICE in
-            1) FUNCTION_SKU="FC1" ;;
-            2) FUNCTION_SKU="EP1" ;;
-            3) FUNCTION_SKU="EP2" ;;
-            4) FUNCTION_SKU="EP3" ;;
-            *)
-                print_warning "Opción inválida, usando FC1 (recomendado)"
-                FUNCTION_SKU="FC1"
-                ;;
-        esac
-    else
-        # No VNet - show all options including Y1
-        echo -e "${GREEN}1) FC1 - Flex Consumption (RECOMENDADO)${NC}"
-        echo "   ✅ Serverless (pago por ejecución)"
-        echo "   ✅ VNet Integration (conexión a redes privadas)"
-        echo "   ✅ Cold starts rápidos"
-        echo "   💰 Costo: ~\$0-10/mes"
-        echo ""
-        echo -e "${YELLOW}2) Y1 - Consumption (Legacy)${NC}"
-        echo "   ✅ Serverless (pago por ejecución)"
-        echo "   ❌ SIN VNet Integration"
-        echo "   ⚠️  EOL: Septiembre 2028"
-        echo "   💰 Costo: ~\$0-5/mes"
-        echo ""
-        echo -e "${BLUE}3) EP1 - Premium${NC}"
-        echo "   ✅ Instancias reservadas (sin cold starts)"
-        echo "   ✅ VNet Integration"
-        echo "   ✅ Mejor rendimiento"
-        echo "   💰 Costo: ~\$150/mes"
-        echo ""
-        echo -e "${BLUE}4) EP2 - Premium (Alto rendimiento)${NC}"
-        echo "   ✅ Todo lo de EP1 + más CPU/memoria"
-        echo "   💰 Costo: ~\$300/mes"
-        echo ""
-        echo -e "${BLUE}5) EP3 - Premium (Máximo rendimiento)${NC}"
-        echo "   ✅ Todo lo de EP2 + máximos recursos"
-        echo "   💰 Costo: ~\$600/mes"
-        echo ""
-        echo -e "${CYAN}───────────────────────────────────────────────────────────────${NC}"
-        echo -e "${YELLOW}IMPORTANTE:${NC} Si en el futuro necesitas VNet Integration,"
-        echo -e "elige ${GREEN}FC1${NC} o ${BLUE}EP1/EP2/EP3${NC}. El plan Y1 NO lo soporta."
-        echo -e "${CYAN}───────────────────────────────────────────────────────────────${NC}"
-        echo ""
-        echo -en "${BOLD}Selecciona una opción [1-5] (default: 1):${NC} "
-        read PLAN_CHOICE < /dev/tty
-        PLAN_CHOICE="${PLAN_CHOICE:-1}"
-
-        case $PLAN_CHOICE in
-            1) FUNCTION_SKU="FC1" ;;
-            2) FUNCTION_SKU="Y1" ;;
-            3) FUNCTION_SKU="EP1" ;;
-            4) FUNCTION_SKU="EP2" ;;
-            5) FUNCTION_SKU="EP3" ;;
-            *)
-                print_warning "Opción inválida, usando FC1 (recomendado)"
-                FUNCTION_SKU="FC1"
-                ;;
-        esac
-    fi
+    case $PLAN_CHOICE in
+        1) FUNCTION_SKU="FC1" ;;
+        2) FUNCTION_SKU="EP1" ;;
+        3) FUNCTION_SKU="EP2" ;;
+        4) FUNCTION_SKU="EP3" ;;
+        *)
+            print_warning "Opción inválida, usando FC1 (recomendado)"
+            FUNCTION_SKU="FC1"
+            ;;
+    esac
 
     print_success "Plan seleccionado: $FUNCTION_SKU"
 

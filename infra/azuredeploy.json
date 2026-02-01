@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "16499477310314493515"
+      "templateHash": "13639036158399830417"
     }
   },
   "parameters": {
@@ -35,13 +35,19 @@
       "defaultValue": "FC1",
       "allowedValues": [
         "FC1",
-        "Y1",
         "EP1",
         "EP2",
         "EP3"
       ],
       "metadata": {
-        "description": "SKU for the Function Apps hosting plan.\n\nAvailable options:\n- FC1: Flex Consumption (RECOMMENDED) - Serverless, VNet integration, fast cold starts, ~$0-10/month\n- Y1:  Consumption (Legacy) - Serverless, NO VNet support, EOL September 2028, ~$0-5/month\n- EP1: Premium - Reserved instances, VNet support, no cold starts, ~$150/month\n- EP2: Premium - Higher performance, VNet support, ~$300/month\n- EP3: Premium - Maximum performance, VNet support, ~$600/month\n\nIMPORTANT: If you need to connect to databases in Azure Virtual Networks (Private Endpoints),\nyou MUST use FC1 (Flex Consumption) or EP1/EP2/EP3 (Premium). Y1 does NOT support VNet integration.\n"
+        "description": "SKU for the Function Apps hosting plan.\n\nAvailable options:\n- FC1: Flex Consumption (RECOMMENDED) - Serverless, VNet integration, fast cold starts, ~$0-10/month\n- EP1: Premium - Reserved instances, VNet support, no cold starts, ~$150/month\n- EP2: Premium - Higher performance, VNet support, ~$300/month\n- EP3: Premium - Maximum performance, VNet support, ~$600/month\n\nAll plans use Docker containers with database tools (mysqldump, pg_dump, sqlcmd).\n"
+      }
+    },
+    "dockerImagePrefix": {
+      "type": "string",
+      "defaultValue": "ghcr.io/pablodiloreto/dilux-backup",
+      "metadata": {
+        "description": "Docker image prefix (e.g., ghcr.io/owner/dilux-backup). Images will be suffixed with -api, -scheduler, -processor"
       }
     },
     "enableAppInsights": {
@@ -87,6 +93,10 @@
     "installationId": "[variables('uniqueSuffix')]",
     "tenantId": "[subscription().tenantId]",
     "isFlexConsumption": "[equals(parameters('functionAppSku'), 'FC1')]",
+    "dockerImageTag": "[if(equals(parameters('appVersion'), 'latest'), 'latest', parameters('appVersion'))]",
+    "dockerImageApi": "[format('{0}-api:{1}', parameters('dockerImagePrefix'), variables('dockerImageTag'))]",
+    "dockerImageScheduler": "[format('{0}-scheduler:{1}', parameters('dockerImagePrefix'), variables('dockerImageTag'))]",
+    "dockerImageProcessor": "[format('{0}-processor:{1}', parameters('dockerImagePrefix'), variables('dockerImageTag'))]",
     "tags": {
       "Application": "Dilux Database Backup",
       "Environment": "Production",
@@ -1583,9 +1593,6 @@
           "storageAccountName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
           },
-          "storageConnectionString": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.connectionString.value]"
-          },
           "storageBlobEndpoint": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.blobEndpoint.value]"
           },
@@ -1599,6 +1606,9 @@
           "appInsightsInstrumentationKey": "[if(parameters('enableAppInsights'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'appinsights-deployment'), '2025-04-01').outputs.instrumentationKey.value), createObject('value', ''))]",
           "keyVaultName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.keyVaultName.value]"
+          },
+          "dockerImageUrl": {
+            "value": "[variables('dockerImageApi')]"
           },
           "additionalAppSettings": {
             "value": {
@@ -1624,7 +1634,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "7283587711428679460"
+              "templateHash": "16895058257457415467"
             }
           },
           "parameters": {
@@ -1654,8 +1664,14 @@
             },
             "sku": {
               "type": "string",
+              "allowedValues": [
+                "FC1",
+                "EP1",
+                "EP2",
+                "EP3"
+              ],
               "metadata": {
-                "description": "App Service Plan SKU (FC1, Y1, EP1, EP2, EP3)"
+                "description": "App Service Plan SKU (FC1, EP1, EP2, EP3)"
               }
             },
             "isFlexConsumption": {
@@ -1687,12 +1703,6 @@
               "type": "string",
               "metadata": {
                 "description": "Storage Account name"
-              }
-            },
-            "storageConnectionString": {
-              "type": "securestring",
-              "metadata": {
-                "description": "Storage Account connection string (for Y1/Consumption plan)"
               }
             },
             "storageBlobEndpoint": {
@@ -1756,18 +1766,18 @@
                 "processor"
               ],
               "metadata": {
-                "description": "Function App type (api, scheduler, processor) - used for unique deployment container"
+                "description": "Function App type (api, scheduler, processor)"
+              }
+            },
+            "dockerImageUrl": {
+              "type": "string",
+              "metadata": {
+                "description": "Docker image URL (e.g., ghcr.io/owner/image:tag)"
               }
             }
           },
           "variables": {
             "corsOrigins": "[if(empty(parameters('frontendUrl')), createArray('https://portal.azure.com', 'http://localhost:3000', 'http://localhost:5173'), createArray('https://portal.azure.com', 'http://localhost:3000', 'http://localhost:5173', parameters('frontendUrl')))]",
-            "isLegacyConsumptionPlan": "[equals(parameters('sku'), 'Y1')]",
-            "consumptionStorageSettings": {
-              "AzureWebJobsStorage": "[parameters('storageConnectionString')]",
-              "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING": "[parameters('storageConnectionString')]",
-              "WEBSITE_CONTENTSHARE": "[toLower(parameters('functionAppName'))]"
-            },
             "flexConsumptionStorageSettings": {
               "AzureWebJobsStorage__accountName": "[parameters('storageAccountName')]"
             },
@@ -1777,8 +1787,13 @@
               "AzureWebJobsStorage__queueServiceUri": "[parameters('storageQueueEndpoint')]",
               "AzureWebJobsStorage__tableServiceUri": "[parameters('storageTableEndpoint')]"
             },
-            "runtimeStorageSettings": "[if(parameters('isFlexConsumption'), variables('flexConsumptionStorageSettings'), if(variables('isLegacyConsumptionPlan'), variables('consumptionStorageSettings'), variables('premiumStorageSettings')))]",
-            "runtimeSettings": "[if(parameters('isFlexConsumption'), createObject(), createObject('FUNCTIONS_EXTENSION_VERSION', '~4', 'FUNCTIONS_WORKER_RUNTIME', 'python'))]",
+            "runtimeStorageSettings": "[if(parameters('isFlexConsumption'), variables('flexConsumptionStorageSettings'), variables('premiumStorageSettings'))]",
+            "runtimeSettings": {
+              "FUNCTIONS_EXTENSION_VERSION": "~4",
+              "FUNCTIONS_WORKER_RUNTIME": "python",
+              "DOCKER_REGISTRY_SERVER_URL": "https://ghcr.io",
+              "WEBSITES_ENABLE_APP_SERVICE_STORAGE": "false"
+            },
             "baseAppSettings": {
               "STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
               "STORAGE_BLOB_ENDPOINT": "[parameters('storageBlobEndpoint')]",
@@ -1794,11 +1809,11 @@
             {
               "condition": "[not(parameters('isFlexConsumption'))]",
               "type": "Microsoft.Web/sites",
-              "apiVersion": "2023-01-01",
+              "apiVersion": "2023-12-01",
               "name": "[parameters('functionAppName')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
-              "kind": "functionapp,linux",
+              "kind": "functionapp,linux,container",
               "identity": {
                 "type": "SystemAssigned"
               },
@@ -1817,7 +1832,7 @@
                       }
                     }
                   ],
-                  "linuxFxVersion": "PYTHON|3.10",
+                  "linuxFxVersion": "[format('DOCKER|{0}', parameters('dockerImageUrl'))]",
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
                   "cors": {
@@ -1834,7 +1849,7 @@
               "name": "[parameters('functionAppName')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
-              "kind": "functionapp,linux",
+              "kind": "functionapp,linux,container",
               "identity": {
                 "type": "SystemAssigned"
               },
@@ -1857,8 +1872,8 @@
                     "instanceMemoryMB": "[parameters('instanceMemoryMB')]"
                   },
                   "runtime": {
-                    "name": "python",
-                    "version": "3.10"
+                    "name": "custom",
+                    "version": ""
                   }
                 },
                 "siteConfig": {
@@ -1872,6 +1887,7 @@
                       }
                     }
                   ],
+                  "linuxFxVersion": "[format('DOCKER|{0}', parameters('dockerImageUrl'))]",
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
                   "cors": {
@@ -1895,14 +1911,14 @@
               "metadata": {
                 "description": "Function App default hostname"
               },
-              "value": "[if(parameters('isFlexConsumption'), reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01').defaultHostName, reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01').defaultHostName)]"
+              "value": "[if(parameters('isFlexConsumption'), reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01').defaultHostName, reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-12-01').defaultHostName)]"
             },
             "principalId": {
               "type": "string",
               "metadata": {
                 "description": "Function App principal ID (Managed Identity)"
               },
-              "value": "[if(parameters('isFlexConsumption'), reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01', 'full').identity.principalId, reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01', 'full').identity.principalId)]"
+              "value": "[if(parameters('isFlexConsumption'), reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01', 'full').identity.principalId, reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-12-01', 'full').identity.principalId)]"
             },
             "resourceId": {
               "type": "string",
@@ -1910,13 +1926,6 @@
                 "description": "Function App resource ID"
               },
               "value": "[if(parameters('isFlexConsumption'), resourceId('Microsoft.Web/sites', parameters('functionAppName')), resourceId('Microsoft.Web/sites', parameters('functionAppName')))]"
-            },
-            "isLegacyConsumptionPlan": {
-              "type": "bool",
-              "metadata": {
-                "description": "Is using legacy Consumption plan (Y1)"
-              },
-              "value": "[variables('isLegacyConsumptionPlan')]"
             },
             "isFlexConsumptionPlan": {
               "type": "bool",
@@ -1968,9 +1977,6 @@
           "storageAccountName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
           },
-          "storageConnectionString": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.connectionString.value]"
-          },
           "storageBlobEndpoint": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.blobEndpoint.value]"
           },
@@ -1984,6 +1990,9 @@
           "appInsightsInstrumentationKey": "[if(parameters('enableAppInsights'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'appinsights-deployment'), '2025-04-01').outputs.instrumentationKey.value), createObject('value', ''))]",
           "keyVaultName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.keyVaultName.value]"
+          },
+          "dockerImageUrl": {
+            "value": "[variables('dockerImageScheduler')]"
           },
           "additionalAppSettings": {
             "value": {
@@ -2001,7 +2010,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "7283587711428679460"
+              "templateHash": "16895058257457415467"
             }
           },
           "parameters": {
@@ -2031,8 +2040,14 @@
             },
             "sku": {
               "type": "string",
+              "allowedValues": [
+                "FC1",
+                "EP1",
+                "EP2",
+                "EP3"
+              ],
               "metadata": {
-                "description": "App Service Plan SKU (FC1, Y1, EP1, EP2, EP3)"
+                "description": "App Service Plan SKU (FC1, EP1, EP2, EP3)"
               }
             },
             "isFlexConsumption": {
@@ -2064,12 +2079,6 @@
               "type": "string",
               "metadata": {
                 "description": "Storage Account name"
-              }
-            },
-            "storageConnectionString": {
-              "type": "securestring",
-              "metadata": {
-                "description": "Storage Account connection string (for Y1/Consumption plan)"
               }
             },
             "storageBlobEndpoint": {
@@ -2133,18 +2142,18 @@
                 "processor"
               ],
               "metadata": {
-                "description": "Function App type (api, scheduler, processor) - used for unique deployment container"
+                "description": "Function App type (api, scheduler, processor)"
+              }
+            },
+            "dockerImageUrl": {
+              "type": "string",
+              "metadata": {
+                "description": "Docker image URL (e.g., ghcr.io/owner/image:tag)"
               }
             }
           },
           "variables": {
             "corsOrigins": "[if(empty(parameters('frontendUrl')), createArray('https://portal.azure.com', 'http://localhost:3000', 'http://localhost:5173'), createArray('https://portal.azure.com', 'http://localhost:3000', 'http://localhost:5173', parameters('frontendUrl')))]",
-            "isLegacyConsumptionPlan": "[equals(parameters('sku'), 'Y1')]",
-            "consumptionStorageSettings": {
-              "AzureWebJobsStorage": "[parameters('storageConnectionString')]",
-              "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING": "[parameters('storageConnectionString')]",
-              "WEBSITE_CONTENTSHARE": "[toLower(parameters('functionAppName'))]"
-            },
             "flexConsumptionStorageSettings": {
               "AzureWebJobsStorage__accountName": "[parameters('storageAccountName')]"
             },
@@ -2154,8 +2163,13 @@
               "AzureWebJobsStorage__queueServiceUri": "[parameters('storageQueueEndpoint')]",
               "AzureWebJobsStorage__tableServiceUri": "[parameters('storageTableEndpoint')]"
             },
-            "runtimeStorageSettings": "[if(parameters('isFlexConsumption'), variables('flexConsumptionStorageSettings'), if(variables('isLegacyConsumptionPlan'), variables('consumptionStorageSettings'), variables('premiumStorageSettings')))]",
-            "runtimeSettings": "[if(parameters('isFlexConsumption'), createObject(), createObject('FUNCTIONS_EXTENSION_VERSION', '~4', 'FUNCTIONS_WORKER_RUNTIME', 'python'))]",
+            "runtimeStorageSettings": "[if(parameters('isFlexConsumption'), variables('flexConsumptionStorageSettings'), variables('premiumStorageSettings'))]",
+            "runtimeSettings": {
+              "FUNCTIONS_EXTENSION_VERSION": "~4",
+              "FUNCTIONS_WORKER_RUNTIME": "python",
+              "DOCKER_REGISTRY_SERVER_URL": "https://ghcr.io",
+              "WEBSITES_ENABLE_APP_SERVICE_STORAGE": "false"
+            },
             "baseAppSettings": {
               "STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
               "STORAGE_BLOB_ENDPOINT": "[parameters('storageBlobEndpoint')]",
@@ -2171,11 +2185,11 @@
             {
               "condition": "[not(parameters('isFlexConsumption'))]",
               "type": "Microsoft.Web/sites",
-              "apiVersion": "2023-01-01",
+              "apiVersion": "2023-12-01",
               "name": "[parameters('functionAppName')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
-              "kind": "functionapp,linux",
+              "kind": "functionapp,linux,container",
               "identity": {
                 "type": "SystemAssigned"
               },
@@ -2194,7 +2208,7 @@
                       }
                     }
                   ],
-                  "linuxFxVersion": "PYTHON|3.10",
+                  "linuxFxVersion": "[format('DOCKER|{0}', parameters('dockerImageUrl'))]",
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
                   "cors": {
@@ -2211,7 +2225,7 @@
               "name": "[parameters('functionAppName')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
-              "kind": "functionapp,linux",
+              "kind": "functionapp,linux,container",
               "identity": {
                 "type": "SystemAssigned"
               },
@@ -2234,8 +2248,8 @@
                     "instanceMemoryMB": "[parameters('instanceMemoryMB')]"
                   },
                   "runtime": {
-                    "name": "python",
-                    "version": "3.10"
+                    "name": "custom",
+                    "version": ""
                   }
                 },
                 "siteConfig": {
@@ -2249,6 +2263,7 @@
                       }
                     }
                   ],
+                  "linuxFxVersion": "[format('DOCKER|{0}', parameters('dockerImageUrl'))]",
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
                   "cors": {
@@ -2272,14 +2287,14 @@
               "metadata": {
                 "description": "Function App default hostname"
               },
-              "value": "[if(parameters('isFlexConsumption'), reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01').defaultHostName, reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01').defaultHostName)]"
+              "value": "[if(parameters('isFlexConsumption'), reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01').defaultHostName, reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-12-01').defaultHostName)]"
             },
             "principalId": {
               "type": "string",
               "metadata": {
                 "description": "Function App principal ID (Managed Identity)"
               },
-              "value": "[if(parameters('isFlexConsumption'), reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01', 'full').identity.principalId, reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01', 'full').identity.principalId)]"
+              "value": "[if(parameters('isFlexConsumption'), reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01', 'full').identity.principalId, reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-12-01', 'full').identity.principalId)]"
             },
             "resourceId": {
               "type": "string",
@@ -2287,13 +2302,6 @@
                 "description": "Function App resource ID"
               },
               "value": "[if(parameters('isFlexConsumption'), resourceId('Microsoft.Web/sites', parameters('functionAppName')), resourceId('Microsoft.Web/sites', parameters('functionAppName')))]"
-            },
-            "isLegacyConsumptionPlan": {
-              "type": "bool",
-              "metadata": {
-                "description": "Is using legacy Consumption plan (Y1)"
-              },
-              "value": "[variables('isLegacyConsumptionPlan')]"
             },
             "isFlexConsumptionPlan": {
               "type": "bool",
@@ -2346,9 +2354,6 @@
           "storageAccountName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageAccountName.value]"
           },
-          "storageConnectionString": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.connectionString.value]"
-          },
           "storageBlobEndpoint": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.blobEndpoint.value]"
           },
@@ -2362,6 +2367,9 @@
           "appInsightsInstrumentationKey": "[if(parameters('enableAppInsights'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'appinsights-deployment'), '2025-04-01').outputs.instrumentationKey.value), createObject('value', ''))]",
           "keyVaultName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.keyVaultName.value]"
+          },
+          "dockerImageUrl": {
+            "value": "[variables('dockerImageProcessor')]"
           },
           "additionalAppSettings": {
             "value": {
@@ -2379,7 +2387,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "7283587711428679460"
+              "templateHash": "16895058257457415467"
             }
           },
           "parameters": {
@@ -2409,8 +2417,14 @@
             },
             "sku": {
               "type": "string",
+              "allowedValues": [
+                "FC1",
+                "EP1",
+                "EP2",
+                "EP3"
+              ],
               "metadata": {
-                "description": "App Service Plan SKU (FC1, Y1, EP1, EP2, EP3)"
+                "description": "App Service Plan SKU (FC1, EP1, EP2, EP3)"
               }
             },
             "isFlexConsumption": {
@@ -2442,12 +2456,6 @@
               "type": "string",
               "metadata": {
                 "description": "Storage Account name"
-              }
-            },
-            "storageConnectionString": {
-              "type": "securestring",
-              "metadata": {
-                "description": "Storage Account connection string (for Y1/Consumption plan)"
               }
             },
             "storageBlobEndpoint": {
@@ -2511,18 +2519,18 @@
                 "processor"
               ],
               "metadata": {
-                "description": "Function App type (api, scheduler, processor) - used for unique deployment container"
+                "description": "Function App type (api, scheduler, processor)"
+              }
+            },
+            "dockerImageUrl": {
+              "type": "string",
+              "metadata": {
+                "description": "Docker image URL (e.g., ghcr.io/owner/image:tag)"
               }
             }
           },
           "variables": {
             "corsOrigins": "[if(empty(parameters('frontendUrl')), createArray('https://portal.azure.com', 'http://localhost:3000', 'http://localhost:5173'), createArray('https://portal.azure.com', 'http://localhost:3000', 'http://localhost:5173', parameters('frontendUrl')))]",
-            "isLegacyConsumptionPlan": "[equals(parameters('sku'), 'Y1')]",
-            "consumptionStorageSettings": {
-              "AzureWebJobsStorage": "[parameters('storageConnectionString')]",
-              "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING": "[parameters('storageConnectionString')]",
-              "WEBSITE_CONTENTSHARE": "[toLower(parameters('functionAppName'))]"
-            },
             "flexConsumptionStorageSettings": {
               "AzureWebJobsStorage__accountName": "[parameters('storageAccountName')]"
             },
@@ -2532,8 +2540,13 @@
               "AzureWebJobsStorage__queueServiceUri": "[parameters('storageQueueEndpoint')]",
               "AzureWebJobsStorage__tableServiceUri": "[parameters('storageTableEndpoint')]"
             },
-            "runtimeStorageSettings": "[if(parameters('isFlexConsumption'), variables('flexConsumptionStorageSettings'), if(variables('isLegacyConsumptionPlan'), variables('consumptionStorageSettings'), variables('premiumStorageSettings')))]",
-            "runtimeSettings": "[if(parameters('isFlexConsumption'), createObject(), createObject('FUNCTIONS_EXTENSION_VERSION', '~4', 'FUNCTIONS_WORKER_RUNTIME', 'python'))]",
+            "runtimeStorageSettings": "[if(parameters('isFlexConsumption'), variables('flexConsumptionStorageSettings'), variables('premiumStorageSettings'))]",
+            "runtimeSettings": {
+              "FUNCTIONS_EXTENSION_VERSION": "~4",
+              "FUNCTIONS_WORKER_RUNTIME": "python",
+              "DOCKER_REGISTRY_SERVER_URL": "https://ghcr.io",
+              "WEBSITES_ENABLE_APP_SERVICE_STORAGE": "false"
+            },
             "baseAppSettings": {
               "STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
               "STORAGE_BLOB_ENDPOINT": "[parameters('storageBlobEndpoint')]",
@@ -2549,11 +2562,11 @@
             {
               "condition": "[not(parameters('isFlexConsumption'))]",
               "type": "Microsoft.Web/sites",
-              "apiVersion": "2023-01-01",
+              "apiVersion": "2023-12-01",
               "name": "[parameters('functionAppName')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
-              "kind": "functionapp,linux",
+              "kind": "functionapp,linux,container",
               "identity": {
                 "type": "SystemAssigned"
               },
@@ -2572,7 +2585,7 @@
                       }
                     }
                   ],
-                  "linuxFxVersion": "PYTHON|3.10",
+                  "linuxFxVersion": "[format('DOCKER|{0}', parameters('dockerImageUrl'))]",
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
                   "cors": {
@@ -2589,7 +2602,7 @@
               "name": "[parameters('functionAppName')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
-              "kind": "functionapp,linux",
+              "kind": "functionapp,linux,container",
               "identity": {
                 "type": "SystemAssigned"
               },
@@ -2612,8 +2625,8 @@
                     "instanceMemoryMB": "[parameters('instanceMemoryMB')]"
                   },
                   "runtime": {
-                    "name": "python",
-                    "version": "3.10"
+                    "name": "custom",
+                    "version": ""
                   }
                 },
                 "siteConfig": {
@@ -2627,6 +2640,7 @@
                       }
                     }
                   ],
+                  "linuxFxVersion": "[format('DOCKER|{0}', parameters('dockerImageUrl'))]",
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
                   "cors": {
@@ -2650,14 +2664,14 @@
               "metadata": {
                 "description": "Function App default hostname"
               },
-              "value": "[if(parameters('isFlexConsumption'), reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01').defaultHostName, reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01').defaultHostName)]"
+              "value": "[if(parameters('isFlexConsumption'), reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01').defaultHostName, reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-12-01').defaultHostName)]"
             },
             "principalId": {
               "type": "string",
               "metadata": {
                 "description": "Function App principal ID (Managed Identity)"
               },
-              "value": "[if(parameters('isFlexConsumption'), reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01', 'full').identity.principalId, reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-01-01', 'full').identity.principalId)]"
+              "value": "[if(parameters('isFlexConsumption'), reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01', 'full').identity.principalId, reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-12-01', 'full').identity.principalId)]"
             },
             "resourceId": {
               "type": "string",
@@ -2665,13 +2679,6 @@
                 "description": "Function App resource ID"
               },
               "value": "[if(parameters('isFlexConsumption'), resourceId('Microsoft.Web/sites', parameters('functionAppName')), resourceId('Microsoft.Web/sites', parameters('functionAppName')))]"
-            },
-            "isLegacyConsumptionPlan": {
-              "type": "bool",
-              "metadata": {
-                "description": "Is using legacy Consumption plan (Y1)"
-              },
-              "value": "[variables('isLegacyConsumptionPlan')]"
             },
             "isFlexConsumptionPlan": {
               "type": "bool",
