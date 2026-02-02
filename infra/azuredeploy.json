@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "3261304951126012991"
+      "templateHash": "3797160481543081843"
     }
   },
   "parameters": {
@@ -1620,7 +1620,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "17924313222184724413"
+              "templateHash": "315491675848946259"
             }
           },
           "parameters": {
@@ -1768,10 +1768,14 @@
               "AzureWebJobsStorage__tableServiceUri": "[parameters('storageTableEndpoint')]"
             },
             "runtimeStorageSettings": "[if(parameters('isFlexConsumption'), variables('flexConsumptionStorageSettings'), variables('premiumStorageSettings'))]",
-            "runtimeSettings": {
+            "runtimeSettingsFC1": {
+              "FUNCTIONS_EXTENSION_VERSION": "~4"
+            },
+            "runtimeSettingsPremium": {
               "FUNCTIONS_EXTENSION_VERSION": "~4",
               "FUNCTIONS_WORKER_RUNTIME": "python"
             },
+            "runtimeSettings": "[if(parameters('isFlexConsumption'), variables('runtimeSettingsFC1'), variables('runtimeSettingsPremium'))]",
             "baseAppSettings": {
               "STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
               "STORAGE_BLOB_ENDPOINT": "[parameters('storageBlobEndpoint')]",
@@ -1984,7 +1988,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "17924313222184724413"
+              "templateHash": "315491675848946259"
             }
           },
           "parameters": {
@@ -2132,10 +2136,14 @@
               "AzureWebJobsStorage__tableServiceUri": "[parameters('storageTableEndpoint')]"
             },
             "runtimeStorageSettings": "[if(parameters('isFlexConsumption'), variables('flexConsumptionStorageSettings'), variables('premiumStorageSettings'))]",
-            "runtimeSettings": {
+            "runtimeSettingsFC1": {
+              "FUNCTIONS_EXTENSION_VERSION": "~4"
+            },
+            "runtimeSettingsPremium": {
               "FUNCTIONS_EXTENSION_VERSION": "~4",
               "FUNCTIONS_WORKER_RUNTIME": "python"
             },
+            "runtimeSettings": "[if(parameters('isFlexConsumption'), variables('runtimeSettingsFC1'), variables('runtimeSettingsPremium'))]",
             "baseAppSettings": {
               "STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
               "STORAGE_BLOB_ENDPOINT": "[parameters('storageBlobEndpoint')]",
@@ -2349,7 +2357,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "17924313222184724413"
+              "templateHash": "315491675848946259"
             }
           },
           "parameters": {
@@ -2497,10 +2505,14 @@
               "AzureWebJobsStorage__tableServiceUri": "[parameters('storageTableEndpoint')]"
             },
             "runtimeStorageSettings": "[if(parameters('isFlexConsumption'), variables('flexConsumptionStorageSettings'), variables('premiumStorageSettings'))]",
-            "runtimeSettings": {
+            "runtimeSettingsFC1": {
+              "FUNCTIONS_EXTENSION_VERSION": "~4"
+            },
+            "runtimeSettingsPremium": {
               "FUNCTIONS_EXTENSION_VERSION": "~4",
               "FUNCTIONS_WORKER_RUNTIME": "python"
             },
+            "runtimeSettings": "[if(parameters('isFlexConsumption'), variables('runtimeSettingsFC1'), variables('runtimeSettingsPremium'))]",
             "baseAppSettings": {
               "STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
               "STORAGE_BLOB_ENDPOINT": "[parameters('storageBlobEndpoint')]",

@@ -100,10 +100,17 @@ var premiumStorageSettings = {
 var runtimeStorageSettings = isFlexConsumption ? flexConsumptionStorageSettings : premiumStorageSettings
 
 // Runtime settings for Python (native, not Docker)
-var runtimeSettings = {
+// Note: FC1 does NOT allow FUNCTIONS_WORKER_RUNTIME in app settings - it's set via functionAppConfig.runtime
+var runtimeSettingsFC1 = {
+  FUNCTIONS_EXTENSION_VERSION: '~4'
+}
+
+var runtimeSettingsPremium = {
   FUNCTIONS_EXTENSION_VERSION: '~4'
   FUNCTIONS_WORKER_RUNTIME: 'python'
 }
+
+var runtimeSettings = isFlexConsumption ? runtimeSettingsFC1 : runtimeSettingsPremium
 
 // Base app settings (common to all plans)
 var baseAppSettings = {
