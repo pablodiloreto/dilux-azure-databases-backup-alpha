@@ -72,14 +72,13 @@ jobs:
 
           # ---- PostgreSQL client (pg_dump, psql) ----
           echo "  → PostgreSQL client..."
-          # Ubuntu 24.04 (noble) uses PostgreSQL 16
-          apt-get download postgresql-client-16 postgresql-client-common postgresql-common
-          dpkg -x postgresql-common*.deb ./pg-extract
-          dpkg -x postgresql-client-common*.deb ./pg-extract
-          dpkg -x postgresql-client-16*.deb ./pg-extract
-          cp ./pg-extract/usr/lib/postgresql/16/bin/pg_dump tools/bin/
-          cp ./pg-extract/usr/lib/postgresql/16/bin/psql tools/bin/
-          rm -rf pg-extract postgresql-*.deb
+          # Install via apt-get (simpler than downloading packages)
+          sudo apt-get install -y postgresql-client > /dev/null 2>&1
+          # Find the installed version and copy binaries
+          PG_VERSION=$(ls /usr/lib/postgresql/ | sort -V | tail -1)
+          echo "    PostgreSQL client version: $PG_VERSION"
+          cp /usr/lib/postgresql/$PG_VERSION/bin/pg_dump tools/bin/
+          cp /usr/lib/postgresql/$PG_VERSION/bin/psql tools/bin/
 
           # ---- SQL Server client (sqlcmd) ----
           echo "  → SQL Server client..."
