@@ -32,7 +32,9 @@ env:
 jobs:
   build-and-release:
     name: Build and Create Release
-    runs-on: ubuntu-latest
+    # IMPORTANT: Use Ubuntu 22.04 for glibc 2.35 compatibility with Azure Functions
+    # Ubuntu 24.04 (ubuntu-latest) has glibc 2.38 which is NOT compatible
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout code
