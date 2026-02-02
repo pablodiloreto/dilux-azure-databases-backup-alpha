@@ -1,12 +1,39 @@
 # Dilux Database Backup - Estado del Proyecto
 
-**Última actualización:** 2026-02-02 16:30 UTC
+**Última actualización:** 2026-02-02 18:30 UTC
 
 ---
 
-## ESTADO: v1.0.39 - LISTO PARA TESTING FC1 (ZIP + Tools)
+## ESTADO: v1.0.43 - DEPLOYMENT FC1 EXITOSO ✅
 
-### ✅ Fase 1 Completada (Tasks 1-6)
+### 🎉 Deployment Exitoso en FC1 (dilux102-rg)
+
+**Versión:** v1.0.43
+**Plan:** FC1 (Flex Consumption)
+**Región:** Brazil South
+**Fecha:** 2026-02-02
+
+| Recurso | URL |
+|---------|-----|
+| **Frontend** | https://dilux102staf5qp747bpnlw.z15.web.core.windows.net/ |
+| **API** | https://dilux102-af5qp7-api.azurewebsites.net |
+
+### ✅ Verificado
+- ✅ Deployment completo sin errores
+- ✅ Login con Azure AD funcionando
+- ✅ Frontend carga correctamente
+
+### ⏳ Pendiente de Testing Funcional
+- ⬜ Connection test MySQL
+- ⬜ Connection test PostgreSQL
+- ⬜ Connection test SQL Server
+- ⬜ Backup real MySQL
+- ⬜ Backup real PostgreSQL
+- ⬜ Backup real SQL Server
+
+---
+
+## Fase 1 Completada (Tasks 1-7)
 
 Se ha completado la migración de Docker containers a ZIP deployment con herramientas bundled:
 
@@ -16,16 +43,26 @@ Se ha completado la migración de Docker containers a ZIP deployment con herrami
 - ✅ Código Python modificado para usar rutas dinámicas a tools
 - ✅ deploy.sh pregunta tamaño de DBs y filtra planes según respuesta
 - ✅ azuredeploy.json recompilado
+- ✅ **Deploy exitoso a FC1 (dilux102-rg)**
+- ✅ **Login funcionando**
 
-### ⏳ Pendiente: Testing y Cleanup (Tasks 7-11)
+### Pendiente: Testing Funcional y Cleanup (Tasks 8-11)
 
 | Tarea | Estado |
 |-------|--------|
-| Deploy a FC1 (dilux95-rg o similar) | ⬜ Pendiente |
-| Probar connection test | ⬜ Pendiente |
+| Probar connection test | 🔄 En progreso (usuario probando) |
 | Probar backup real | ⬜ Pendiente |
 | Limpiar código Docker | ⬜ Pendiente |
 | Actualizar documentación | ⬜ Pendiente |
+
+### Fixes aplicados durante deployment
+
+| Versión | Fix |
+|---------|-----|
+| v1.0.40 | PostgreSQL 16 para Ubuntu 24.04 runners |
+| v1.0.41 | apt-get install para PostgreSQL client |
+| v1.0.42 | Remover symlink shared antes de copiar |
+| v1.0.43 | Remover FUNCTIONS_WORKER_RUNTIME para FC1 |
 
 ---
 
