@@ -143,7 +143,8 @@ jobs:
           # Copy function app code
           cp -r src/functions/api/* build/api/
 
-          # Copy shared package
+          # Remove symlink and copy actual shared package
+          rm -rf build/api/shared
           mkdir -p build/api/shared
           cp -r src/shared/* build/api/shared/
 
@@ -169,7 +170,8 @@ jobs:
           # Copy function app code
           cp -r src/functions/scheduler/* build/scheduler/
 
-          # Copy shared package
+          # Remove symlink and copy actual shared package
+          rm -rf build/scheduler/shared
           mkdir -p build/scheduler/shared
           cp -r src/shared/* build/scheduler/shared/
 
@@ -195,7 +197,8 @@ jobs:
           # Copy function app code
           cp -r src/functions/processor/* build/processor/
 
-          # Copy shared package
+          # Remove symlink and copy actual shared package
+          rm -rf build/processor/shared
           mkdir -p build/processor/shared
           cp -r src/shared/* build/processor/shared/
 
