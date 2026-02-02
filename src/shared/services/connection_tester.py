@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from shared.models import DatabaseType
+from shared.utils.tool_paths import get_tool_path
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ class ConnectionTester:
         # Use mysql client instead of mysqladmin because mysqladmin ping
         # returns exit code 0 even on authentication failure
         cmd = [
-            "mysql",
+            get_tool_path("mysql"),
             f"--host={host}",
             f"--port={port}",
             f"--user={username}",
@@ -160,14 +161,15 @@ class ConnectionTester:
         password: str,
         timeout: int,
     ) -> ConnectionTestResult:
-        """Test PostgreSQL connection using pg_isready."""
+        """Test PostgreSQL connection using psql with a simple query."""
         cmd = [
-            "pg_isready",
+            get_tool_path("psql"),
             f"--host={host}",
             f"--port={port}",
             f"--username={username}",
             f"--dbname={database}",
-            f"--timeout={min(timeout, 60)}",
+            "--no-password",
+            "-c", "SELECT 1",
         ]
 
         env = os.environ.copy()
@@ -205,7 +207,7 @@ class ConnectionTester:
         except FileNotFoundError:
             return ConnectionTestResult(
                 success=False,
-                message="pg_isready not found. PostgreSQL client tools are not installed.",
+                message="psql not found. PostgreSQL client tools are not installed.",
                 error_type="ToolNotFound",
             )
 
@@ -221,7 +223,7 @@ class ConnectionTester:
         """Test SQL Server connection using sqlcmd."""
         server = f"{host},{port}"
         cmd = [
-            "sqlcmd",
+            get_tool_path("sqlcmd"),
             "-S", server,
             "-U", username,
             "-P", password,

@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "8810275500296693133"
+      "templateHash": "3261304951126012991"
     }
   },
   "parameters": {
@@ -40,14 +40,7 @@
         "EP3"
       ],
       "metadata": {
-        "description": "SKU for the Function Apps hosting plan.\n\nAvailable options:\n- FC1: Flex Consumption (RECOMMENDED) - Serverless, VNet integration, fast cold starts, ~$0-10/month\n- EP1: Premium - Reserved instances, VNet support, no cold starts, ~$150/month\n- EP2: Premium - Higher performance, VNet support, ~$300/month\n- EP3: Premium - Maximum performance, VNet support, ~$600/month\n\nAll plans use Docker containers with database tools (mysqldump, pg_dump, sqlcmd).\n"
-      }
-    },
-    "dockerImagePrefix": {
-      "type": "string",
-      "defaultValue": "ghcr.io/pablodiloreto/dilux-backup",
-      "metadata": {
-        "description": "Docker image prefix (e.g., ghcr.io/owner/dilux-backup). Images will be suffixed with -api, -scheduler, -processor"
+        "description": "SKU for the Function Apps hosting plan.\n\nAvailable options:\n- FC1: Flex Consumption (RECOMMENDED for DBs < 1GB) - Serverless, ~$5-20/month, 10 min timeout\n- EP1: Premium (for DBs 1-3GB) - Reserved instances, VNet support, ~$150/month, 60 min timeout\n- EP2: Premium (for DBs 3-6GB) - Higher performance, VNet support, ~$300/month\n- EP3: Premium (for DBs 6-10GB) - Maximum performance, VNet support, ~$600/month\n\nAll plans use Python 3.11 runtime with database tools (mysqldump, pg_dump, sqlcmd) bundled in ZIP.\n"
       }
     },
     "enableAppInsights": {
@@ -93,10 +86,6 @@
     "installationId": "[variables('uniqueSuffix')]",
     "tenantId": "[subscription().tenantId]",
     "isFlexConsumption": "[equals(parameters('functionAppSku'), 'FC1')]",
-    "dockerImageTag": "[if(equals(parameters('appVersion'), 'latest'), 'latest', parameters('appVersion'))]",
-    "dockerImageApi": "[format('{0}-api:{1}', parameters('dockerImagePrefix'), variables('dockerImageTag'))]",
-    "dockerImageScheduler": "[format('{0}-scheduler:{1}', parameters('dockerImagePrefix'), variables('dockerImageTag'))]",
-    "dockerImageProcessor": "[format('{0}-processor:{1}', parameters('dockerImagePrefix'), variables('dockerImageTag'))]",
     "tags": {
       "Application": "Dilux Database Backup",
       "Environment": "Production",
@@ -1607,9 +1596,6 @@
           "keyVaultName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.keyVaultName.value]"
           },
-          "dockerImageUrl": {
-            "value": "[variables('dockerImageApi')]"
-          },
           "additionalAppSettings": {
             "value": {
               "FUNCTION_APP_TYPE": "api",
@@ -1634,7 +1620,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "13070071990966625672"
+              "templateHash": "17924313222184724413"
             }
           },
           "parameters": {
@@ -1768,12 +1754,6 @@
               "metadata": {
                 "description": "Function App type (api, scheduler, processor)"
               }
-            },
-            "dockerImageUrl": {
-              "type": "string",
-              "metadata": {
-                "description": "Docker image URL (e.g., ghcr.io/owner/image:tag)"
-              }
             }
           },
           "variables": {
@@ -1790,9 +1770,7 @@
             "runtimeStorageSettings": "[if(parameters('isFlexConsumption'), variables('flexConsumptionStorageSettings'), variables('premiumStorageSettings'))]",
             "runtimeSettings": {
               "FUNCTIONS_EXTENSION_VERSION": "~4",
-              "FUNCTIONS_WORKER_RUNTIME": "python",
-              "DOCKER_REGISTRY_SERVER_URL": "https://ghcr.io",
-              "WEBSITES_ENABLE_APP_SERVICE_STORAGE": "false"
+              "FUNCTIONS_WORKER_RUNTIME": "python"
             },
             "baseAppSettings": {
               "STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
@@ -1813,7 +1791,7 @@
               "name": "[parameters('functionAppName')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
-              "kind": "functionapp,linux,container",
+              "kind": "functionapp,linux",
               "identity": {
                 "type": "SystemAssigned"
               },
@@ -1832,7 +1810,7 @@
                       }
                     }
                   ],
-                  "linuxFxVersion": "[format('DOCKER|{0}', parameters('dockerImageUrl'))]",
+                  "linuxFxVersion": "PYTHON|3.11",
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
                   "cors": {
@@ -1849,7 +1827,7 @@
               "name": "[parameters('functionAppName')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
-              "kind": "functionapp,linux,container",
+              "kind": "functionapp,linux",
               "identity": {
                 "type": "SystemAssigned"
               },
@@ -1872,8 +1850,8 @@
                     "instanceMemoryMB": "[parameters('instanceMemoryMB')]"
                   },
                   "runtime": {
-                    "name": "custom",
-                    "version": "1.0"
+                    "name": "python",
+                    "version": "3.11"
                   }
                 },
                 "siteConfig": {
@@ -1887,7 +1865,6 @@
                       }
                     }
                   ],
-                  "linuxFxVersion": "[format('DOCKER|{0}', parameters('dockerImageUrl'))]",
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
                   "cors": {
@@ -1991,9 +1968,6 @@
           "keyVaultName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.keyVaultName.value]"
           },
-          "dockerImageUrl": {
-            "value": "[variables('dockerImageScheduler')]"
-          },
           "additionalAppSettings": {
             "value": {
               "FUNCTION_APP_TYPE": "scheduler",
@@ -2010,7 +1984,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "13070071990966625672"
+              "templateHash": "17924313222184724413"
             }
           },
           "parameters": {
@@ -2144,12 +2118,6 @@
               "metadata": {
                 "description": "Function App type (api, scheduler, processor)"
               }
-            },
-            "dockerImageUrl": {
-              "type": "string",
-              "metadata": {
-                "description": "Docker image URL (e.g., ghcr.io/owner/image:tag)"
-              }
             }
           },
           "variables": {
@@ -2166,9 +2134,7 @@
             "runtimeStorageSettings": "[if(parameters('isFlexConsumption'), variables('flexConsumptionStorageSettings'), variables('premiumStorageSettings'))]",
             "runtimeSettings": {
               "FUNCTIONS_EXTENSION_VERSION": "~4",
-              "FUNCTIONS_WORKER_RUNTIME": "python",
-              "DOCKER_REGISTRY_SERVER_URL": "https://ghcr.io",
-              "WEBSITES_ENABLE_APP_SERVICE_STORAGE": "false"
+              "FUNCTIONS_WORKER_RUNTIME": "python"
             },
             "baseAppSettings": {
               "STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
@@ -2189,7 +2155,7 @@
               "name": "[parameters('functionAppName')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
-              "kind": "functionapp,linux,container",
+              "kind": "functionapp,linux",
               "identity": {
                 "type": "SystemAssigned"
               },
@@ -2208,7 +2174,7 @@
                       }
                     }
                   ],
-                  "linuxFxVersion": "[format('DOCKER|{0}', parameters('dockerImageUrl'))]",
+                  "linuxFxVersion": "PYTHON|3.11",
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
                   "cors": {
@@ -2225,7 +2191,7 @@
               "name": "[parameters('functionAppName')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
-              "kind": "functionapp,linux,container",
+              "kind": "functionapp,linux",
               "identity": {
                 "type": "SystemAssigned"
               },
@@ -2248,8 +2214,8 @@
                     "instanceMemoryMB": "[parameters('instanceMemoryMB')]"
                   },
                   "runtime": {
-                    "name": "custom",
-                    "version": "1.0"
+                    "name": "python",
+                    "version": "3.11"
                   }
                 },
                 "siteConfig": {
@@ -2263,7 +2229,6 @@
                       }
                     }
                   ],
-                  "linuxFxVersion": "[format('DOCKER|{0}', parameters('dockerImageUrl'))]",
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
                   "cors": {
@@ -2368,9 +2333,6 @@
           "keyVaultName": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault-deployment'), '2025-04-01').outputs.keyVaultName.value]"
           },
-          "dockerImageUrl": {
-            "value": "[variables('dockerImageProcessor')]"
-          },
           "additionalAppSettings": {
             "value": {
               "FUNCTION_APP_TYPE": "processor",
@@ -2387,7 +2349,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "13070071990966625672"
+              "templateHash": "17924313222184724413"
             }
           },
           "parameters": {
@@ -2521,12 +2483,6 @@
               "metadata": {
                 "description": "Function App type (api, scheduler, processor)"
               }
-            },
-            "dockerImageUrl": {
-              "type": "string",
-              "metadata": {
-                "description": "Docker image URL (e.g., ghcr.io/owner/image:tag)"
-              }
             }
           },
           "variables": {
@@ -2543,9 +2499,7 @@
             "runtimeStorageSettings": "[if(parameters('isFlexConsumption'), variables('flexConsumptionStorageSettings'), variables('premiumStorageSettings'))]",
             "runtimeSettings": {
               "FUNCTIONS_EXTENSION_VERSION": "~4",
-              "FUNCTIONS_WORKER_RUNTIME": "python",
-              "DOCKER_REGISTRY_SERVER_URL": "https://ghcr.io",
-              "WEBSITES_ENABLE_APP_SERVICE_STORAGE": "false"
+              "FUNCTIONS_WORKER_RUNTIME": "python"
             },
             "baseAppSettings": {
               "STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
@@ -2566,7 +2520,7 @@
               "name": "[parameters('functionAppName')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
-              "kind": "functionapp,linux,container",
+              "kind": "functionapp,linux",
               "identity": {
                 "type": "SystemAssigned"
               },
@@ -2585,7 +2539,7 @@
                       }
                     }
                   ],
-                  "linuxFxVersion": "[format('DOCKER|{0}', parameters('dockerImageUrl'))]",
+                  "linuxFxVersion": "PYTHON|3.11",
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
                   "cors": {
@@ -2602,7 +2556,7 @@
               "name": "[parameters('functionAppName')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
-              "kind": "functionapp,linux,container",
+              "kind": "functionapp,linux",
               "identity": {
                 "type": "SystemAssigned"
               },
@@ -2625,8 +2579,8 @@
                     "instanceMemoryMB": "[parameters('instanceMemoryMB')]"
                   },
                   "runtime": {
-                    "name": "custom",
-                    "version": "1.0"
+                    "name": "python",
+                    "version": "3.11"
                   }
                 },
                 "siteConfig": {
@@ -2640,7 +2594,6 @@
                       }
                     }
                   ],
-                  "linuxFxVersion": "[format('DOCKER|{0}', parameters('dockerImageUrl'))]",
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
                   "cors": {

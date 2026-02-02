@@ -7,6 +7,7 @@ import subprocess
 from typing import Optional
 
 from .base_engine import BaseBackupEngine
+from shared.utils.tool_paths import get_tool_path
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ class MySQLBackupEngine(BaseBackupEngine):
         """
         # Build mysqldump command
         cmd = [
-            "mysqldump",
+            get_tool_path("mysqldump"),
             f"--host={host}",
             f"--port={port}",
             f"--user={username}",
@@ -109,14 +110,18 @@ class MySQLBackupEngine(BaseBackupEngine):
         username: str,
         password: str,
     ) -> bool:
-        """Test MySQL connection using mysqladmin ping."""
+        """Test MySQL connection using mysql client."""
+        # Use mysql client with SELECT 1 instead of mysqladmin
+        # because mysqladmin may not be bundled
         cmd = [
-            "mysqladmin",
+            get_tool_path("mysql"),
             f"--host={host}",
             f"--port={port}",
             f"--user={username}",
             f"--password={password}",
-            "ping",
+            "--connect-timeout=10",
+            "-e", "SELECT 1",
+            database,
         ]
 
         try:

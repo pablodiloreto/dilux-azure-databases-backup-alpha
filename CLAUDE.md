@@ -6,13 +6,16 @@ Este es un sistema serverless de respaldos automatizados para bases de datos MyS
 
 ## Documentación
 
-Antes de realizar cualquier cambio, lee la documentación completa:
+**IMPORTANTE: Antes de realizar cualquier cambio, lee TODOS los archivos en `/docs/`:**
 
-- `docs/infra.md` - Infraestructura, DevContainer, Docker Compose, **Azure Deployment**
+- `docs/infra.md` - Infraestructura, DevContainer, Docker Compose, **Azure Deployment**, VNet Integration
 - `docs/backend.md` - Backend Python: shared package, 3 Function Apps, modelos, servicios
 - `docs/frontend.md` - Frontend React: componentes, hooks, API client, MUI
 - `docs/api.md` - Referencia completa de endpoints de la API
 - `docs/PLAN.md` - Estado del proyecto, sprints completados, releases
+- `docs/AUTH_SETUP.md` - Configuración de autenticación Azure AD/Entra ID
+- `docs/ENGINES_DESIGN.md` - Diseño de engines de backup (MySQL, PostgreSQL, SQL Server)
+- `docs/dilux-azure-databases-backup-solution.md` - Visión general y arquitectura de la solución
 
 ## Arquitectura
 

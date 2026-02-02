@@ -27,18 +27,15 @@ param adminEmail string
 SKU for the Function Apps hosting plan.
 
 Available options:
-- FC1: Flex Consumption (RECOMMENDED) - Serverless, VNet integration, fast cold starts, ~$0-10/month
-- EP1: Premium - Reserved instances, VNet support, no cold starts, ~$150/month
-- EP2: Premium - Higher performance, VNet support, ~$300/month
-- EP3: Premium - Maximum performance, VNet support, ~$600/month
+- FC1: Flex Consumption (RECOMMENDED for DBs < 1GB) - Serverless, ~$5-20/month, 10 min timeout
+- EP1: Premium (for DBs 1-3GB) - Reserved instances, VNet support, ~$150/month, 60 min timeout
+- EP2: Premium (for DBs 3-6GB) - Higher performance, VNet support, ~$300/month
+- EP3: Premium (for DBs 6-10GB) - Maximum performance, VNet support, ~$600/month
 
-All plans use Docker containers with database tools (mysqldump, pg_dump, sqlcmd).
+All plans use Python 3.11 runtime with database tools (mysqldump, pg_dump, sqlcmd) bundled in ZIP.
 ''')
 @allowed(['FC1', 'EP1', 'EP2', 'EP3'])
 param functionAppSku string = 'FC1'
-
-@description('Docker image prefix (e.g., ghcr.io/owner/dilux-backup). Images will be suffixed with -api, -scheduler, -processor')
-param dockerImagePrefix string = 'ghcr.io/pablodiloreto/dilux-backup'
 
 @description('Enable Application Insights.')
 param enableAppInsights bool = true
@@ -79,12 +76,6 @@ var tenantId = subscription().tenantId
 
 // Determine if Flex Consumption (requires separate containers for deployment)
 var isFlexConsumption = functionAppSku == 'FC1'
-
-// Docker image URLs for each function app
-var dockerImageTag = appVersion == 'latest' ? 'latest' : appVersion
-var dockerImageApi = '${dockerImagePrefix}-api:${dockerImageTag}'
-var dockerImageScheduler = '${dockerImagePrefix}-scheduler:${dockerImageTag}'
-var dockerImageProcessor = '${dockerImagePrefix}-processor:${dockerImageTag}'
 
 // Tags applied to all resources
 var tags = {
@@ -253,7 +244,6 @@ module functionAppApi 'modules/functionapp.bicep' = {
     appInsightsConnectionString: enableAppInsights ? appInsights.outputs.connectionString : ''
     appInsightsInstrumentationKey: enableAppInsights ? appInsights.outputs.instrumentationKey : ''
     keyVaultName: keyVault.outputs.keyVaultName
-    dockerImageUrl: dockerImageApi
     additionalAppSettings: {
       FUNCTION_APP_TYPE: 'api'
       ADMIN_EMAIL: adminEmail
@@ -291,7 +281,6 @@ module functionAppScheduler 'modules/functionapp.bicep' = {
     appInsightsConnectionString: enableAppInsights ? appInsights.outputs.connectionString : ''
     appInsightsInstrumentationKey: enableAppInsights ? appInsights.outputs.instrumentationKey : ''
     keyVaultName: keyVault.outputs.keyVaultName
-    dockerImageUrl: dockerImageScheduler
     additionalAppSettings: {
       FUNCTION_APP_TYPE: 'scheduler'
       APP_VERSION: appVersion
@@ -320,7 +309,6 @@ module functionAppProcessor 'modules/functionapp.bicep' = {
     appInsightsConnectionString: enableAppInsights ? appInsights.outputs.connectionString : ''
     appInsightsInstrumentationKey: enableAppInsights ? appInsights.outputs.instrumentationKey : ''
     keyVaultName: keyVault.outputs.keyVaultName
-    dockerImageUrl: dockerImageProcessor
     additionalAppSettings: {
       FUNCTION_APP_TYPE: 'processor'
       APP_VERSION: appVersion

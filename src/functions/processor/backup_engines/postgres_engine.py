@@ -12,6 +12,7 @@ from typing import Optional
 
 from .base_engine import BaseBackupEngine
 from shared.config.settings import get_settings
+from shared.utils.tool_paths import get_tool_path
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +140,7 @@ class PostgreSQLBackupEngine(BaseBackupEngine):
     ) -> bytes:
         """Execute pg_dump locally (for production environments)."""
         cmd = [
-            "pg_dump",
+            get_tool_path("pg_dump"),
             f"--host={host}",
             f"--port={port}",
             f"--username={username}",
@@ -185,13 +186,16 @@ class PostgreSQLBackupEngine(BaseBackupEngine):
         username: str,
         password: str,
     ) -> bool:
-        """Test PostgreSQL connection using pg_isready."""
+        """Test PostgreSQL connection using pg_isready or psql."""
+        # Try pg_isready first (if available)
         cmd = [
-            "pg_isready",
+            get_tool_path("psql"),
             f"--host={host}",
             f"--port={port}",
             f"--username={username}",
             f"--dbname={database}",
+            "--no-password",
+            "-c", "SELECT 1",
         ]
 
         env = os.environ.copy()

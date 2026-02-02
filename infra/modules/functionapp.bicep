@@ -2,9 +2,12 @@
 // Function App Module
 // ============================================================================
 // Creates an Azure Function App with:
-// - Docker container with database tools (mysqldump, pg_dump, sqlcmd)
+// - Python 3.11 runtime (native, not Docker)
 // - System-assigned Managed Identity
 // - Support for FC1 (Flex Consumption) and EP1/EP2/EP3 (Premium)
+//
+// Note: Database tools (mysqldump, pg_dump, sqlcmd) are included in the
+// deployment ZIP package, not via Docker containers.
 // ============================================================================
 
 @description('Name of the Function App')
@@ -64,9 +67,6 @@ param frontendUrl string = ''
 @allowed(['api', 'scheduler', 'processor'])
 param functionAppType string = 'api'
 
-@description('Docker image URL (e.g., ghcr.io/owner/image:tag)')
-param dockerImageUrl string
-
 // ============================================================================
 // Variables
 // ============================================================================
@@ -99,13 +99,10 @@ var premiumStorageSettings = {
 // Select storage settings based on plan
 var runtimeStorageSettings = isFlexConsumption ? flexConsumptionStorageSettings : premiumStorageSettings
 
-// Runtime settings for Docker
+// Runtime settings for Python (native, not Docker)
 var runtimeSettings = {
   FUNCTIONS_EXTENSION_VERSION: '~4'
   FUNCTIONS_WORKER_RUNTIME: 'python'
-  // Docker configuration
-  DOCKER_REGISTRY_SERVER_URL: 'https://ghcr.io'
-  WEBSITES_ENABLE_APP_SERVICE_STORAGE: 'false'
 }
 
 // Base app settings (common to all plans)
@@ -133,14 +130,14 @@ var appInsightsSettings = !empty(appInsightsConnectionString) ? {
 var appSettings = union(runtimeStorageSettings, runtimeSettings, baseAppSettings, appInsightsSettings, additionalAppSettings)
 
 // ============================================================================
-// Function App - Standard (EP1, EP2, EP3)
+// Function App - Standard (EP1, EP2, EP3) - Python native
 // ============================================================================
 
 resource functionAppStandard 'Microsoft.Web/sites@2023-12-01' = if (!isFlexConsumption) {
   name: functionAppName
   location: location
   tags: tags
-  kind: 'functionapp,linux,container'
+  kind: 'functionapp,linux'
   identity: {
     type: 'SystemAssigned'
   }
@@ -149,7 +146,7 @@ resource functionAppStandard 'Microsoft.Web/sites@2023-12-01' = if (!isFlexConsu
     httpsOnly: true
     reserved: true // Required for Linux
     siteConfig: {
-      linuxFxVersion: 'DOCKER|${dockerImageUrl}'
+      linuxFxVersion: 'PYTHON|3.11'
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       cors: {
@@ -165,14 +162,14 @@ resource functionAppStandard 'Microsoft.Web/sites@2023-12-01' = if (!isFlexConsu
 }
 
 // ============================================================================
-// Function App - Flex Consumption (FC1)
+// Function App - Flex Consumption (FC1) - Python native
 // ============================================================================
 
 resource functionAppFlex 'Microsoft.Web/sites@2024-04-01' = if (isFlexConsumption) {
   name: functionAppName
   location: location
   tags: tags
-  kind: 'functionapp,linux,container'
+  kind: 'functionapp,linux'
   identity: {
     type: 'SystemAssigned'
   }
@@ -195,12 +192,11 @@ resource functionAppFlex 'Microsoft.Web/sites@2024-04-01' = if (isFlexConsumptio
         instanceMemoryMB: instanceMemoryMB
       }
       runtime: {
-        name: 'custom'
-        version: '1.0'
+        name: 'python'
+        version: '3.11'
       }
     }
     siteConfig: {
-      linuxFxVersion: 'DOCKER|${dockerImageUrl}'
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       cors: {

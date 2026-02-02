@@ -9,6 +9,7 @@ import tempfile
 from typing import Optional
 
 from .base_engine import BaseBackupEngine
+from shared.utils.tool_paths import get_tool_path
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ PRINT '-- Backup completed'
             # Build sqlcmd command
             server = f"{host},{port}"
             cmd = [
-                "sqlcmd",
+                get_tool_path("sqlcmd"),
                 "-S", server,
                 "-U", username,
                 "-P", password,
@@ -202,7 +203,7 @@ WITH FORMAT,
 
         server = f"{host},{port}"
         cmd = [
-            "sqlcmd",
+            get_tool_path("sqlcmd"),
             "-S", server,
             "-U", username,
             "-P", password,
@@ -235,7 +236,7 @@ WITH FORMAT,
         """Test SQL Server connection using sqlcmd."""
         server = f"{host},{port}"
         cmd = [
-            "sqlcmd",
+            get_tool_path("sqlcmd"),
             "-S", server,
             "-U", username,
             "-P", password,

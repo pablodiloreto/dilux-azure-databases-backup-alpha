@@ -872,46 +872,142 @@ get_configuration() {
     echo ""
     prompt_with_default "Versión a instalar" "latest" APP_VERSION
 
-    # Function App Plan Selection
+    # Database Size Question (determines available plans)
+    echo ""
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}¿Cuál es el tamaño de tu base de datos más grande?${NC}"
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "  ${GREEN}1)${NC} Pequeña (< 1 GB)"
+    echo "     Todas las opciones de plan disponibles"
+    echo ""
+    echo -e "  ${YELLOW}2)${NC} Mediana (1-3 GB)"
+    echo "     Requiere plan Premium (EP1+) por timeout de 60 min"
+    echo ""
+    echo -e "  ${RED}3)${NC} Grande (> 3 GB)"
+    echo "     Requiere plan Premium EP2+ por memoria y tiempo"
+    echo ""
+    echo -e "${CYAN}───────────────────────────────────────────────────────────────${NC}"
+    echo -e "${CYAN}ℹ️  FC1 tiene timeout de 10 minutos y memoria limitada${NC}"
+    echo -e "${CYAN}───────────────────────────────────────────────────────────────${NC}"
+    echo ""
+    echo -en "${BOLD}Selecciona [1-3] (default: 1):${NC} "
+    read DB_SIZE_CHOICE < /dev/tty
+    DB_SIZE_CHOICE="${DB_SIZE_CHOICE:-1}"
+
+    # Function App Plan Selection based on DB size
     echo ""
     echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
     echo -e "${BOLD}Selecciona el plan de hosting para las Function Apps:${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "${GREEN}1) FC1 - Flex Consumption (RECOMENDADO)${NC}"
-    echo "   ✅ Serverless (pago por ejecución)"
-    echo "   ✅ VNet Integration"
-    echo "   ✅ Docker con herramientas de backup"
-    echo "   💰 Costo: ~\$0-10/mes"
-    echo ""
-    echo -e "${BLUE}2) EP1 - Premium${NC}"
-    echo "   ✅ Instancias reservadas (sin cold starts)"
-    echo "   ✅ VNet Integration"
-    echo "   💰 Costo: ~\$150/mes"
-    echo ""
-    echo -e "${BLUE}3) EP2 - Premium (Alto rendimiento)${NC}"
-    echo "   ✅ Todo lo de EP1 + más CPU/memoria"
-    echo "   💰 Costo: ~\$300/mes"
-    echo ""
-    echo -e "${BLUE}4) EP3 - Premium (Máximo rendimiento)${NC}"
-    echo "   ✅ Todo lo de EP2 + máximos recursos"
-    echo "   💰 Costo: ~\$600/mes"
-    echo ""
-    echo -e "${CYAN}───────────────────────────────────────────────────────────────${NC}"
-    echo -e "${CYAN}ℹ️  Todos los planes usan Docker con mysqldump, pg_dump y sqlcmd${NC}"
-    echo -e "${CYAN}───────────────────────────────────────────────────────────────${NC}"
-    echo ""
-    echo -en "${BOLD}Selecciona una opción [1-4] (default: 1):${NC} "
-    read PLAN_CHOICE < /dev/tty
-    PLAN_CHOICE="${PLAN_CHOICE:-1}"
 
-    case $PLAN_CHOICE in
-        1) FUNCTION_SKU="FC1" ;;
-        2) FUNCTION_SKU="EP1" ;;
-        3) FUNCTION_SKU="EP2" ;;
-        4) FUNCTION_SKU="EP3" ;;
+    case $DB_SIZE_CHOICE in
+        1)
+            # Small DBs - show all options including FC1
+            echo -e "${GREEN}1) FC1 - Flex Consumption (RECOMENDADO para DBs < 1GB)${NC}"
+            echo "   ✅ Serverless (pago por ejecución)"
+            echo "   ✅ VNet Integration"
+            echo "   ✅ Herramientas de backup incluidas"
+            echo "   ⚠️  Timeout: 10 minutos | Memoria: 2-4 GB"
+            echo "   💰 Costo: ~\$5-20/mes"
+            echo ""
+            echo -e "${BLUE}2) EP1 - Premium${NC}"
+            echo "   ✅ Instancias reservadas (sin cold starts)"
+            echo "   ✅ VNet Integration"
+            echo "   ⏱️  Timeout: 60 minutos | Memoria: 3.5 GB"
+            echo "   💰 Costo: ~\$150/mes"
+            echo ""
+            echo -e "${BLUE}3) EP2 - Premium (Alto rendimiento)${NC}"
+            echo "   ✅ Todo lo de EP1 + más CPU/memoria"
+            echo "   ⏱️  Timeout: 60 minutos | Memoria: 7 GB"
+            echo "   💰 Costo: ~\$300/mes"
+            echo ""
+            echo -e "${BLUE}4) EP3 - Premium (Máximo rendimiento)${NC}"
+            echo "   ✅ Todo lo de EP2 + máximos recursos"
+            echo "   ⏱️  Timeout: 60 minutos | Memoria: 14 GB"
+            echo "   💰 Costo: ~\$600/mes"
+            echo ""
+            echo -en "${BOLD}Selecciona una opción [1-4] (default: 1):${NC} "
+            read PLAN_CHOICE < /dev/tty
+            PLAN_CHOICE="${PLAN_CHOICE:-1}"
+
+            case $PLAN_CHOICE in
+                1) FUNCTION_SKU="FC1" ;;
+                2) FUNCTION_SKU="EP1" ;;
+                3) FUNCTION_SKU="EP2" ;;
+                4) FUNCTION_SKU="EP3" ;;
+                *)
+                    print_warning "Opción inválida, usando FC1 (recomendado para DBs pequeñas)"
+                    FUNCTION_SKU="FC1"
+                    ;;
+            esac
+            ;;
+        2)
+            # Medium DBs - EP1+ only (no FC1)
+            print_info "DBs de 1-3 GB requieren plan Premium por timeout de 60 min"
+            echo ""
+            echo -e "${GREEN}1) EP1 - Premium (RECOMENDADO para DBs 1-3GB)${NC}"
+            echo "   ✅ Instancias reservadas (sin cold starts)"
+            echo "   ✅ VNet Integration"
+            echo "   ⏱️  Timeout: 60 minutos | Memoria: 3.5 GB"
+            echo "   💰 Costo: ~\$150/mes"
+            echo ""
+            echo -e "${BLUE}2) EP2 - Premium (Alto rendimiento)${NC}"
+            echo "   ✅ Todo lo de EP1 + más CPU/memoria"
+            echo "   ⏱️  Timeout: 60 minutos | Memoria: 7 GB"
+            echo "   💰 Costo: ~\$300/mes"
+            echo ""
+            echo -e "${BLUE}3) EP3 - Premium (Máximo rendimiento)${NC}"
+            echo "   ✅ Todo lo de EP2 + máximos recursos"
+            echo "   ⏱️  Timeout: 60 minutos | Memoria: 14 GB"
+            echo "   💰 Costo: ~\$600/mes"
+            echo ""
+            echo -en "${BOLD}Selecciona una opción [1-3] (default: 1):${NC} "
+            read PLAN_CHOICE < /dev/tty
+            PLAN_CHOICE="${PLAN_CHOICE:-1}"
+
+            case $PLAN_CHOICE in
+                1) FUNCTION_SKU="EP1" ;;
+                2) FUNCTION_SKU="EP2" ;;
+                3) FUNCTION_SKU="EP3" ;;
+                *)
+                    print_warning "Opción inválida, usando EP1 (recomendado para DBs medianas)"
+                    FUNCTION_SKU="EP1"
+                    ;;
+            esac
+            ;;
+        3)
+            # Large DBs - EP2+ only (no FC1, no EP1)
+            print_info "DBs > 3 GB requieren plan Premium EP2+ por memoria y tiempo"
+            echo ""
+            echo -e "${GREEN}1) EP2 - Premium (RECOMENDADO para DBs 3-6GB)${NC}"
+            echo "   ✅ Alto rendimiento + más CPU/memoria"
+            echo "   ✅ VNet Integration"
+            echo "   ⏱️  Timeout: 60 minutos | Memoria: 7 GB"
+            echo "   💰 Costo: ~\$300/mes"
+            echo ""
+            echo -e "${BLUE}2) EP3 - Premium (Máximo rendimiento para DBs 6-10GB)${NC}"
+            echo "   ✅ Todo lo de EP2 + máximos recursos"
+            echo "   ⏱️  Timeout: 60 minutos | Memoria: 14 GB"
+            echo "   💰 Costo: ~\$600/mes"
+            echo ""
+            echo -en "${BOLD}Selecciona una opción [1-2] (default: 1):${NC} "
+            read PLAN_CHOICE < /dev/tty
+            PLAN_CHOICE="${PLAN_CHOICE:-1}"
+
+            case $PLAN_CHOICE in
+                1) FUNCTION_SKU="EP2" ;;
+                2) FUNCTION_SKU="EP3" ;;
+                *)
+                    print_warning "Opción inválida, usando EP2 (recomendado para DBs grandes)"
+                    FUNCTION_SKU="EP2"
+                    ;;
+            esac
+            ;;
         *)
-            print_warning "Opción inválida, usando FC1 (recomendado)"
+            # Default to small DBs behavior
+            print_warning "Opción inválida, asumiendo DBs pequeñas"
             FUNCTION_SKU="FC1"
             ;;
     esac

@@ -1,34 +1,315 @@
 # Dilux Database Backup - Estado del Proyecto
 
-**Última actualización:** 2026-01-31
+**Última actualización:** 2026-02-02 16:30 UTC
 
 ---
 
-## ESTADO: v1 COMPLETA (Y1/EP*) - FC1 EN PROGRESO
+## ESTADO: v1.0.39 - LISTO PARA TESTING FC1 (ZIP + Tools)
 
-La versión 1.0 está **100% funcional** para planes Y1 y EP1/EP2/EP3.
+### ✅ Fase 1 Completada (Tasks 1-6)
 
-⚠️ **Flex Consumption (FC1):** Deployment manual funciona, deployment automatizado tiene problemas. Ver sección "EN PROGRESO: Soporte Flex Consumption".
+Se ha completado la migración de Docker containers a ZIP deployment con herramientas bundled:
 
-### Deployment Verificado (2026-01-17)
+- ✅ Bicep revertido a Python 3.11 nativo (no Docker)
+- ✅ GitHub Action modificado para descargar database tools
+- ✅ Tools empaquetados en ZIP: mysql, mysqldump, pg_dump, psql, sqlcmd, bcp
+- ✅ Código Python modificado para usar rutas dinámicas a tools
+- ✅ deploy.sh pregunta tamaño de DBs y filtra planes según respuesta
+- ✅ azuredeploy.json recompilado
 
-| Componente | Estado | URL/Detalle |
-|------------|--------|-------------|
-| Infrastructure | ✅ Deployed | Resource Group: `dilux61-rg` |
-| API Function App | ✅ 50 funciones registradas | `dilux61-ivhqtp-api.azurewebsites.net` |
-| Scheduler Function App | ✅ Funcionando | `dilux61-ivhqtp-scheduler.azurewebsites.net` |
-| Processor Function App | ✅ Funcionando | `dilux61-ivhqtp-processor.azurewebsites.net` |
-| Frontend (Static Website) | ✅ Accesible | `dilux61stivhqtpmkv4p4q.z15.web.core.windows.net` |
-| Health Check | ✅ Healthy | `/api/health` responde correctamente |
-| Azure AD Auth | ✅ Configurado | App Registration creado automáticamente |
+### ⏳ Pendiente: Testing y Cleanup (Tasks 7-11)
 
-**Versión desplegada:** v1.0.16
+| Tarea | Estado |
+|-------|--------|
+| Deploy a FC1 (dilux95-rg o similar) | ⬜ Pendiente |
+| Probar connection test | ⬜ Pendiente |
+| Probar backup real | ⬜ Pendiente |
+| Limpiar código Docker | ⬜ Pendiente |
+| Actualizar documentación | ⬜ Pendiente |
+
+---
+
+## CONTEXTO: v1.0.38 - INVESTIGANDO DEPLOYMENT FC1
+
+### ⚠️ PROBLEMA CRÍTICO DESCUBIERTO (2026-02-02)
+
+**Azure Functions Flex Consumption (FC1) NO soporta Docker containers.**
+
+Según la [documentación oficial de Microsoft](https://learn.microsoft.com/en-us/azure/azure-functions/functions-deploy-container):
+> "Deploying your function code to Azure Functions in a container requires **Premium plan** or **Dedicated (App Service) plan** hosting."
+
+#### Errores de Deployment v1.0.37/v1.0.38
+
+| Intento | Error |
+|---------|-------|
+| dilux93-rg | `runtime version '' for runtime name 'custom' is not supported` |
+| dilux94-rg | `LinuxFxVersion for Flex Consumption sites is invalid` |
+
+**Conclusión**: FC1 no permite `linuxFxVersion` ni containers Docker. Solo soporta runtimes nativos (Python, Node, .NET, Java).
+
+---
+
+### Opciones de Solución
+
+| Opción | Plan | Docker | Costo Mensual | Database Tools |
+|--------|------|--------|---------------|----------------|
+| **A** | EP1 (Premium) | ✅ GHCR | ~$150 | ✅ mysqldump, pg_dump, sqlcmd |
+| **B** | FC1 + Container Apps | Híbrido | ~$20-40 | ✅ Processor en Container Apps |
+| **C** | FC1 Nativo + Tools | ❌ | ~$5-20 | ✅ Binarios en ZIP |
+
+#### Opción C Recomendada: FC1 Nativo con Tools en Build
+
+Volver a Python nativo en FC1 e incluir las herramientas de backup como **binarios estáticos** en el ZIP de deployment.
+
+**Cómo funcionaría:**
+```
+GitHub Action (build-release.yml)
+       │
+       ├── Descargar binarios estáticos:
+       │   ├── mysqldump (desde mysql-client package)
+       │   ├── pg_dump (desde postgresql-client package)
+       │   └── sqlcmd (desde mssql-tools18 o alternativa Python)
+       │
+       ├── Empaquetar en ZIP junto con código Python
+       │
+       └── Deploy como antes (WEBSITE_RUN_FROM_PACKAGE)
+```
+
+### Performance: Docker vs Nativo + Tools
+
+| Aspecto | Docker (EP1 only) | FC1 Nativo + Tools |
+|---------|-------------------|-------------------|
+| **Cold start** | ~3-10 segundos | ~500ms-2s ✅ **Mejor** |
+| **Tamaño deployment** | ~500MB imagen | ~50-100MB ZIP |
+| **Costo mensual** | ~$150 (EP1) | ~$5-20 (FC1) ✅ **Mejor** |
+| **Tiempo backup** | Igual | Igual |
+| **Memoria runtime** | Overhead container | Sin overhead ✅ |
+| **VNet support** | ✅ | ✅ |
+
+### Warnings de Opción C
+
+| Warning | Descripción | Mitigación |
+|---------|-------------|------------|
+| **Binarios Linux** | Necesitan ser compatibles con Azure Functions Linux (x64, glibc) | Extraer de packages Debian/Ubuntu oficiales |
+| **sqlcmd complejo** | Microsoft no distribuye binario estático fácil | Usar `mssql-scripter` (Python) o extraer de RPM |
+| **Actualizaciones** | CVEs en tools requieren rebuild manual | Dependabot + GitHub Actions |
+| **Límite ZIP** | Max 1GB en Azure Functions | ~100MB estimado, OK |
+| **PATH execution** | Binarios deben ser ejecutables desde Python | Incluir en PATH o usar ruta absoluta |
+
+### Implementación Propuesta
+
+#### Paso 1: Modificar GitHub Action
+
+```yaml
+# .github/workflows/build-release.yml
+- name: Download database tools
+  run: |
+    # MySQL client
+    apt-get download mysql-client
+    dpkg -x mysql-client*.deb ./tools/
+
+    # PostgreSQL client
+    apt-get download postgresql-client
+    dpkg -x postgresql-client*.deb ./tools/
+
+    # SQL Server (mssql-scripter como alternativa Python)
+    pip install mssql-scripter -t ./tools/python/
+```
+
+#### Paso 2: Modificar Bicep
+
+```bicep
+// Volver a Python runtime nativo
+resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
+  properties: {
+    functionAppConfig: {
+      runtime: {
+        name: 'python'
+        version: '3.11'
+      }
+    }
+  }
+}
+```
+
+#### Paso 3: Modificar código Python
+
+```python
+# src/shared/config/settings.py
+import os
+TOOLS_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'tools', 'bin')
+
+# src/shared/services/connection_tester.py
+mysqldump_path = os.path.join(TOOLS_PATH, 'mysqldump')
+subprocess.run([mysqldump_path, ...])
+```
+
+---
+
+## ESTADO ANTERIOR: v1.0.37 - DOCKER CONTAINERS (FALLIDO EN FC1)
+
+La versión 1.0.37 introdujo contenedores Docker, pero **solo funciona en EP1/EP2/EP3**, no en FC1.
+
+### Cambio Arquitectural v1.0.37
+
+| Antes (ZIP) | Ahora (Docker) |
+|-------------|----------------|
+| ZIPs sin herramientas de backup | Imágenes Docker con mysql-client, pg-client, mssql-tools |
+| Planes: Y1, FC1, EP1/EP2/EP3 | Planes: FC1, EP1/EP2/EP3 (Y1 eliminado) |
+| `WEBSITE_RUN_FROM_PACKAGE` | `linuxFxVersion: DOCKER\|ghcr.io/...` |
+| Connection test fallaba en prod | Connection test y backups funcionan |
+
+### Planes Soportados (v1.0.37+)
+
+| SKU | Nombre | Docker | VNet | Costo | Estado |
+|-----|--------|--------|------|-------|--------|
+| **FC1** | Flex Consumption | ✅ | ✅ | ~$0-10/mes | ✅ **Recomendado** |
+| EP1 | Premium | ✅ | ✅ | ~$150/mes | ✅ Funciona |
+| EP2 | Premium | ✅ | ✅ | ~$300/mes | ✅ Funciona |
+| EP3 | Premium | ✅ | ✅ | ~$600/mes | ✅ Funciona |
+| ~~Y1~~ | ~~Consumption~~ | ❌ | ❌ | - | **Eliminado** (no soporta Docker) |
+
+---
+
+## Releases Recientes
+
+| Versión | Fecha | Cambios | Estado |
+|---------|-------|---------|--------|
+| **v1.0.38** | 2026-02-02 | fix: runtime version 1.0 para FC1 custom | ❌ FC1 no soporta Docker |
+| v1.0.37 | 2026-02-01 | feat: Docker containers con database tools | ⚠️ Solo EP1/EP2/EP3 |
+| v1.0.36 | 2026-02-01 | fix: corrección query addressPrefixes | ✅ |
+| v1.0.35 | 2026-02-01 | feat: Key Vault para passwords | ✅ |
+| v1.0.34 | 2026-01-31 | feat: algoritmo mejorado subnets | ✅ |
+| v1.0.32 | 2026-01-31 | feat: VNet Status endpoint | ✅ |
+
+---
+
+## v1.0.37 - Docker Containers (2026-02-01)
+
+### Problema Resuelto
+
+En producción, los Function Apps no tenían las herramientas CLI (`mysql`, `mysqldump`, `pg_dump`, `sqlcmd`) necesarias para:
+- Test de conexión a engines/databases
+- Discovery de databases
+- Ejecución de backups
+
+**Error típico:** `"mysql not found. MySQL client tools are not installed."`
+
+### Solución Implementada
+
+Migrar de deployment ZIP a **contenedores Docker personalizados** que incluyen todas las herramientas.
+
+#### Imágenes Docker
+
+```
+ghcr.io/pablodiloreto/dilux-backup-api:v1.0.37
+ghcr.io/pablodiloreto/dilux-backup-scheduler:v1.0.37
+ghcr.io/pablodiloreto/dilux-backup-processor:v1.0.37
+```
+
+Cada imagen incluye:
+- Python 3.11 + Azure Functions runtime
+- `mysql-client` (mysql, mysqldump)
+- `postgresql-client` (psql, pg_dump)
+- `mssql-tools18` (sqlcmd)
+
+#### Archivos Creados/Modificados
+
+| Archivo | Cambio |
+|---------|--------|
+| `infra/docker/api.Dockerfile` | **NUEVO** - Dockerfile para API |
+| `infra/docker/scheduler.Dockerfile` | **NUEVO** - Dockerfile para Scheduler |
+| `infra/docker/processor.Dockerfile` | **NUEVO** - Dockerfile para Processor |
+| `.github/workflows/build-release.yml` | Build Docker + push a ghcr.io |
+| `infra/main.bicep` | Nuevo param `dockerImagePrefix`, variables para URLs |
+| `infra/modules/functionapp.bicep` | `linuxFxVersion: DOCKER\|...`, eliminado Y1 |
+| `scripts/deploy.sh` | Eliminada opción Y1, simplificado menú |
+
+#### Flujo de Build/Deploy
+
+```
+git push tag v1.0.37
+       │
+       ▼
+GitHub Actions
+       │
+       ├──► Build frontend.zip (para Static Web App)
+       │
+       └──► Build Docker images
+            ├── ghcr.io/pablodiloreto/dilux-backup-api:v1.0.37
+            ├── ghcr.io/pablodiloreto/dilux-backup-scheduler:v1.0.37
+            └── ghcr.io/pablodiloreto/dilux-backup-processor:v1.0.37
+            │
+            └── También tagueadas como :latest
+                     │
+                     ▼
+            Azure Functions pull imágenes
+                     │
+                     ▼
+            ✅ mysqldump, pg_dump, sqlcmd disponibles
+```
+
+---
+
+## v1.0.35 - Key Vault para Passwords (2026-02-01)
+
+### Problema Resuelto
+
+Los passwords de engines y databases se perdían en producción porque:
+- En desarrollo: se guardaban en Table Storage
+- En producción: `include_password=False` y no había código de Key Vault
+
+### Solución Implementada
+
+| Ambiente | Almacenamiento de Passwords |
+|----------|---------------------------|
+| Desarrollo | Table Storage (fallback) |
+| Producción | Azure Key Vault con Managed Identity |
+
+#### Archivos Modificados
+
+| Archivo | Cambio |
+|---------|--------|
+| `src/shared/config/settings.py` | `key_vault_name`, `use_key_vault` property |
+| `src/shared/config/azure_clients.py` | `SecretClient`, `get_secret()`, `set_secret()`, `delete_secret()` |
+| `src/shared/services/engine_service.py` | CRUD guarda/lee passwords de Key Vault |
+| `src/shared/services/database_config_service.py` | CRUD guarda/lee passwords de Key Vault |
+| `src/functions/processor/function_app.py` | Obtiene password de engine si `use_engine_credentials=True` |
+| `infra/modules/rbac-native.bicep` | Cambió de `Secrets User` a `Secrets Officer` |
+
+#### Naming de Secrets
+
+```
+engine-{id}    → Password del engine
+database-{id}  → Password de database (si no usa engine credentials)
+```
+
+---
+
+## v1.0.36 - Fix Cálculo de Subnets (2026-02-01)
+
+### Problema
+
+El script `deploy.sh` mostraba "29 subnets existentes" pero "0 IPs usadas", causando que sugiriera direcciones que ya estaban en uso.
+
+### Causa
+
+Query incorrecta en Azure CLI:
+```bash
+# Antes (MAL)
+--query "[].{name:name, prefix:addressPrefix}"
+
+# Después (BIEN)
+--query "[].{name:name, prefix:addressPrefixes[0]}"
+```
+
+Azure devuelve `addressPrefixes` (array), no `addressPrefix` (singular).
 
 ---
 
 ## Funcionalidades Implementadas
 
-### Backend (3 Azure Function Apps)
+### Backend (3 Azure Function Apps - Docker)
 
 - **API** (puerto 7071): CRUD completo para databases, engines, policies, users, backups, audit
 - **Scheduler** (puerto 7072): Timer cada 15 min, evalúa políticas por tier, cleanup automático
@@ -53,8 +334,8 @@ La versión 1.0 está **100% funcional** para planes Y1 y EP1/EP2/EP3.
 - **Script deploy.sh**: Wizard interactivo con selección de VNet ANTES del deployment
 - **Script configure-auth.sh**: Wizard interactivo para configurar Azure AD post-deployment
 - **Script configure-vnet.sh**: Integración de VNet para acceso a bases de datos privadas
-- **Pre-built Assets**: GitHub Action construye ZIPs en cada release
-- **RBAC Automático**: Managed Identity con roles configurados
+- **Docker Images**: GitHub Action construye imágenes con database tools en cada release
+- **RBAC Automático**: Managed Identity con roles configurados (incluyendo Key Vault Secrets Officer)
 - **Nombres Únicos**: Sufijo hash para evitar colisiones globales
 - **Re-deploy Idempotente**: Se puede re-desplegar sin errores
 - **VNet Status API**: Endpoint `/api/vnet-status` para consultar integración en tiempo real
@@ -62,7 +343,7 @@ La versión 1.0 está **100% funcional** para planes Y1 y EP1/EP2/EP3.
 ### Seguridad
 
 - **Azure AD Authentication**: MSAL React + JWT validation
-- **Key Vault**: Para secrets en producción
+- **Key Vault**: Para passwords de engines/databases en producción
 - **Audit Logging**: Registro completo de todas las acciones
 
 ---
@@ -78,246 +359,8 @@ La versión 1.0 está **100% funcional** para planes Y1 y EP1/EP2/EP3.
 | Auto-update | Diferido para v2 |
 | Autenticación | Azure AD en prod, mock en dev |
 | Passwords | Key Vault en prod, Table Storage en dev |
-| Audit Login/Logout | Frontend llama `/api/auth/events` solo en login/logout real |
-
----
-
-## Historial de Releases
-
-| Versión | Fecha | Cambios |
-|---------|-------|---------|
-| v1.0.0 | 2025-12-20 | Release inicial con pre-built assets |
-| v1.0.1 | 2025-12-20 | Fix: RBAC resiliente (no falla en re-deploy) |
-| v1.0.2 | 2025-12-20 | Fix: Nombres únicos para Function Apps |
-| v1.0.3 | 2025-12-20 | Fix: Instalar jq en script de RBAC |
-| v1.0.4 | 2025-12-21 | Fix: Compatibilidad CBL-Mariner |
-| v1.0.5 | 2025-12-21 | Fix: Espera y retry para propagación de RBAC |
-| v1.0.6 | 2025-12-22 | Fix: RBAC Contributor via Bicep nativo |
-| v1.0.7+ | 2025-12-22 | Deployment automático completo (frontend + functions) |
-| v1.0.16 | 2026-01-17 | **Versión estable verificada en producción** |
-
-### Problemas Resueltos
-
-Todos los problemas de deployment fueron resueltos:
-
-1. **RBAC no propagaba a tiempo** → Solucionado con Bicep nativo
-2. **Functions no se registraban (404)** → Solucionado en versiones recientes
-3. **Frontend no se desplegaba** → Deployment automático a Blob Storage Static Website
-4. **Nombres duplicados globalmente** → Sufijo hash único por RG + appName
-
----
-
-## ⚠️ EN PROGRESO: Soporte Flex Consumption (2026-01-31)
-
-**Estado actual:** Deployment MANUAL funciona. Deployment AUTOMATIZADO (deploy.sh / Deploy to Azure) NO funciona.
-
-### Contexto
-
-Microsoft anunció que el plan **Y1 (Linux Consumption)** llegará a **EOL el 30 de septiembre de 2028**.
-Se recomienda migrar a **Flex Consumption (FC1)**, que además ofrece VNet Integration.
-
-### Problemas Encontrados con FC1 (TODOS RESUELTOS)
-
-Flex Consumption tiene diferencias importantes vs Y1/Premium:
-
-| Problema | Descripción | Estado |
-|----------|-------------|--------|
-| `FUNCTIONS_WORKER_RUNTIME` | FC1 configura runtime en `functionAppConfig.runtime`, NO en appSettings | ✅ Fix en v1.0.19 |
-| 1 App por Plan | FC1 solo permite 1 Function App por App Service Plan | ✅ Fix en v1.0.20 (3 planes) |
-| Deployment Method | FC1 necesita `config-zip --build-remote true` (NO `deploy --src-path`) | ✅ Fix en v1.0.24 |
-| Shared Deploy Container | FC1 usa blob container para deploy; compartido sobrescribe ZIPs | ✅ Fix en v1.0.25 |
-| SCM_DO_BUILD_DURING_DEPLOYMENT | `--build-remote` setea setting que FC1 no soporta; restart antes de deploy | ✅ Fix en v1.0.26 |
-
-### Solución Final (v1.0.24)
-
-El método correcto para **FC1 + Python** es:
-
-```bash
-az functionapp deployment source config-zip \
-  --resource-group $RG \
-  --name $APP \
-  --src $ZIP \
-  --build-remote true \
-  --timeout 600
-```
-
-**Clave:** `--build-remote true` indica a Azure que ejecute `pip install -r requirements.txt` durante el deployment.
-
-**Métodos que NO funcionan:**
-- `az functionapp deploy --src-path` → HTTP 415 (Unsupported Media Type)
-- `WEBSITE_RUN_FROM_PACKAGE` → No hace remote build, Python deps no se instalan
-
-### Archivos Modificados (desde v1.0.16)
-
-| Archivo | Cambios |
-|---------|---------|
-| `infra/modules/functionapp.bicep` | Runtime settings condicionales, 2 recursos (Standard vs Flex) |
-| `infra/modules/appserviceplan.bicep` | Agregado SKU FC1 |
-| `infra/main.bicep` | 3 App Service Plans para FC1, variable `isFlexConsumption` |
-| `infra/modules/code-deployment.bicep` | Función `deploy_flex_consumption()` para FC1 |
-| `scripts/configure-auth.sh` | **NUEVO** - Wizard para configurar Azure AD post-deployment |
-
-### Planes de Function Apps Soportados
-
-| SKU | Nombre | VNet | Costo | Estado |
-|-----|--------|------|-------|--------|
-| **FC1** | Flex Consumption | ✅ Sí | ~$0-10/mes | ✅ **Funciona (v1.0.24)** |
-| Y1 | Consumption (Legacy) | ❌ No | ~$0-5/mes | ✅ Funciona |
-| EP1 | Premium | ✅ Sí | ~$150/mes | ✅ Funciona |
-| EP2 | Premium | ✅ Sí | ~$300/mes | ✅ Funciona |
-| EP3 | Premium | ✅ Sí | ~$600/mes | ✅ Funciona |
-
-### Releases Recientes
-
-| Versión | Fecha | Cambio |
-|---------|-------|--------|
-| v1.0.18 | 2026-01-29 | feat: configure-auth.sh wizard |
-| v1.0.19 | 2026-01-29 | fix: remover FUNCTIONS_WORKER_RUNTIME de appSettings para FC1 |
-| v1.0.20 | 2026-01-29 | fix: crear 3 App Service Plans separados para FC1 |
-| v1.0.21 | 2026-01-29 | fix: deployment via Blob Storage para FC1 (descartado) |
-| v1.0.22 | 2026-01-29 | fix: simplificar a `az functionapp deploy --src-path` |
-| v1.0.23 | 2026-01-29 | fix: comparación case-insensitive para IS_FLEX_CONSUMPTION |
-| v1.0.24 | 2026-01-31 | fix: FC1 deployment usando `config-zip --build-remote true` |
-| v1.0.25 | 2026-01-31 | fix: containers separados para deployment de cada Function App |
-| v1.0.26 | 2026-01-31 | fix: FC1 deployment sin --build-remote + restart previo |
-| v1.0.27 | 2026-01-31 | fix: eliminar SCM_DO_BUILD_DURING_DEPLOYMENT + config-zip sin flags |
-| v1.0.28 | 2026-01-31 | **fix: esperar 3 min + verificar SCM endpoint antes de deploy FC1** |
-| v1.0.29 | 2026-01-31 | **feat: VNet Status en UI - query Azure en tiempo real** |
-| v1.0.30 | 2026-01-31 | fix: deploy.sh wizard VNet primero, configure-vnet.sh fixes |
-| v1.0.31 | 2026-01-31 | fix: FC1 OneDeploy fetches directly from GitHub releases |
-| v1.0.32 | 2026-01-31 | **feat: VNet Status completo con endpoint /api/vnet-status** |
-| v1.0.33 | 2026-01-31 | fix: deploy.sh mejor manejo de errores en comandos az network |
-| v1.0.34 | 2026-01-31 | **feat: algoritmo mejorado para cálculo de subnets** |
-
-### 🧪 Historial de Tests FC1
-
-| Versión | Resultado | Problema |
-|---------|-----------|----------|
-| v1.0.19 | ❌ | `FUNCTIONS_WORKER_RUNTIME` en appSettings no permitido |
-| v1.0.20 | ❌ | FC1 solo permite 1 app por plan |
-| v1.0.21 | ❌ | Usaba método blob pero `IS_FLEX_CONSUMPTION` no se detectaba |
-| v1.0.22 | ❌ | Simplificado a `--src-path` pero `IS_FLEX_CONSUMPTION` = "True" vs "true" |
-| v1.0.23 | ❌ | Fix case-insensitive OK, pero `--src-path` retorna **HTTP 415** |
-| v1.0.24 | ❌ | `config-zip` funciona pero container compartido sobrescribe ZIPs |
-| v1.0.25 | ❌ | Containers OK pero `--build-remote` setea setting incompatible con FC1 |
-| v1.0.26 | ❌ | Restart OK pero `--build-remote false` no instala dependencias |
-| v1.0.27 | ❌ | Fix correcto pero SCM endpoint no está listo (404) - poco tiempo de espera |
-| v1.0.28 | ❌ | Espera 3 min + verifica SCM, pero CLI sigue seteando SCM_DO_BUILD_DURING_DEPLOYMENT |
-
-**Nota:** v1.0.28 fue verificado manualmente (dilux68-rg) pero falla en deployment automatizado.
-
-### ⚠️ PROBLEMA PENDIENTE: Deployment Automatizado FC1
-
-**Fecha:** 2026-01-31
-
-**Estado:** El deployment manual funciona pero el automatizado (via deploy.sh o Deploy to Azure) falla consistentemente.
-
-#### El Problema Fundamental
-
-Azure CLI `az functionapp deployment source config-zip` **automáticamente** setea el app setting `SCM_DO_BUILD_DURING_DEPLOYMENT` incluso cuando NO se usa el flag `--build-remote`. FC1 **rechaza** este setting (ni `true` ni `false` funcionan).
-
-```
-Error: "SCM_DO_BUILD_DURING_DEPLOYMENT" is not a supported configuration setting for Flex Consumption apps
-```
-
-#### Métodos de Deployment Probados
-
-| Método | Comando | Resultado |
-|--------|---------|-----------|
-| config-zip + build-remote true | `az functionapp deployment source config-zip --build-remote true` | ❌ Setea SCM_DO_BUILD_DURING_DEPLOYMENT que FC1 rechaza |
-| config-zip + build-remote false | `az functionapp deployment source config-zip --build-remote false` | ❌ No instala dependencias Python |
-| config-zip sin flags | `az functionapp deployment source config-zip` | ❌ CLI igual setea el app setting |
-| az functionapp deploy | `az functionapp deploy --src-path` | ❌ HTTP 415 (Unsupported Media Type) |
-| Kudu API zipdeploy | `POST /api/zipdeploy` | ❌ HTTP 401 "not supported for Flex Consumption" |
-| OneDeploy API | `POST /api/publish` | ❌ HTTP 404 |
-| Blob directo | Upload a container deployments-xxx | ❌ 0 funciones cargadas |
-
-#### Lo Que SÍ Funciona (Manual)
-
-Cuando se hace **manualmente** con suficiente tiempo de espera después de crear la infra:
-
-1. Esperar 5-10 minutos después de crear Function App
-2. Eliminar app settings problemáticos:
-   ```bash
-   az functionapp config appsettings delete --name $APP --resource-group $RG --setting-names SCM_DO_BUILD_DURING_DEPLOYMENT WEBSITE_RUN_FROM_PACKAGE
-   ```
-3. Reiniciar la Function App:
-   ```bash
-   az functionapp restart --name $APP --resource-group $RG
-   ```
-4. Esperar 45+ segundos
-5. Hacer el deploy:
-   ```bash
-   az functionapp deployment source config-zip --name $APP --resource-group $RG --src $ZIP
-   ```
-
-**Esto funciona porque:**
-- El SCM endpoint ya está completamente inicializado
-- Los settings se eliminan ANTES de que CLI los vuelva a crear
-- El restart limpia el estado
-
-#### Por Qué Falla Automatizado
-
-1. **Timing**: El deployment script corre inmediatamente después de crear la infra (~3 min), pero el SCM endpoint necesita 5-10 min
-2. **Race condition**: Aunque eliminamos los settings, el CLI los vuelve a crear durante `config-zip`
-3. **No hay forma de evitar**: Azure CLI no tiene flag para NO setear `SCM_DO_BUILD_DURING_DEPLOYMENT`
-
-#### RGs de Prueba Fallidos
-
-| RG | Versión | Problema |
-|----|---------|----------|
-| dilux69-rg | v1.0.24 | Container compartido |
-| dilux70-rg | v1.0.25 | SCM_DO_BUILD_DURING_DEPLOYMENT |
-| dilux71-rg | v1.0.26 | build-remote false no instala deps |
-| dilux73-rg | v1.0.27 | SCM 404 (timing) |
-| dilux74-rg | v1.0.27 | SCM 404 (timing) |
-| dilux75-rg | v1.0.28 | SCM 404 (timing) |
-| dilux81-rg | v1.0.28 | Blob directo: 0 funciones |
-
-#### Posibles Soluciones a Investigar
-
-1. **Azure Functions Core Tools**: `func azure functionapp publish` puede tener diferente comportamiento
-2. **GitHub Actions**: Usar `azure/functions-action@v1` en lugar de CLI
-3. **REST API directo**: Investigar si hay API que no setee el app setting
-4. **Mayor tiempo de espera**: Aumentar a 10-15 minutos (pero afecta UX)
-5. **Workaround post-deploy**: Script separado que corra después del deployment inicial
-6. **Reportar bug a Microsoft**: El comportamiento del CLI parece ser un bug
-
-#### Verificación Manual Exitosa (dilux68-rg)
-
-**Fecha:** 2026-01-31
-
-| Componente | Funciones | Estado |
-|------------|-----------|--------|
-| API | 49 | ✅ Health OK |
-| Scheduler | 2 | ✅ OK |
-| Processor | 2 | ✅ OK |
-| Frontend | - | ✅ Login Azure AD OK |
-| CORS | - | ✅ Configurado automáticamente |
-
-**Nota:** Este deployment funcionó porque se hizo manualmente con tiempo de espera adecuado.
-
-### Archivos Clave para Continuar
-
-| Archivo | Descripción |
-|---------|-------------|
-| `infra/modules/code-deployment.bicep` | Script que despliega código (líneas ~100-180 tienen la lógica FC1) |
-| `infra/modules/functionapp.bicep` | Definición del Function App para FC1 |
-| `infra/main.bicep` | Orquestador, pasa `isFlexConsumption` a los módulos |
-| `scripts/deploy.sh` | Script interactivo de deployment |
-
----
-
-## Features para v2 (Opcional - No Bloqueante)
-
-Estas son mejoras opcionales para futuras versiones:
-
-| Feature | Descripción | Prioridad |
-|---------|-------------|-----------|
-| Auto-Update | Notificación de nueva versión disponible | Baja |
-| Telemetría | Tracking anónimo de instalaciones | Baja |
-| Notificaciones | Email/webhook en fallos de backup | Media |
-| Multi-tenant | Soporte para múltiples organizaciones | Baja |
+| Database Tools | Docker containers con CLI tools preinstalados |
+| Deployment | Docker images en ghcr.io (antes: ZIPs en GitHub Releases) |
 
 ---
 
@@ -326,37 +369,42 @@ Estas son mejoras opcionales para futuras versiones:
 ### Deployment a Azure
 
 ```bash
-# Opción 1: Script automático (recomendado) - incluye selector de plan interactivo
+# Opción 1: Script automático (recomendado)
 curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/deploy.sh | bash
 
 # Opción 2: Deploy manual via CLI
-az group create --name mi-rg --location eastus
 az deployment group create \
   --resource-group mi-rg \
-  --template-file infra/main.bicep \
-  --parameters appName=miapp adminEmail=admin@email.com functionAppSku=FC1
+  --template-uri https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/infra/azuredeploy.json \
+  --parameters appName=miapp adminEmail=admin@email.com appVersion=v1.0.37
 
 # Opciones de functionAppSku:
-#   FC1 = Flex Consumption (default, recomendado, VNet support)
-#   Y1  = Consumption legacy (sin VNet, EOL 2028)
-#   EP1/EP2/EP3 = Premium (VNet support, sin cold starts)
+#   FC1 = Flex Consumption (default, recomendado)
+#   EP1/EP2/EP3 = Premium
 ```
 
-### Configurar Autenticación Post-Deployment
-
-Si el App Registration no se creó automáticamente durante el deployment (porque el Managed Identity no tiene permisos de Microsoft Graph), la app quedará en modo `mock` sin autenticación real.
-
-Para configurar Azure AD authentication, ejecuta el wizard interactivo:
+### Actualizar Instalación Existente
 
 ```bash
-curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/configure-auth.sh | bash
+# Re-deploy con nueva versión
+az deployment group create \
+  --resource-group <tu-rg> \
+  --template-uri https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/infra/azuredeploy.json \
+  --parameters appName=<tu-app> adminEmail=<tu-email> appVersion=v1.0.37
 ```
 
-El script te guiará para:
-1. Seleccionar la instalación de Dilux (Resource Group)
-2. Crear o usar un App Registration existente
-3. Configurar las Function Apps con el Client ID
-4. Actualizar el frontend con la configuración de Azure AD
+### Verificar Imágenes Docker
+
+```bash
+# Ver imágenes disponibles
+docker pull ghcr.io/pablodiloreto/dilux-backup-api:v1.0.37
+docker pull ghcr.io/pablodiloreto/dilux-backup-api:latest
+
+# Verificar que tienen las herramientas
+docker run --rm ghcr.io/pablodiloreto/dilux-backup-api:v1.0.37 which mysqldump
+docker run --rm ghcr.io/pablodiloreto/dilux-backup-api:v1.0.37 which pg_dump
+docker run --rm ghcr.io/pablodiloreto/dilux-backup-api:v1.0.37 which sqlcmd
+```
 
 ### Desarrollo Local
 
@@ -379,241 +427,446 @@ sqlcmd -S sqlserver,1433 -U sa -P 'YourStrong@Passw0rd' -d testdb -C
 # 1. Commit y push cambios
 git add . && git commit -m "feat: cambios" && git push
 
-# 2. Crear tag (dispara GitHub Action)
+# 2. Crear tag (dispara GitHub Action que construye Docker images)
 git tag v1.0.x && git push origin v1.0.x
 
-# 3. Verificar release
+# 3. Verificar release y imágenes
 gh release view v1.0.x
 ```
 
-### Verificar Deployment
+---
 
-```bash
-# Health check
-curl https://<app>-api.azurewebsites.net/api/health
+## Historial Completo de Releases
 
-# Listar funciones registradas
-az functionapp function list --name <app>-api --resource-group <rg> --output table
-
-# Ver logs del deployment
-az deployment-scripts show-log --resource-group <rg> --name deploy-application-code
-```
+| Versión | Fecha | Cambios |
+|---------|-------|---------|
+| **v1.0.38** | 2026-02-02 | **fix: runtime version 1.0 para FC1 - DESCUBIERTO: FC1 no soporta Docker** |
+| v1.0.37 | 2026-02-01 | feat: Docker containers con database tools (solo EP1/EP2/EP3) |
+| v1.0.36 | 2026-02-01 | fix: query addressPrefixes para cálculo de subnets |
+| v1.0.35 | 2026-02-01 | feat: Key Vault para passwords en producción |
+| v1.0.34 | 2026-01-31 | feat: algoritmo mejorado para cálculo de subnets |
+| v1.0.32 | 2026-01-31 | feat: VNet Status endpoint /api/vnet-status |
+| v1.0.31 | 2026-01-31 | fix: FC1 OneDeploy from GitHub releases |
+| v1.0.30 | 2026-01-31 | fix: deploy.sh wizard VNet primero |
+| v1.0.28 | 2026-01-31 | fix: esperar SCM endpoint antes de deploy FC1 |
+| v1.0.24 | 2026-01-31 | fix: FC1 deployment usando config-zip --build-remote |
+| v1.0.20 | 2026-01-29 | fix: 3 App Service Plans separados para FC1 |
+| v1.0.18 | 2026-01-29 | feat: configure-auth.sh wizard |
+| v1.0.16 | 2026-01-17 | Versión estable verificada en producción |
+| v1.0.0 | 2025-12-20 | Release inicial |
 
 ---
 
-## VNet Integration (2026-01-31)
+## Features para v2 (Opcional)
 
-### Descripción
+| Feature | Descripción | Prioridad |
+|---------|-------------|-----------|
+| Auto-Update | Notificación de nueva versión disponible | Baja |
+| Webhooks | Trigger cuando hay nueva imagen Docker | Media |
+| Notificaciones | Email/webhook en fallos de backup | Media |
+| Multi-tenant | Soporte para múltiples organizaciones | Baja |
 
-Para acceder a bases de datos en redes privadas (Private Endpoints, VNets), los Function Apps necesitan VNet Integration. Esta funcionalidad está disponible en:
+---
 
-- **FC1 (Flex Consumption)** - Recomendado
-- **EP1/EP2/EP3 (Premium)**
-- **Y1 (Consumption)** - NO soportado
+## Archivos Clave
 
-### Scripts de Configuración
-
-| Script | Descripción |
-|--------|-------------|
-| `deploy.sh` | Wizard de instalación - pregunta por VNet ANTES del deployment para determinar la región automáticamente |
-| `configure-vnet.sh` | Integra Function Apps a VNet existente post-deployment |
-
-#### deploy.sh - Flujo de Instalación (7 pasos)
-
-```
-[1/7] VNet Requirement    → ¿Necesitas conectar a bases de datos en VNet?
-[2/7] Virtual Network     → Seleccionar VNet existente (determina región)
-[3/7] App Name            → Nombre de la instalación
-[4/7] Admin Email         → Email del administrador
-[5/7] Function App SKU    → FC1/EP1/EP2/EP3 (Y1 oculto si VNet seleccionada)
-[6/7] Confirmation        → Resumen y confirmación
-[7/7] Deployment          → Ejecución del deployment
-```
-
-**Importante:** La región se determina automáticamente de la VNet seleccionada para evitar problemas de ubicación.
-
-#### configure-vnet.sh - Características
-
-- Normalización de ubicación ("East US" → "eastus")
-- Cálculo automático de subnet para VNets pequeñas (/24 o menores)
-- Validación de ubicación VNet vs Function Apps
-- Integración de las 3 Function Apps (api, scheduler, processor)
-- Manejo de errores con mensajes descriptivos
-
-### VNet Status en UI (v1.0.32+)
-
-La página Status (`/status`) muestra el estado de VNet integration **en tiempo real** consultando Azure ARM API.
-
-#### Endpoint API
-
-```
-GET /api/vnet-status
-```
-
-**Response:**
-```json
-{
-  "has_vnet_integration": true,
-  "vnets": [
-    {
-      "vnet_name": "my-vnet",
-      "vnet_resource_group": "network-rg",
-      "subnet_name": "dilux-subnet",
-      "connected_apps": ["api", "scheduler", "processor"],
-      "connection_status": "3/3",
-      "is_complete": true
-    }
-  ],
-  "function_apps": [
-    {
-      "name": "myapp-abc123-api",
-      "type": "api",
-      "vnet_name": "my-vnet",
-      "subnet_name": "dilux-subnet",
-      "is_connected": true,
-      "error": null
-    }
-  ],
-  "inconsistencies": [],
-  "query_error": null
-}
-```
-
-#### Características del Frontend
-
-| Característica | Descripción |
-|----------------|-------------|
-| **Query separado** | React Query independiente con `staleTime: 5min` |
-| **Cache inteligente** | VNet changes son infrecuentes, no necesita refresh cada 30s |
-| **Retry on error** | Botón de retry si falla la consulta a Azure |
-| **Detección de inconsistencias** | Alerta si solo 2/3 apps están conectadas |
-| **Multi-VNet** | Detecta si las apps están en VNets diferentes |
-| **Graceful degradation** | Muestra "not configured" si no hay VNet |
-
-### Archivos Implementados
+### Docker
 
 | Archivo | Descripción |
 |---------|-------------|
-| `src/shared/services/azure_service.py` | Servicio Python para queries a Azure ARM |
-| `src/functions/api/function_app.py` | Endpoint `/api/vnet-status` |
-| `src/frontend/src/api/system.ts` | Tipos TypeScript y método `getVNetStatus()` |
-| `src/frontend/src/features/status/StatusPage.tsx` | Componente `VNetStatusCard` |
-| `infra/main.bicep` | Variables de entorno + Reader role assignment |
+| `infra/docker/api.Dockerfile` | Dockerfile para API Function App |
+| `infra/docker/scheduler.Dockerfile` | Dockerfile para Scheduler Function App |
+| `infra/docker/processor.Dockerfile` | Dockerfile para Processor Function App |
 
-### Requisitos Técnicos
+### Infraestructura
 
-1. **Variables de entorno** (configuradas automáticamente por Bicep):
-   ```
-   AZURE_SUBSCRIPTION_ID     # ID de la suscripción
-   DILUX_RESOURCE_GROUP      # Resource Group de la instalación
-   DILUX_API_APP_NAME        # Nombre del Function App API
-   DILUX_SCHEDULER_APP_NAME  # Nombre del Function App Scheduler
-   DILUX_PROCESSOR_APP_NAME  # Nombre del Function App Processor
-   ```
+| Archivo | Descripción |
+|---------|-------------|
+| `infra/main.bicep` | Orquestador principal, define dockerImagePrefix |
+| `infra/modules/functionapp.bicep` | Function App con Docker support |
+| `infra/modules/rbac-native.bicep` | RBAC incluyendo Key Vault Secrets Officer |
+| `.github/workflows/build-release.yml` | Build Docker + push a ghcr.io |
 
-2. **RBAC**: API Function App tiene rol **Reader** en Resource Group (asignado por Bicep)
+### Backend
 
-3. **SDK Python**: `azure-mgmt-web>=7.0.0` para queries a Azure Resource Manager
+| Archivo | Descripción |
+|---------|-------------|
+| `src/shared/config/azure_clients.py` | SecretClient para Key Vault |
+| `src/shared/services/engine_service.py` | CRUD engines con Key Vault |
+| `src/shared/services/database_config_service.py` | CRUD databases con Key Vault |
+| `src/shared/services/connection_tester.py` | Test conexión usando CLI tools |
 
-### Decisiones de Diseño
+### Scripts
 
-| Decisión | Justificación |
-|----------|---------------|
-| Query en tiempo real vs variable estática | Si el usuario desconecta la VNet manualmente, el status debe actualizarse |
-| Endpoint separado vs incluir en `/api/system-status` | Cache diferente (5min vs 30s) para optimizar llamadas a Azure ARM |
-| Reader role solo en Resource Group propio | Principio de mínimo privilegio |
-| Retry manual vs automático | Usuario decide cuándo reintentar, evita spam a Azure API |
-
-### Algoritmo de Cálculo de Subnets (v1.0.34+)
-
-El script `deploy.sh` incluye un algoritmo mejorado para calcular el espacio disponible en VNets.
-
-#### Salida del Análisis
-
-```
-═══════════════════════════════════════════════════════════════
-   Análisis de Espacio de Direcciones
-═══════════════════════════════════════════════════════════════
-
-  VNet:         10.13.0.0/16
-  Rango:        10.13.0.0 - 10.13.255.255
-  Total IPs:    65536
-
-  Subnets existentes: 30
-  IPs usadas:       8192 (12%)
-  IPs disponibles:  57344
-
-Bloques libres encontrados:
-
-  [1] 10.13.29.0 - 10.13.255.255 (58112 IPs, cabe: /26+)
-```
-
-#### Pasos del Algoritmo
-
-| Paso | Descripción |
-|------|-------------|
-| 1. **Parsea VNet CIDR** | Convierte `10.13.0.0/16` a rango numérico (start: 168296448, end: 168361983) |
-| 2. **Lista subnets** | Obtiene todos los rangos usados con sus CIDRs |
-| 3. **Convierte a enteros** | Función `ip_to_int()` para comparación numérica |
-| 4. **Ordena rangos** | Por dirección de inicio ascendente |
-| 5. **Encuentra huecos** | Detecta gaps entre subnets existentes |
-| 6. **Calcula espacio libre** | Suma IPs disponibles en cada hueco |
-| 7. **Valida selección** | Verifica que el tamaño pedido cabe en el hueco |
-| 8. **Alinea dirección** | Ajusta al boundary del CIDR (ej: /27 debe empezar en múltiplo de 32) |
-
-#### Funciones Auxiliares (Bash)
-
-```bash
-# Convierte IP a entero para comparación
-ip_to_int() {
-    local ip=$1
-    local a b c d
-    IFS=. read -r a b c d <<< "$ip"
-    echo $(( (a << 24) + (b << 16) + (c << 8) + d ))
-}
-
-# Convierte entero a IP
-int_to_ip() {
-    local int=$1
-    echo "$(( (int >> 24) & 255 )).$(( (int >> 16) & 255 )).$(( (int >> 8) & 255 )).$(( int & 255 ))"
-}
-
-# Tamaño de un bloque CIDR
-cidr_to_size() {
-    local cidr=$1
-    echo $(( 1 << (32 - cidr) ))
-}
-```
-
-#### Validaciones
-
-| Validación | Acción |
-|------------|--------|
-| **VNet llena** | Muestra error: "No hay espacio disponible en esta VNet" |
-| **Bloque muy pequeño** | Indica qué tamaños caben: "/28" o "muy pequeño" |
-| **Nombre duplicado** | Pide otro nombre si ya existe un subnet con ese nombre |
-| **Tamaño vs espacio** | No permite /26 si solo caben 32 IPs en el hueco |
-| **Alineación CIDR** | /27 debe empezar en múltiplo de 32, /26 en múltiplo de 64 |
-
-#### Problemas Resueltos
-
-| Problema Anterior | Solución |
-|-------------------|----------|
-| No detectaba huecos (gaps) | Ahora encuentra todos los espacios libres entre subnets |
-| Sugería direcciones fuera del rango | Valida que la dirección esté dentro de la VNet |
-| No verificaba overlaps | Calcula rangos exactos y detecta superposiciones |
-| Script terminaba sin error | Manejo de errores con `set +e` y mensajes descriptivos |
-| Nombre duplicado fallaba silenciosamente | Verifica nombres existentes antes de crear |
+| Archivo | Descripción |
+|---------|-------------|
+| `scripts/deploy.sh` | Wizard de instalación (solo FC1/EP*) |
+| `scripts/configure-auth.sh` | Configurar Azure AD post-deployment |
+| `scripts/configure-vnet.sh` | Integrar VNet post-deployment |
 
 ---
 
-## Convención de Nombres Azure
+## Próximos Pasos - Roadmap de Fases
 
-| Recurso | Patrón | Ejemplo |
-|---------|--------|---------|
-| Function Apps | `{appName}-{6chars}-{type}` | `dilux61-ivhqtp-api` |
-| Storage Account | `{appName}st{13chars}` | `dilux61stivhqtpmkv4p4q` |
-| Static Website | `{storage}.z*.web.core.windows.net` | `dilux61stivhqtpmkv4p4q.z15.web.core.windows.net` |
-| Key Vault | `{appName}-kv-{8chars}` | `dilux61-kv-ivhqtpmk` |
+### Arquitectura de Backup - Flujo de Datos
 
-El sufijo único es determinístico (basado en RG + appName), permitiendo re-deploys idempotentes.
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    FLUJO DE BACKUP (Actual)                          │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  mysqldump ──► stdout ──► RAM ──► gzip ──► RAM ──► Blob Storage     │
+│                          (3GB)            (1GB)         ↓            │
+│                                                   ARCHIVO FINAL      │
+│                                          backups/mysql/{id}/xxx.sql.gz│
+│                                                                      │
+│  ⚠️ Problema: Todo pasa por memoria (RAM limitada en FC1)           │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                    FLUJO DE BACKUP (Fase 2 - Streaming)              │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  mysqldump ──► pipe ──► gzip stream ──► upload chunks ──► Blob      │
+│                         (64KB buffer)    (4MB blocks)       ↓        │
+│                                                       ARCHIVO FINAL  │
+│                                          backups/mysql/{id}/xxx.sql.gz│
+│                                                                      │
+│  ✅ Sin límite de memoria, soporta cualquier tamaño                 │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Nota importante**: El blob storage contiene el **archivo final del backup** (no hay temporales). El .sql.gz en blob ES el backup listo para restaurar.
+
+---
+
+### FASE 1: FC1 Nativo con Database Tools en ZIP (ACTUAL)
+
+**Objetivo**: Hacer funcionar FC1 (bajo costo) con herramientas de backup en el ZIP.
+
+**Limitaciones aceptadas**:
+- Bases de datos < 1GB (limitación de memoria FC1)
+- Timeout máximo 10 minutos en FC1
+- Sin cambios en lógica de backup
+
+#### Tareas Fase 1
+
+| # | Tarea | Descripción | Estado |
+|---|-------|-------------|--------|
+| 1 | **Revertir Bicep a Python nativo** | Eliminar Docker config, usar runtime python 3.11 | ✅ **Completado** |
+| 2 | **Modificar GitHub Action** | Descargar/extraer binarios de database tools | ✅ **Completado** |
+| 3 | **Empaquetar tools en ZIP** | Incluir mysqldump, pg_dump en /tools/bin/ | ✅ **Completado** (parte de tarea 2) |
+| 4 | **Resolver sqlcmd** | Usar binario de mssql-tools18 | ✅ **Completado** |
+| 5 | **Modificar código Python** | Usar rutas a binarios en /tools/bin/ | ✅ **Completado** |
+| 6 | **Modificar deploy.sh** | Preguntar tamaño DBs, mostrar planes según respuesta | ✅ **Completado** |
+| 7 | **Probar en FC1** | Deploy completo a dilux95-rg o similar | ⬜ Pendiente |
+| 8 | **Probar connection test** | MySQL, PostgreSQL, SQL Server | ⬜ Pendiente |
+| 9 | **Probar backup real** | Ejecutar backup de cada tipo | ⬜ Pendiente |
+| 10 | **Limpiar código Docker** | Eliminar Dockerfiles si no se usan | ⬜ Pendiente |
+| 11 | **Actualizar documentación** | PLAN.md, infra.md, README | ⬜ Pendiente |
+
+#### Progreso Tarea 1 (Completada)
+
+**Archivos modificados:**
+- `infra/modules/functionapp.bicep` - Reescrito completo para Python 3.11 nativo
+  - Eliminado parámetro `dockerImageUrl`
+  - Cambiado `kind` de `functionapp,linux,container` a `functionapp,linux`
+  - FC1: `runtime.name: 'python'`, `runtime.version: '3.11'`
+  - EP1+: `linuxFxVersion: 'PYTHON|3.11'`
+  - Eliminado settings de Docker (`DOCKER_REGISTRY_SERVER_URL`, etc.)
+- `infra/main.bicep` - Limpiado referencias a Docker
+  - Eliminado parámetro `dockerImagePrefix`
+  - Eliminado variables `dockerImageTag`, `dockerImageApi/Scheduler/Processor`
+  - Actualizado comentarios sobre planes
+- `infra/azuredeploy.json` - Recompilado
+
+#### Progreso Tarea 2-4 (Completadas)
+
+**GitHub Action modificado** (`/.github/workflows/build-release.yml`):
+- Descarga `mysql-client-core-8.0` → extrae `mysql`, `mysqldump`
+- Descarga `postgresql-client-14` → extrae `pg_dump`, `psql`
+- Instala `mssql-tools18` → copia `sqlcmd`, `bcp`
+- Todos los binarios van a `tools/bin/` en cada ZIP
+- Verifica que los tools funcionan antes de empaquetar
+
+**Tools incluidos en cada ZIP:**
+```
+tools/bin/
+├── mysql        # MySQL client
+├── mysqldump    # MySQL backup
+├── pg_dump      # PostgreSQL backup
+├── psql         # PostgreSQL client
+├── sqlcmd       # SQL Server client
+└── bcp          # SQL Server bulk copy
+```
+
+#### Progreso Tarea 5 (Completada)
+
+**Nuevo módulo creado** (`src/shared/utils/tool_paths.py`):
+- `get_tool_path(tool_name)` - Retorna ruta absoluta al binario o nombre si usa PATH
+- `get_tools_bin_path()` - Detecta `/home/site/wwwroot/tools/bin/` en Azure
+- `is_using_bundled_tools()` - Verifica si está usando tools del ZIP
+- En desarrollo usa el PATH del sistema
+- En producción usa los binarios del ZIP
+
+**Archivos modificados para usar tool_paths:**
+- `src/shared/utils/__init__.py` - Exporta funciones de tool_paths
+- `src/shared/services/connection_tester.py`:
+  - `_test_mysql()` → usa `get_tool_path("mysql")`
+  - `_test_postgresql()` → usa `get_tool_path("psql")` (no pg_isready)
+  - `_test_sqlserver()` → usa `get_tool_path("sqlcmd")`
+- `src/functions/processor/backup_engines/mysql_engine.py`:
+  - `_execute_backup_command()` → usa `get_tool_path("mysqldump")`
+  - `test_connection()` → usa `get_tool_path("mysql")`
+- `src/functions/processor/backup_engines/postgres_engine.py`:
+  - `_execute_locally()` → usa `get_tool_path("pg_dump")`
+  - `test_connection()` → usa `get_tool_path("psql")`
+- `src/functions/processor/backup_engines/sqlserver_engine.py`:
+  - `_execute_backup_command()` → usa `get_tool_path("sqlcmd")`
+  - `execute_native_backup()` → usa `get_tool_path("sqlcmd")`
+  - `test_connection()` → usa `get_tool_path("sqlcmd")`
+
+**Nota:** Se usa `psql` en lugar de `pg_isready` porque `pg_isready` no está incluido en el ZIP.
+
+#### Progreso Tarea 6 (Completada)
+
+**Archivo modificado** (`scripts/deploy.sh`):
+
+Se agregó una pregunta de tamaño de base de datos ANTES de la selección de plan:
+
+```
+═══════════════════════════════════════════════════════════════
+¿Cuál es el tamaño de tu base de datos más grande?
+═══════════════════════════════════════════════════════════════
+
+  1) Pequeña (< 1 GB)
+     Todas las opciones de plan disponibles
+
+  2) Mediana (1-3 GB)
+     Requiere plan Premium (EP1+) por timeout de 60 min
+
+  3) Grande (> 3 GB)
+     Requiere plan Premium EP2+ por memoria y tiempo
+
+Selecciona [1-3]:
+```
+
+**Lógica implementada:**
+- Si elige **1 (< 1GB)**: Muestra FC1, EP1, EP2, EP3 (FC1 recomendado)
+- Si elige **2 (1-3GB)**: Muestra solo EP1, EP2, EP3 (EP1 recomendado)
+- Si elige **3 (> 3GB)**: Muestra solo EP2, EP3 (EP2 recomendado)
+
+**Mensajes informativos añadidos:**
+- Cada plan muestra timeout y memoria
+- FC1 indica "⚠️ Timeout: 10 minutos | Memoria: 2-4 GB"
+- EP1+ indica "⏱️ Timeout: 60 minutos | Memoria: X GB"
+
+**Eliminadas referencias a Docker** (ya no se usan containers).
+
+#### Tarea 6: Cambios en deploy.sh (Documentación original)
+
+El wizard de instalación debe preguntar sobre el tamaño de las bases de datos:
+
+```
+═══════════════════════════════════════════════════════════════
+   [2/8] Tamaño de Bases de Datos
+═══════════════════════════════════════════════════════════════
+
+¿Cuál es el tamaño aproximado de tu base de datos más grande?
+
+  1) Pequeña (< 1 GB)      → FC1 disponible (~$5-20/mes)
+  2) Mediana (1-3 GB)      → EP1 recomendado (~$150/mes)
+  3) Grande (> 3 GB)       → EP2+ recomendado (~$300/mes)
+
+Seleccione [1-3]:
+```
+
+**Lógica:**
+- Si elige **1 (< 1GB)**: Mostrar FC1 y EP1/EP2/EP3
+- Si elige **2 (1-3GB)**: Mostrar solo EP1/EP2/EP3, ocultar FC1
+- Si elige **3 (> 3GB)**: Mostrar solo EP2/EP3, ocultar FC1 y EP1
+
+**Razón:** FC1 tiene timeout de 10 minutos y memoria limitada. DBs grandes no caben.
+
+#### Decisiones Técnicas Fase 1
+
+| Decisión | Opciones | Recomendación |
+|----------|----------|---------------|
+| **SQL Server backup** | A) mssql-scripter (Python), B) extraer sqlcmd de RPM | A - más simple |
+| **Mantener Docker para EP1?** | A) Sí, dual-mode, B) No, solo ZIP | B - simplificar |
+| **Versiones de tools** | A) Latest, B) Fijas | B - reproducibilidad |
+
+---
+
+### Límites por Plan de Azure Functions
+
+| Recurso | FC1 | EP1 | EP2 | EP3 |
+|---------|-----|-----|-----|-----|
+| **Memoria** | 2GB / 4GB | 3.5GB | 7GB | 14GB |
+| **Timeout máximo** | **10 min** | 60 min | 60 min | 60 min |
+| **DB máxima segura** | < 1GB | 1-3GB | 3-6GB | 6-10GB |
+| **Costo mensual** | ~$5-20 | ~$150 | ~$300 | ~$600 |
+| **App Service Plans** | 3 separados | 1 compartido | 1 compartido | 1 compartido |
+| **Cold start** | ~500ms-2s | ~1-3s | ~1-3s | ~1-3s |
+| **VNet** | ✅ | ✅ | ✅ | ✅ |
+
+**Nota crítica**: El timeout NO se puede extender en FC1. Si un backup toma más de 10 minutos, fallará.
+
+---
+
+### FASE 2: Streaming a Blob Storage (FUTURO)
+
+**Objetivo**: Soportar bases de datos que no caben en memoria, pero **dentro del timeout del plan**.
+
+**Qué resuelve**:
+- ✅ Problema de MEMORIA (no carga todo en RAM)
+- ❌ NO resuelve problema de TIMEOUT (sigue siendo 10 min en FC1)
+
+**Beneficios**:
+- DBs de 1-3GB en FC1 (si el dump toma < 10 min)
+- DBs más grandes en EP1+ (timeout 60 min)
+- Menor uso de memoria en todos los planes
+
+#### Cambios Requeridos Fase 2
+
+| Archivo | Cambio |
+|---------|--------|
+| `backup_engines/base_engine.py` | Implementar streaming con `subprocess.Popen` + pipe |
+| `backup_engines/mysql_engine.py` | Retornar generador en lugar de bytes |
+| `backup_engines/postgres_engine.py` | Retornar generador en lugar de bytes |
+| `backup_engines/sqlserver_engine.py` | Retornar generador en lugar de bytes |
+| `shared/services/storage_service.py` | Upload con `BlockBlobClient.upload_blob(stream)` |
+
+#### Implementación Técnica Fase 2
+
+```python
+# Concepto de streaming
+def _execute_backup_stream(self, ...):
+    process = subprocess.Popen(
+        ["mysqldump", ...],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    # Pipe a gzip en streaming
+    with gzip.open(process.stdout, 'rb') as gz_stream:
+        # Upload en chunks de 4MB
+        blob_client.upload_blob(gz_stream, blob_type="BlockBlob")
+```
+
+---
+
+### FASE 3: Backups Incrementales (FUTURO)
+
+**Objetivo**: Reducir tiempo y storage con backups incrementales/diferenciales.
+
+**Beneficios**:
+- Backups más rápidos (solo cambios)
+- Menor uso de storage
+- Menor ventana de backup
+
+#### Herramientas por Motor
+
+| Motor | Full Backup (actual) | Incremental (Fase 3) |
+|-------|---------------------|----------------------|
+| **MySQL** | mysqldump | Percona XtraBackup o MySQL Enterprise Backup |
+| **PostgreSQL** | pg_dump | pg_basebackup + WAL archiving (PITR) |
+| **SQL Server** | sqlcmd/BCP | `BACKUP DATABASE ... WITH DIFFERENTIAL` |
+
+#### Complejidad Fase 3
+
+| Aspecto | Descripción |
+|---------|-------------|
+| **Cadena de backups** | Incremental depende del full anterior |
+| **Restore** | Requiere full + todos los incrementales |
+| **Retención** | Más compleja (no puedes borrar full si hay incrementales) |
+| **Validación** | Verificar integridad de la cadena |
+| **UI** | Mostrar relación full → incremental |
+
+#### Prerequisitos Fase 3
+
+- [ ] Fase 1 completada y estable
+- [ ] Fase 2 completada (streaming necesario para XtraBackup)
+- [ ] Modelo de datos para cadenas de backup
+- [ ] UI para gestión de cadenas
+- [ ] Lógica de retención actualizada
+
+---
+
+### Resumen de Fases
+
+| Fase | Objetivo | Resuelve | No Resuelve | DBs en FC1 | DBs en EP1+ |
+|------|----------|----------|-------------|------------|-------------|
+| **1** | FC1 funcional | Deployment | Memoria, Timeout | < 1GB | < 3GB |
+| **2** | Streaming | **Memoria** | Timeout | < 3GB (si < 10min) | < 10GB |
+| **3** | Incrementales | **Tiempo** | - | Cualquier | Cualquier |
+
+**Conclusión importante**:
+- Para DBs < 1GB: FC1 con Fase 1 es suficiente
+- Para DBs 1-10GB: Necesitas EP1+ (por timeout), Fase 2 ayuda con memoria
+- Para DBs > 10GB: Necesitas EP2/EP3 + Fase 2 + posiblemente Fase 3
+
+---
+
+### Decisiones Arquitecturales Documentadas
+
+| Fecha | Decisión | Razón |
+|-------|----------|-------|
+| 2026-02-02 | FC1 no soporta Docker | Limitación de Azure, documentado en Microsoft Learn |
+| 2026-02-02 | Opción C (ZIP + tools) | Mantener bajo costo (~$5-20/mes) vs EP1 (~$150/mes) |
+| 2026-02-02 | Fases incrementales | Entregar valor rápido, iterar después |
+| 2026-02-02 | Blob = archivo final | No hay temporales, el .sql.gz en blob es el backup |
+| 2026-02-02 | deploy.sh pregunta tamaño DBs | FC1 solo para DBs < 1GB por timeout 10 min |
+| 2026-02-02 | EP1+ comparte App Service Plan | Código ya optimizado, 1 plan para 3 functions |
+
+---
+
+### App Service Plans - Verificación de Código
+
+El código actual en `main.bicep` YA está optimizado:
+
+```bicep
+// FC1: 3 planes separados (requerido por Azure)
+module appServicePlanApi ...
+module appServicePlanScheduler = if (isFlexConsumption) ...
+module appServicePlanProcessor = if (isFlexConsumption) ...
+
+// EP1/EP2/EP3: 1 plan compartido
+appServicePlanId: isFlexConsumption
+  ? appServicePlanScheduler.outputs.planId   // FC1: plan propio
+  : appServicePlanApi.outputs.planId          // EP1+: plan compartido ✅
+```
+
+| Plan | App Service Plans | Razón |
+|------|-------------------|-------|
+| FC1 | 3 separados | Limitación Azure: FC1 no permite compartir |
+| EP1/EP2/EP3 | **1 compartido** ✅ | Código optimizado, ahorra costos |
+
+#### Archivos a Modificar
+
+```
+infra/
+├── main.bicep                    # Eliminar dockerImagePrefix, usar ZIP
+├── modules/functionapp.bicep     # runtime: python 3.11, eliminar linuxFxVersion
+└── modules/code-deployment.bicep # Volver a WEBSITE_RUN_FROM_PACKAGE
+
+.github/workflows/
+└── build-release.yml             # Agregar paso de descarga de tools
+
+src/shared/
+├── config/settings.py            # TOOLS_PATH variable
+└── services/
+    ├── connection_tester.py      # Usar rutas a binarios
+    └── backup_engines/           # Usar rutas a binarios
+```
+
+### Resource Groups de Prueba
+
+| RG | Versión | Estado | Notas |
+|----|---------|--------|-------|
+| dilux92-rg | v1.0.36? | ❓ | Pre-Docker |
+| dilux93-rg | v1.0.37 | ❌ Failed | Docker + FC1 = error runtime version |
+| dilux94-rg | v1.0.38 | ❌ Failed | Docker + FC1 = error linuxFxVersion |
+| dilux95-rg | v1.0.39+ | ⬜ | Para probar Opción C |
