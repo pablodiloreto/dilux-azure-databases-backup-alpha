@@ -196,7 +196,7 @@ resource functionAppFlex 'Microsoft.Web/sites@2024-04-01' = if (isFlexConsumptio
       }
       runtime: {
         name: 'custom'
-        version: ''
+        version: '1.0'
       }
     }
     siteConfig: {
