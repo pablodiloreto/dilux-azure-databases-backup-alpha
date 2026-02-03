@@ -234,24 +234,24 @@ export function DatabaseFormDialog({
   const validate = (): boolean => {
     const errors: Record<string, string> = {}
 
-    if (!formData.name.trim()) {
+    if (!(formData.name || '').trim()) {
       errors.name = 'Name is required'
     }
-    if (!formData.host.trim()) {
+    if (!(formData.host || '').trim()) {
       errors.host = 'Host is required'
     }
     if (!formData.port || formData.port < 1 || formData.port > 65535) {
       errors.port = 'Port must be between 1 and 65535'
     }
-    if (!formData.database_name.trim()) {
+    if (!(formData.database_name || '').trim()) {
       errors.database_name = 'Database name is required'
     }
     // Only require username/password if not using engine credentials
     if (!formData.use_engine_credentials) {
-      if (!formData.username.trim()) {
+      if (!(formData.username || '').trim()) {
         errors.username = 'Username is required'
       }
-      if (!isEditing && !formData.password.trim()) {
+      if (!isEditing && !(formData.password || '').trim()) {
         errors.password = 'Password is required'
       }
     }
@@ -264,18 +264,18 @@ export function DatabaseFormDialog({
     // If using engine credentials, we can test if we have engine with credentials
     if (formData.use_engine_credentials && selectedEngine?.auth_method === 'user_password') {
       return !!(
-        formData.host.trim() &&
+        (formData.host || '').trim() &&
         formData.port &&
-        formData.database_name.trim()
+        (formData.database_name || '').trim()
       )
     }
     // Otherwise need username/password
     return !!(
-      formData.host.trim() &&
+      (formData.host || '').trim() &&
       formData.port &&
-      formData.database_name.trim() &&
-      formData.username.trim() &&
-      formData.password.trim()
+      (formData.database_name || '').trim() &&
+      (formData.username || '').trim() &&
+      (formData.password || '').trim()
     )
   }
 

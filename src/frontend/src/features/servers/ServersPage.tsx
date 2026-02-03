@@ -324,9 +324,9 @@ export function ServersPage() {
       handleRefresh()
     } else {
       const result = await enginesApi.create(data)
-      handleRefresh()
       // If discover_databases was checked, open DiscoverDialog automatically
       if (data.discover_databases && result.engine) {
+        // Set selected server and open dialog BEFORE refresh to avoid state reset
         setSelectedServer(result.engine)
         setDiscoverDialogOpen(true)
         setSnackbar({
@@ -334,7 +334,9 @@ export function ServersPage() {
           message: 'Server created. Opening database discovery...',
           severity: 'success',
         })
+        // Refresh will happen when discover dialog closes
       } else {
+        handleRefresh()
         setSnackbar({ open: true, message: 'Server created successfully', severity: 'success' })
       }
     }

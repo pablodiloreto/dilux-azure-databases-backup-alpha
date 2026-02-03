@@ -326,6 +326,28 @@ def dynamic_scheduler(timer: func.TimerRequest) -> None:
                             f"Queuing {tier_name} backup for database: {db_config.name}"
                         )
 
+                        # Get username - from engine if using engine credentials
+                        username = db_config.username
+                        password_secret_name = db_config.password_secret_name
+
+                        if db_config.use_engine_credentials and db_config.engine_id:
+                            engine = engine_service.get(db_config.engine_id)
+                            if engine and engine.username:
+                                username = engine.username
+                                password_secret_name = f"engine-{engine.id}"
+                            else:
+                                logger.error(
+                                    f"Database {db_config.name} uses engine credentials but "
+                                    f"engine {db_config.engine_id} not found or has no username"
+                                )
+                                continue
+
+                        if not username:
+                            logger.error(
+                                f"No username configured for database {db_config.name}"
+                            )
+                            continue
+
                         # Create backup job with tier info
                         job = BackupJob(
                             database_id=db_config.id,
@@ -334,8 +356,8 @@ def dynamic_scheduler(timer: func.TimerRequest) -> None:
                             host=db_config.host,
                             port=db_config.port,
                             target_database=db_config.database_name,
-                            username=db_config.username,
-                            password_secret_name=db_config.password_secret_name,
+                            username=username,
+                            password_secret_name=password_secret_name,
                             compression=db_config.compression,
                             backup_destination=db_config.backup_destination,
                             triggered_by="scheduler",

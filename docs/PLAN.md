@@ -1,31 +1,92 @@
 # Dilux Database Backup - Estado del Proyecto
 
-**Última actualización:** 2026-02-03 03:30 UTC
+**Última actualización:** 2026-02-03 15:30 UTC
 
 ---
 
-## ESTADO: v1.0.46 - BUGS ARREGLADOS ✅
+## ESTADO: v1.0.47 - EN DESARROLLO 🔧
 
-### ✅ Probado en v1.0.45 (dilux104-rg)
+### ❌ Bugs Encontrados en v1.0.46 (dilux105-rg) - EN PROCESO
+
+Los fixes de v1.0.46 NO funcionaron. Se encontraron más bugs críticos:
+
+#### BUGS CRÍTICOS (v1.0.46 no funcionó)
+
+| # | Bug | Archivo | Estado | Descripción |
+|---|-----|---------|--------|-------------|
+| F7 | Edit database → pantalla blanca (null.trim()) | `DatabaseFormDialog.tsx:277` | ✅ Arreglado | `formData.username.trim()` falla cuando username es null |
+| F8 | DiscoverDialog no se abre después de crear servidor | `ServersPage.tsx` | ✅ Arreglado | `handleRefresh()` se llamaba ANTES de abrir el dialog |
+| B4 | Trigger backup falla con "username required" | `api/function_app.py` | ✅ Arreglado | No obtiene username del engine cuando `use_engine_credentials=True` |
+| B5 | Scheduler falla igual que B4 | `scheduler/function_app.py` | ✅ Arreglado | Mismo problema que B4 |
+
+### 🔧 Fixes Aplicados para v1.0.47
+
+#### Frontend
+
+**F7: null.trim() en DatabaseFormDialog.tsx**
+- **Problema**: En la función `canTestConnection()` línea 277, `formData.username.trim()` explota cuando `username` es `null` (caso de `use_engine_credentials=True`)
+- **Solución**: Cambiar todos los `.trim()` a usar optional chaining: `(formData.username || '').trim()`
+- **Archivo**: `src/frontend/src/features/databases/DatabaseFormDialog.tsx`
+- **Líneas afectadas**: 237, 240, 246, 251, 254, 267, 273, 277, 278
+
+**F8: DiscoverDialog no se abre automáticamente**
+- **Problema**: En `handleFormSubmit()`, se llamaba `handleRefresh()` ANTES de setear `selectedServer` y abrir el dialog, causando un re-render que perdía el estado
+- **Solución**: Mover `handleRefresh()` al else branch (cuando no hay discovery), el dialog se refresca al cerrar
+- **Archivo**: `src/frontend/src/features/servers/ServersPage.tsx`
+
+#### Backend
+
+**B4: Trigger backup falla con username=None**
+- **Problema**: En `trigger_backup()`, se usaba `config.username` directamente. Cuando la DB tiene `use_engine_credentials=True`, el username está en el engine, no en el config.
+- **Solución**: Antes de crear el BackupJob:
+  1. Si `use_engine_credentials=True` y hay `engine_id`: obtener username del engine
+  2. Validar que username existe antes de crear el job
+  3. Usar `password_secret_name = f"engine-{engine.id}"` para el secreto
+- **Archivo**: `src/functions/api/function_app.py`
+
+**B5: Scheduler tiene mismo problema que B4**
+- **Problema**: El scheduler también usaba `db_config.username` directamente
+- **Solución**: Misma lógica que B4 aplicada al scheduler
+- **Archivo**: `src/functions/scheduler/function_app.py`
+
+### 📋 Próximos Pasos
+
+1. ✅ ~~Arreglar F7, F8, B4, B5~~ (COMPLETADO)
+2. ⬜ Commit y crear tag v1.0.47
+3. ⬜ Esperar GitHub Action
+4. ⬜ Redesplegar a dilux105-rg
+5. ⬜ Probar TODOS los flujos de nuevo:
+   - [ ] Agregar servidor con discovery
+   - [ ] Editar database
+   - [ ] Trigger backup manual
+   - [ ] Verificar backup automático del scheduler
+
+---
+
+## HISTORIAL: v1.0.46 - BUGS NO ARREGLADOS ❌
+
+### Probado en v1.0.45 (dilux104-rg) - Parcialmente
 
 | Funcionalidad | Estado |
 |---------------|--------|
 | Deploy con deploy.sh | ✅ |
 | Login Azure AD | ✅ |
 | Connection test MySQL | ✅ |
-| Discovery databases | ✅ Funciona |
-| Agregar servidor | ✅ Funciona |
+| Discovery databases | ❌ NO se abre el dialog |
+| Agregar servidor | ✅ |
+| Editar database | ❌ Pantalla blanca |
+| Trigger backup | ❌ Error username |
 
-### ✅ Bugs Encontrados en v1.0.45 - TODOS ARREGLADOS
+### Bugs que se creían arreglados en v1.0.46
 
 #### FRONTEND - Bugs en UI (6 issues)
 
 | # | Bug | Archivo | Estado | Fix |
 |---|-----|---------|--------|-----|
-| F1 | DiscoverDialog no se abre automáticamente después de crear servidor | `ServersPage.tsx` | ✅ Arreglado | Ya estaba arreglado en sesión anterior |
+| F1 | DiscoverDialog no se abre automáticamente después de crear servidor | `ServersPage.tsx` | ❌ NO ARREGLADO | Ver F8 |
 | F2 | Policy del servidor no se usa como default en DiscoverDialog | `DiscoverDialog.tsx` | ✅ Arreglado | Ya estaba arreglado en sesión anterior |
 | F3 | Combo de policy en DiscoverDialog aparece cortado (minWidth:200) | `DiscoverDialog.tsx` | ✅ Arreglado | Ya estaba arreglado en sesión anterior |
-| F4 | Edit database → pantalla blanca (race condition con engines async) | `DatabaseFormDialog.tsx` | ✅ Arreglado | Separado useEffect de formData vs selectedEngine para evitar race condition |
+| F4 | Edit database → pantalla blanca (race condition con engines async) | `DatabaseFormDialog.tsx` | ❌ NO ARREGLADO | Ver F7 - era otro bug |
 | F5 | Trigger backup muestra error genérico sin detalles | `DatabasesPage.tsx` | ✅ Arreglado | Mostrar mensaje de error real del API |
 | F6 | Delete database → pantalla blanca (no resetea paginación) | `DatabasesPage.tsx` | ✅ Arreglado | Reset filters y fetch fresh data después de delete |
 
@@ -33,44 +94,9 @@
 
 | # | Bug | Archivo | Estado | Fix |
 |---|-----|---------|--------|-----|
-| B1 | Tier no se incluye en BackupJob, se pierde al deserializar | `backup.py` + `scheduler/function_app.py` | ✅ Arreglado | Agregado campo `tier` al modelo BackupJob, ahora se incluye directamente en el job |
-| B2 | Cache de políticas guarda con clave incorrecta | `scheduler/function_app.py` | ✅ Arreglado | Cuando policy no existe, ahora se guarda default bajo "production-standard" |
-| B3 | Posibles problemas de timezone en comparación de fechas | `scheduler/function_app.py` | ✅ Arreglado | Agregada función `ensure_naive_utc()` para normalizar datetimes |
-
-### 🔧 Fixes Aplicados para v1.0.46
-
-#### Frontend
-
-**F4: Race condition en DatabaseFormDialog.tsx**
-- **Problema**: El useEffect que setea `selectedEngine` dependía de `engines` que se carga async. Cuando editabas una DB antes de que engines terminara de cargar, no encontraba el engine.
-- **Solución**: Separado en dos useEffects:
-  1. Primer useEffect: Setea `formData` cuando cambia `database` (no depende de engines)
-  2. Segundo useEffect: Setea `selectedEngine` cuando `engines` termina de cargar (`!loadingEngines`)
-
-**F5: Error genérico en trigger backup**
-- **Problema**: El catch ignoraba el error real y mostraba "Failed to trigger backup"
-- **Solución**: Mostrar `err.message` en el snackbar: `Backup failed: ${errorMsg}`
-
-**F6: Pantalla blanca al eliminar database**
-- **Problema**: Después de eliminar, se llamaba `handleRefresh()` que mantenía los filtros actuales. Si la página actual quedaba vacía por la paginación, podía causar problemas.
-- **Solución**: Reset de filtros completo (`setFilters(emptyFilters)`) y fetch fresh data después de delete
-
-#### Backend
-
-**B1: Tier missing en BackupJob**
-- **Problema**: El tier se agregaba al JSON manualmente después de serializar, y el processor lo extraía parseando el JSON dos veces.
-- **Solución**:
-  - Agregado campo `tier: Optional[str]` al modelo `BackupJob` en `backup.py`
-  - Scheduler ahora incluye `tier=tier_name` en el constructor del job
-  - Processor lee `job.tier` directamente, sin parsear JSON extra
-
-**B2: Policy cache con clave incorrecta**
-- **Problema**: Cuando una policy no existía, se buscaba "production-standard" pero se guardaba bajo la clave original (la policy que no existía).
-- **Solución**: Ahora se guarda la default policy bajo su clave correcta "production-standard" y se actualiza `policy_id` para usarla
-
-**B3: Timezone en comparaciones**
-- **Problema**: `datetime.utcnow()` retorna naive datetime, pero los datetimes parseados del storage podrían tener timezone info, causando errores de comparación.
-- **Solución**: Agregada función `ensure_naive_utc()` que normaliza cualquier datetime a naive UTC antes de comparar
+| B1 | Tier no se incluye en BackupJob, se pierde al deserializar | `backup.py` + `scheduler/function_app.py` | ✅ Arreglado | Agregado campo `tier` al modelo BackupJob |
+| B2 | Cache de políticas guarda con clave incorrecta | `scheduler/function_app.py` | ✅ Arreglado | Corregido clave del cache |
+| B3 | Posibles problemas de timezone en comparación de fechas | `scheduler/function_app.py` | ✅ Arreglado | Agregada función `ensure_naive_utc()` |
 
 ---
 

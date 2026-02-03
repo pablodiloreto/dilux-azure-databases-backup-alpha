@@ -859,6 +859,30 @@ def trigger_backup(req: func.HttpRequest) -> func.HttpResponse:
                 status_code=404,
             )
 
+        # Get username - from engine if using engine credentials, otherwise from config
+        username = config.username
+        password_secret_name = config.password_secret_name
+
+        if config.use_engine_credentials and config.engine_id:
+            engine = engine_service.get(config.engine_id)
+            if engine:
+                username = engine.username
+                # Use engine's password secret
+                password_secret_name = f"engine-{engine.id}"
+            else:
+                return func.HttpResponse(
+                    json.dumps({"error": f"Engine '{config.engine_id}' not found for database using engine credentials"}),
+                    mimetype="application/json",
+                    status_code=400,
+                )
+
+        if not username:
+            return func.HttpResponse(
+                json.dumps({"error": "No username configured for this database. Please configure credentials."}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
         # Create backup job
         job = BackupJob(
             database_id=config.id,
@@ -867,8 +891,8 @@ def trigger_backup(req: func.HttpRequest) -> func.HttpResponse:
             host=config.host,
             port=config.port,
             target_database=config.database_name,
-            username=config.username,
-            password_secret_name=config.password_secret_name,
+            username=username,
+            password_secret_name=password_secret_name,
             compression=config.compression,
             backup_destination=config.backup_destination,
             triggered_by="manual",
