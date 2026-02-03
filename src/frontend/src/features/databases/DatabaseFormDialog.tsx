@@ -136,6 +136,7 @@ export function DatabaseFormDialog({
     }
   }, [open])
 
+  // Set form data when database changes (but don't depend on engines loading)
   useEffect(() => {
     if (database) {
       setFormData({
@@ -153,11 +154,6 @@ export function DatabaseFormDialog({
         enabled: database.enabled,
         compression: database.compression,
       })
-      // Set selected engine if editing
-      if (database.engine_id && engines.length > 0) {
-        const engine = engines.find(e => e.id === database.engine_id)
-        setSelectedEngine(engine || null)
-      }
     } else {
       setFormData(initialFormState)
       setSelectedEngine(null)
@@ -166,7 +162,17 @@ export function DatabaseFormDialog({
     setValidationErrors({})
     setShowPassword(false)
     setConnectionResult(null)
-  }, [database, open, initialFormState, engines])
+  }, [database, open, initialFormState])
+
+  // Set selected engine when engines finish loading (separate effect to avoid race condition)
+  useEffect(() => {
+    if (database?.engine_id && engines.length > 0 && !loadingEngines) {
+      const engine = engines.find(e => e.id === database.engine_id)
+      setSelectedEngine(engine || null)
+    } else if (!database) {
+      setSelectedEngine(null)
+    }
+  }, [database, engines, loadingEngines])
 
   const handleChange = (field: keyof CreateDatabaseInput, value: unknown) => {
     setFormData((prev) => ({ ...prev, [field]: value }))

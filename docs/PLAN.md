@@ -1,56 +1,76 @@
 # Dilux Database Backup - Estado del Proyecto
 
-**Última actualización:** 2026-02-03 01:05 UTC
+**Última actualización:** 2026-02-03 03:30 UTC
 
 ---
 
-## ESTADO: v1.0.45 - LISTO PARA DEPLOY ✅
+## ESTADO: v1.0.46 - BUGS ARREGLADOS ✅
 
-### ✅ Build v1.0.45 Completado
-
-**Release:** https://github.com/pablodiloreto/dilux-azure-databases-backup-alpha/releases/tag/v1.0.45
-
-### 🔧 Fixes en v1.0.45
-
-**Fix 1 (v1.0.44): glibc compatibility**
-- Cambio `runs-on: ubuntu-latest` → `runs-on: ubuntu-22.04`
-- Los binarios ahora se compilan con glibc 2.35 (compatible con Azure Functions)
-
-**Fix 2 (v1.0.45): Discovery de databases**
-- Las funciones `_discover_mysql`, `_discover_postgresql`, `_discover_sqlserver` en `engine_service.py` usaban comandos hardcodeados (`"mysql"`, `"psql"`, `"sqlcmd"`)
-- Ahora usan `get_tool_path()` para encontrar los binarios en `/home/site/wwwroot/tools/bin/`
-
-**Error corregido:**
-```
-Failed to discover databases: [Errno 2] No such file or directory: 'mysql'
-```
-
-### ✅ Probado en v1.0.44 (dilux103-rg)
+### ✅ Probado en v1.0.45 (dilux104-rg)
 
 | Funcionalidad | Estado |
 |---------------|--------|
 | Deploy con deploy.sh | ✅ |
 | Login Azure AD | ✅ |
 | Connection test MySQL | ✅ |
-| Discovery databases | ❌ (faltaba get_tool_path) → **Corregido en v1.0.45** |
+| Discovery databases | ✅ Funciona |
+| Agregar servidor | ✅ Funciona |
 
-### ⚠️ Importante: Usar deploy.sh para Deploy
+### ✅ Bugs Encontrados en v1.0.45 - TODOS ARREGLADOS
 
-**NO usar `az deployment group create` directamente** - deja la autenticación en modo mock.
+#### FRONTEND - Bugs en UI (6 issues)
 
-```bash
-curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/deploy.sh | bash
-```
+| # | Bug | Archivo | Estado | Fix |
+|---|-----|---------|--------|-----|
+| F1 | DiscoverDialog no se abre automáticamente después de crear servidor | `ServersPage.tsx` | ✅ Arreglado | Ya estaba arreglado en sesión anterior |
+| F2 | Policy del servidor no se usa como default en DiscoverDialog | `DiscoverDialog.tsx` | ✅ Arreglado | Ya estaba arreglado en sesión anterior |
+| F3 | Combo de policy en DiscoverDialog aparece cortado (minWidth:200) | `DiscoverDialog.tsx` | ✅ Arreglado | Ya estaba arreglado en sesión anterior |
+| F4 | Edit database → pantalla blanca (race condition con engines async) | `DatabaseFormDialog.tsx` | ✅ Arreglado | Separado useEffect de formData vs selectedEngine para evitar race condition |
+| F5 | Trigger backup muestra error genérico sin detalles | `DatabasesPage.tsx` | ✅ Arreglado | Mostrar mensaje de error real del API |
+| F6 | Delete database → pantalla blanca (no resetea paginación) | `DatabasesPage.tsx` | ✅ Arreglado | Reset filters y fetch fresh data después de delete |
 
-### ⏳ Próximos Pasos
+#### BACKEND - Bugs en Scheduler (3 issues críticos)
 
-1. ✅ Build v1.0.45 completado
-2. ⬜ Borrar dilux103-rg y subnet dilux-functions
-3. ⬜ Deploy v1.0.45 con `deploy.sh`
-4. ⬜ Probar discovery MySQL
-5. ⬜ Probar discovery PostgreSQL
-6. ⬜ Probar discovery SQL Server
-7. ⬜ Probar backup real
+| # | Bug | Archivo | Estado | Fix |
+|---|-----|---------|--------|-----|
+| B1 | Tier no se incluye en BackupJob, se pierde al deserializar | `backup.py` + `scheduler/function_app.py` | ✅ Arreglado | Agregado campo `tier` al modelo BackupJob, ahora se incluye directamente en el job |
+| B2 | Cache de políticas guarda con clave incorrecta | `scheduler/function_app.py` | ✅ Arreglado | Cuando policy no existe, ahora se guarda default bajo "production-standard" |
+| B3 | Posibles problemas de timezone en comparación de fechas | `scheduler/function_app.py` | ✅ Arreglado | Agregada función `ensure_naive_utc()` para normalizar datetimes |
+
+### 🔧 Fixes Aplicados para v1.0.46
+
+#### Frontend
+
+**F4: Race condition en DatabaseFormDialog.tsx**
+- **Problema**: El useEffect que setea `selectedEngine` dependía de `engines` que se carga async. Cuando editabas una DB antes de que engines terminara de cargar, no encontraba el engine.
+- **Solución**: Separado en dos useEffects:
+  1. Primer useEffect: Setea `formData` cuando cambia `database` (no depende de engines)
+  2. Segundo useEffect: Setea `selectedEngine` cuando `engines` termina de cargar (`!loadingEngines`)
+
+**F5: Error genérico en trigger backup**
+- **Problema**: El catch ignoraba el error real y mostraba "Failed to trigger backup"
+- **Solución**: Mostrar `err.message` en el snackbar: `Backup failed: ${errorMsg}`
+
+**F6: Pantalla blanca al eliminar database**
+- **Problema**: Después de eliminar, se llamaba `handleRefresh()` que mantenía los filtros actuales. Si la página actual quedaba vacía por la paginación, podía causar problemas.
+- **Solución**: Reset de filtros completo (`setFilters(emptyFilters)`) y fetch fresh data después de delete
+
+#### Backend
+
+**B1: Tier missing en BackupJob**
+- **Problema**: El tier se agregaba al JSON manualmente después de serializar, y el processor lo extraía parseando el JSON dos veces.
+- **Solución**:
+  - Agregado campo `tier: Optional[str]` al modelo `BackupJob` en `backup.py`
+  - Scheduler ahora incluye `tier=tier_name` en el constructor del job
+  - Processor lee `job.tier` directamente, sin parsear JSON extra
+
+**B2: Policy cache con clave incorrecta**
+- **Problema**: Cuando una policy no existía, se buscaba "production-standard" pero se guardaba bajo la clave original (la policy que no existía).
+- **Solución**: Ahora se guarda la default policy bajo su clave correcta "production-standard" y se actualiza `policy_id` para usarla
+
+**B3: Timezone en comparaciones**
+- **Problema**: `datetime.utcnow()` retorna naive datetime, pero los datetimes parseados del storage podrían tener timezone info, causando errores de comparación.
+- **Solución**: Agregada función `ensure_naive_utc()` que normaliza cualquier datetime a naive UTC antes de comparar
 
 ---
 

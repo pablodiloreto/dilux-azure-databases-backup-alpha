@@ -65,6 +65,10 @@ class BackupJob(BaseModel):
     triggered_by: str = Field(
         default="scheduler", description="Who/what triggered the backup"
     )
+    tier: Optional[str] = Field(
+        default=None,
+        description="Backup tier: hourly, daily, weekly, monthly, yearly"
+    )
     created_at: datetime = Field(default_factory=datetime.utcnow)
     scheduled_at: Optional[datetime] = Field(default=None)
 

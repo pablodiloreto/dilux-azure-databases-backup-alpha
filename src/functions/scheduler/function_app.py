@@ -49,6 +49,34 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Timezone Utilities
+# =============================================================================
+
+
+def ensure_naive_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """
+    Ensure datetime is naive (no timezone info) and in UTC.
+
+    Handles both timezone-aware and naive datetimes consistently.
+    Returns None if input is None.
+    """
+    if dt is None:
+        return None
+
+    # If datetime is timezone-aware, convert to UTC and make naive
+    if dt.tzinfo is not None:
+        # Convert to UTC if needed
+        utc_dt = dt.utctimetuple()
+        return datetime(
+            utc_dt.tm_year, utc_dt.tm_mon, utc_dt.tm_mday,
+            utc_dt.tm_hour, utc_dt.tm_min, utc_dt.tm_sec
+        )
+
+    # Already naive, assume it's UTC
+    return dt
+
+
+# =============================================================================
 # Tier Schedule Evaluation
 # =============================================================================
 
@@ -73,6 +101,10 @@ def should_run_tier(
     """
     if not tier_config.get("enabled"):
         return False
+
+    # Ensure consistent naive UTC datetimes
+    now = ensure_naive_utc(now)
+    last_backup_at = ensure_naive_utc(last_backup_at)
 
     # If never backed up for this tier, should backup
     if last_backup_at is None:
@@ -259,8 +291,13 @@ def dynamic_scheduler(timer: func.TimerRequest) -> None:
                             f"Policy '{policy_id}' not found for database {db_config.name}, "
                             f"using default"
                         )
-                        policy = storage_service.get_backup_policy("production-standard")
-                        policy_cache[policy_id] = policy
+                        # Fetch and cache default policy under its correct key
+                        if "production-standard" not in policy_cache:
+                            default_policy = storage_service.get_backup_policy("production-standard")
+                            if default_policy:
+                                policy_cache["production-standard"] = default_policy
+                        # Use default policy for this database
+                        policy_id = "production-standard"
 
                 policy = policy_cache.get(policy_id)
                 if not policy:
@@ -302,16 +339,12 @@ def dynamic_scheduler(timer: func.TimerRequest) -> None:
                             compression=db_config.compression,
                             backup_destination=db_config.backup_destination,
                             triggered_by="scheduler",
+                            tier=tier_name,  # Include tier directly in the job
                             scheduled_at=now,
                         )
 
-                        # Add tier to the job message
-                        job_message = json.loads(job.to_queue_message())
-                        job_message["tier"] = tier_name
-                        job_message_str = json.dumps(job_message)
-
                         # Send to queue
-                        storage_service.send_backup_job(job_message_str)
+                        storage_service.send_backup_job(job.to_queue_message())
                         jobs_queued += 1
 
                         # Only queue one tier per database per run
@@ -392,8 +425,13 @@ def cleanup_old_backups(timer: func.TimerRequest) -> None:
                     if policy:
                         policy_cache[policy_id] = policy
                     else:
-                        policy = storage_service.get_backup_policy("production-standard")
-                        policy_cache[policy_id] = policy
+                        # Fetch and cache default policy under its correct key
+                        if "production-standard" not in policy_cache:
+                            default_policy = storage_service.get_backup_policy("production-standard")
+                            if default_policy:
+                                policy_cache["production-standard"] = default_policy
+                        # Use default policy for this database
+                        policy_id = "production-standard"
 
                 policy = policy_cache.get(policy_id)
                 if not policy:

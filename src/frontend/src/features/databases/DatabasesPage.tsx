@@ -320,7 +320,22 @@ export function DatabasesPage() {
           ? 'Database and backups deleted successfully'
           : 'Database deleted successfully'
         setSnackbar({ open: true, message: msg, severity: 'success' })
-        handleRefresh()
+        // Reset filters and fetch fresh data to avoid pagination issues
+        setFilters(emptyFilters)
+        setAppliedFilters(emptyFilters)
+        fetchDatabases(emptyFilters)
+        // Also refresh stats
+        databasesApi.getAll({}).then(result => {
+          const dbs = result.databases
+          const uniqueServers = new Set(dbs.map((db) => db.engine_id).filter(Boolean))
+          setStats({
+            total: dbs.length,
+            mysql: dbs.filter((db) => db.database_type === 'mysql').length,
+            postgresql: dbs.filter((db) => db.database_type === 'postgresql').length,
+            sqlserver: dbs.filter((db) => db.database_type === 'sqlserver' || db.database_type === 'azure_sql').length,
+            servers: uniqueServers.size,
+          })
+        })
       } catch (err) {
         setSnackbar({ open: true, message: err instanceof Error ? err.message : 'Failed to delete database', severity: 'error' })
       }
@@ -336,8 +351,9 @@ export function DatabasesPage() {
     try {
       await triggerBackupMutation.mutateAsync(db.id)
       setSnackbar({ open: true, message: `Backup queued for ${db.name}. Check Backups page for status.`, severity: 'success' })
-    } catch {
-      setSnackbar({ open: true, message: 'Failed to trigger backup', severity: 'error' })
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to trigger backup'
+      setSnackbar({ open: true, message: `Backup failed: ${errorMsg}`, severity: 'error' })
     } finally {
       setBackupInProgress(null)
     }

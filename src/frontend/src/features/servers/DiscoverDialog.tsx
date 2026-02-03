@@ -61,10 +61,14 @@ export function DiscoverDialog({ open, onClose, engine }: DiscoverDialogProps) {
       try {
         const response = await apiClient.get<BackupPoliciesResponse>('/backup-policies')
         setPolicies(response.data.policies)
-        // Set default to first non-system policy or first policy
-        const defaultPolicy = response.data.policies.find(p => !p.is_system) || response.data.policies[0]
-        if (defaultPolicy) {
-          setDefaultPolicyId(defaultPolicy.id)
+        // Use engine's policy_id as default if set, otherwise find first non-system policy
+        if (engine.policy_id) {
+          setDefaultPolicyId(engine.policy_id)
+        } else {
+          const defaultPolicy = response.data.policies.find(p => !p.is_system) || response.data.policies[0]
+          if (defaultPolicy) {
+            setDefaultPolicyId(defaultPolicy.id)
+          }
         }
       } catch (err) {
         console.error('Failed to load policies:', err)
@@ -73,7 +77,7 @@ export function DiscoverDialog({ open, onClose, engine }: DiscoverDialogProps) {
     if (open) {
       fetchPolicies()
     }
-  }, [open])
+  }, [open, engine.policy_id])
 
   // Reset state and auto-discover when dialog opens
   useEffect(() => {
@@ -223,8 +227,8 @@ export function DiscoverDialog({ open, onClose, engine }: DiscoverDialogProps) {
             ) : databases.length > 0 ? (
               <>
                 {/* Default policy selector */}
-                <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 2 }}>
-                  <FormControl size="small" sx={{ minWidth: 200 }}>
+                <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 2, flexWrap: 'wrap' }}>
+                  <FormControl size="small" sx={{ minWidth: 280, flex: 1, maxWidth: 400 }}>
                     <InputLabel>Default Policy</InputLabel>
                     <Select
                       value={defaultPolicyId}
@@ -238,7 +242,7 @@ export function DiscoverDialog({ open, onClose, engine }: DiscoverDialogProps) {
                       ))}
                     </Select>
                   </FormControl>
-                  <Button size="small" onClick={handleApplyDefaultPolicy}>
+                  <Button size="small" variant="outlined" onClick={handleApplyDefaultPolicy}>
                     Apply to All
                   </Button>
                 </Box>

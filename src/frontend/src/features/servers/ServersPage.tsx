@@ -321,19 +321,23 @@ export function ServersPage() {
         ? `Server updated. ${dbsUpdated} database(s) now use server credentials.`
         : 'Server updated successfully'
       setSnackbar({ open: true, message, severity: 'success' })
+      handleRefresh()
     } else {
       const result = await enginesApi.create(data)
-      if (result.discovered_databases && result.discovered_databases.length > 0) {
+      handleRefresh()
+      // If discover_databases was checked, open DiscoverDialog automatically
+      if (data.discover_databases && result.engine) {
+        setSelectedServer(result.engine)
+        setDiscoverDialogOpen(true)
         setSnackbar({
           open: true,
-          message: `Server created. Found ${result.discovered_databases.length} databases.`,
+          message: 'Server created. Opening database discovery...',
           severity: 'success',
         })
       } else {
         setSnackbar({ open: true, message: 'Server created successfully', severity: 'success' })
       }
     }
-    handleRefresh()
   }
 
   const handleDiscoverClose = () => {
