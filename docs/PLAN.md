@@ -1,62 +1,56 @@
 # Dilux Database Backup - Estado del Proyecto
 
-**Última actualización:** 2026-02-02 23:35 UTC
+**Última actualización:** 2026-02-03 01:05 UTC
 
 ---
 
-## ESTADO: v1.0.44 - LISTO PARA DEPLOY ✅
+## ESTADO: v1.0.45 - LISTO PARA DEPLOY ✅
 
-### ✅ Build v1.0.44 Completado
+### ✅ Build v1.0.45 Completado
 
-**Release:** https://github.com/pablodiloreto/dilux-azure-databases-backup-alpha/releases/tag/v1.0.44
+**Release:** https://github.com/pablodiloreto/dilux-azure-databases-backup-alpha/releases/tag/v1.0.45
 
-El fix de glibc está aplicado. Los binarios ahora se compilan en Ubuntu 22.04 (glibc 2.35), compatible con Azure Functions.
+### 🔧 Fixes en v1.0.45
 
-### 🔧 Fix Aplicado en v1.0.44
+**Fix 1 (v1.0.44): glibc compatibility**
+- Cambio `runs-on: ubuntu-latest` → `runs-on: ubuntu-22.04`
+- Los binarios ahora se compilan con glibc 2.35 (compatible con Azure Functions)
 
-**Cambio en `.github/workflows/build-release.yml`:**
+**Fix 2 (v1.0.45): Discovery de databases**
+- Las funciones `_discover_mysql`, `_discover_postgresql`, `_discover_sqlserver` en `engine_service.py` usaban comandos hardcodeados (`"mysql"`, `"psql"`, `"sqlcmd"`)
+- Ahora usan `get_tool_path()` para encontrar los binarios en `/home/site/wwwroot/tools/bin/`
 
-```yaml
-# ANTES (INCORRECTO)
-runs-on: ubuntu-latest  # Ubuntu 24.04 tiene glibc 2.38
-
-# DESPUÉS (CORRECTO)
-runs-on: ubuntu-22.04   # Ubuntu 22.04 tiene glibc 2.35 (compatible con Azure)
+**Error corregido:**
 ```
+Failed to discover databases: [Errno 2] No such file or directory: 'mysql'
+```
+
+### ✅ Probado en v1.0.44 (dilux103-rg)
+
+| Funcionalidad | Estado |
+|---------------|--------|
+| Deploy con deploy.sh | ✅ |
+| Login Azure AD | ✅ |
+| Connection test MySQL | ✅ |
+| Discovery databases | ❌ (faltaba get_tool_path) → **Corregido en v1.0.45** |
 
 ### ⚠️ Importante: Usar deploy.sh para Deploy
 
 **NO usar `az deployment group create` directamente** - deja la autenticación en modo mock.
 
-**Usar siempre el script deploy.sh:**
 ```bash
 curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/deploy.sh | bash
 ```
 
-El script `deploy.sh` configura correctamente:
-- Azure AD Client ID y Tenant ID
-- App Registration
-- Parámetros de autenticación
-
 ### ⏳ Próximos Pasos
 
-1. ✅ Build v1.0.44 completado
-2. ⏳ **Deploy con `deploy.sh`** (usuario ejecutando)
-3. ⬜ Probar login con Azure AD
-4. ⬜ Probar connection test MySQL
-5. ⬜ Probar connection test PostgreSQL
-6. ⬜ Probar connection test SQL Server
+1. ✅ Build v1.0.45 completado
+2. ⬜ Borrar dilux103-rg y subnet dilux-functions
+3. ⬜ Deploy v1.0.45 con `deploy.sh`
+4. ⬜ Probar discovery MySQL
+5. ⬜ Probar discovery PostgreSQL
+6. ⬜ Probar discovery SQL Server
 7. ⬜ Probar backup real
-
-### Historial del Problema glibc
-
-**Error en v1.0.43:**
-```
-GLIBC_2.38 not found (required by /home/site/wwwroot/tools/bin/mysql)
-GLIBCXX_3.4.32 not found (required by /home/site/wwwroot/tools/bin/mysql)
-```
-
-**Causa:** Los binarios fueron compilados en Ubuntu 24.04 (glibc 2.38), pero Azure Functions runtime usa glibc 2.35.
 
 ---
 
@@ -78,8 +72,9 @@ Se ha completado la migración de Docker containers a ZIP deployment con herrami
 
 | Tarea | Estado |
 |-------|--------|
-| Deploy v1.0.44 con deploy.sh | ⏳ Usuario ejecutando |
-| Probar connection test | ⬜ Pendiente (post-deploy) |
+| Deploy v1.0.45 con deploy.sh | ⬜ Pendiente |
+| Probar connection test | ✅ Funciona (v1.0.44) |
+| Probar discovery | ⬜ Pendiente (corregido en v1.0.45) |
 | Probar backup real | ⬜ Pendiente |
 | Limpiar código Docker | ⬜ Pendiente |
 | Actualizar documentación | ⬜ Pendiente |
@@ -92,7 +87,8 @@ Se ha completado la migración de Docker containers a ZIP deployment con herrami
 | v1.0.41 | apt-get install para PostgreSQL client | ❌ Fallido |
 | v1.0.42 | Remover symlink shared antes de copiar | ✅ OK |
 | v1.0.43 | Remover FUNCTIONS_WORKER_RUNTIME para FC1 | ✅ OK (deploy) |
-| v1.0.44 | **Ubuntu 22.04 para glibc 2.35** | ✅ Build OK |
+| v1.0.45 | **get_tool_path en discovery** | ✅ Build OK |
+| v1.0.44 | Ubuntu 22.04 para glibc 2.35 | ✅ Build OK |
 
 ### Lecciones Aprendidas
 
@@ -103,6 +99,7 @@ Se ha completado la migración de Docker containers a ZIP deployment con herrami
 | **FC1 restrictions** | FC1 no permite `FUNCTIONS_WORKER_RUNTIME` en app settings - se configura via `functionAppConfig.runtime`. |
 | **FC1 + Docker** | FC1 NO soporta Docker containers - solo runtimes nativos (Python, Node, .NET). |
 | **deploy.sh vs az CLI** | Siempre usar `deploy.sh` para deployment. El CLI directo (`az deployment group create`) no configura Azure AD correctamente y deja auth en modo mock. |
+| **get_tool_path everywhere** | TODOS los usos de binarios (mysql, psql, sqlcmd, mysqldump, pg_dump) deben usar `get_tool_path()`. Revisar connection_tester.py, engine_service.py, y backup_engines/. |
 
 ---
 
@@ -252,7 +249,8 @@ La versión 1.0.37 introdujo contenedores Docker, pero **solo funciona en EP1/EP
 
 | Versión | Fecha | Cambios | Estado |
 |---------|-------|---------|--------|
-| **v1.0.44** | 2026-02-02 | fix: Ubuntu 22.04 para glibc 2.35 | 🔄 Building |
+| **v1.0.45** | 2026-02-03 | fix: get_tool_path en discovery | ✅ |
+| v1.0.44 | 2026-02-02 | fix: Ubuntu 22.04 para glibc 2.35 | ✅ |
 | v1.0.43 | 2026-02-02 | fix: FUNCTIONS_WORKER_RUNTIME para FC1 | ⚠️ glibc mismatch |
 | v1.0.42 | 2026-02-02 | fix: Remover symlink antes de copiar shared | ✅ |
 | v1.0.41 | 2026-02-02 | fix: apt-get install para PostgreSQL client | ❌ Fallido |
@@ -523,7 +521,8 @@ gh release view v1.0.x
 
 | Versión | Fecha | Cambios |
 |---------|-------|---------|
-| **v1.0.44** | 2026-02-02 | **fix: Ubuntu 22.04 para glibc 2.35 compatibility (Azure Functions)** |
+| **v1.0.45** | 2026-02-03 | **fix: get_tool_path en discovery (engine_service.py)** |
+| v1.0.44 | 2026-02-02 | fix: Ubuntu 22.04 para glibc 2.35 compatibility (Azure Functions) |
 | v1.0.43 | 2026-02-02 | fix: remover FUNCTIONS_WORKER_RUNTIME para FC1 |
 | v1.0.42 | 2026-02-02 | fix: remover symlink antes de copiar shared package |
 | v1.0.41 | 2026-02-02 | fix: apt-get install para PostgreSQL client (fallido) |
