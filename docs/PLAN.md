@@ -1,35 +1,62 @@
 # Dilux Database Backup - Estado del Proyecto
 
-**Última actualización:** 2026-02-02 18:30 UTC
+**Última actualización:** 2026-02-02 23:35 UTC
 
 ---
 
-## ESTADO: v1.0.43 - DEPLOYMENT FC1 EXITOSO ✅
+## ESTADO: v1.0.44 - LISTO PARA DEPLOY ✅
 
-### 🎉 Deployment Exitoso en FC1 (dilux102-rg)
+### ✅ Build v1.0.44 Completado
 
-**Versión:** v1.0.43
-**Plan:** FC1 (Flex Consumption)
-**Región:** Brazil South
-**Fecha:** 2026-02-02
+**Release:** https://github.com/pablodiloreto/dilux-azure-databases-backup-alpha/releases/tag/v1.0.44
 
-| Recurso | URL |
-|---------|-----|
-| **Frontend** | https://dilux102staf5qp747bpnlw.z15.web.core.windows.net/ |
-| **API** | https://dilux102-af5qp7-api.azurewebsites.net |
+El fix de glibc está aplicado. Los binarios ahora se compilan en Ubuntu 22.04 (glibc 2.35), compatible con Azure Functions.
 
-### ✅ Verificado
-- ✅ Deployment completo sin errores
-- ✅ Login con Azure AD funcionando
-- ✅ Frontend carga correctamente
+### 🔧 Fix Aplicado en v1.0.44
 
-### ⏳ Pendiente de Testing Funcional
-- ⬜ Connection test MySQL
-- ⬜ Connection test PostgreSQL
-- ⬜ Connection test SQL Server
-- ⬜ Backup real MySQL
-- ⬜ Backup real PostgreSQL
-- ⬜ Backup real SQL Server
+**Cambio en `.github/workflows/build-release.yml`:**
+
+```yaml
+# ANTES (INCORRECTO)
+runs-on: ubuntu-latest  # Ubuntu 24.04 tiene glibc 2.38
+
+# DESPUÉS (CORRECTO)
+runs-on: ubuntu-22.04   # Ubuntu 22.04 tiene glibc 2.35 (compatible con Azure)
+```
+
+### ⚠️ Importante: Usar deploy.sh para Deploy
+
+**NO usar `az deployment group create` directamente** - deja la autenticación en modo mock.
+
+**Usar siempre el script deploy.sh:**
+```bash
+curl -sL https://raw.githubusercontent.com/pablodiloreto/dilux-azure-databases-backup-alpha/main/scripts/deploy.sh | bash
+```
+
+El script `deploy.sh` configura correctamente:
+- Azure AD Client ID y Tenant ID
+- App Registration
+- Parámetros de autenticación
+
+### ⏳ Próximos Pasos
+
+1. ✅ Build v1.0.44 completado
+2. ⏳ **Deploy con `deploy.sh`** (usuario ejecutando)
+3. ⬜ Probar login con Azure AD
+4. ⬜ Probar connection test MySQL
+5. ⬜ Probar connection test PostgreSQL
+6. ⬜ Probar connection test SQL Server
+7. ⬜ Probar backup real
+
+### Historial del Problema glibc
+
+**Error en v1.0.43:**
+```
+GLIBC_2.38 not found (required by /home/site/wwwroot/tools/bin/mysql)
+GLIBCXX_3.4.32 not found (required by /home/site/wwwroot/tools/bin/mysql)
+```
+
+**Causa:** Los binarios fueron compilados en Ubuntu 24.04 (glibc 2.38), pero Azure Functions runtime usa glibc 2.35.
 
 ---
 
@@ -45,24 +72,37 @@ Se ha completado la migración de Docker containers a ZIP deployment con herrami
 - ✅ azuredeploy.json recompilado
 - ✅ **Deploy exitoso a FC1 (dilux102-rg)**
 - ✅ **Login funcionando**
+- ⚠️ **Connection test fallando por glibc** → Fix en v1.0.44
 
 ### Pendiente: Testing Funcional y Cleanup (Tasks 8-11)
 
 | Tarea | Estado |
 |-------|--------|
-| Probar connection test | 🔄 En progreso (usuario probando) |
+| Deploy v1.0.44 con deploy.sh | ⏳ Usuario ejecutando |
+| Probar connection test | ⬜ Pendiente (post-deploy) |
 | Probar backup real | ⬜ Pendiente |
 | Limpiar código Docker | ⬜ Pendiente |
 | Actualizar documentación | ⬜ Pendiente |
 
 ### Fixes aplicados durante deployment
 
-| Versión | Fix |
-|---------|-----|
-| v1.0.40 | PostgreSQL 16 para Ubuntu 24.04 runners |
-| v1.0.41 | apt-get install para PostgreSQL client |
-| v1.0.42 | Remover symlink shared antes de copiar |
-| v1.0.43 | Remover FUNCTIONS_WORKER_RUNTIME para FC1 |
+| Versión | Fix | Estado |
+|---------|-----|--------|
+| v1.0.40 | PostgreSQL 16 para Ubuntu 24.04 runners | ❌ Fallido |
+| v1.0.41 | apt-get install para PostgreSQL client | ❌ Fallido |
+| v1.0.42 | Remover symlink shared antes de copiar | ✅ OK |
+| v1.0.43 | Remover FUNCTIONS_WORKER_RUNTIME para FC1 | ✅ OK (deploy) |
+| v1.0.44 | **Ubuntu 22.04 para glibc 2.35** | ✅ Build OK |
+
+### Lecciones Aprendidas
+
+| Tema | Aprendizaje |
+|------|-------------|
+| **glibc compatibility** | Azure Functions runtime usa glibc 2.35. Los binarios deben ser compilados en Ubuntu 22.04 o anterior. |
+| **ubuntu-latest** | No usar `ubuntu-latest` para binarios que correrán en Azure Functions - puede cambiar a versiones más nuevas. |
+| **FC1 restrictions** | FC1 no permite `FUNCTIONS_WORKER_RUNTIME` en app settings - se configura via `functionAppConfig.runtime`. |
+| **FC1 + Docker** | FC1 NO soporta Docker containers - solo runtimes nativos (Python, Node, .NET). |
+| **deploy.sh vs az CLI** | Siempre usar `deploy.sh` para deployment. El CLI directo (`az deployment group create`) no configura Azure AD correctamente y deja auth en modo mock. |
 
 ---
 
@@ -212,7 +252,13 @@ La versión 1.0.37 introdujo contenedores Docker, pero **solo funciona en EP1/EP
 
 | Versión | Fecha | Cambios | Estado |
 |---------|-------|---------|--------|
-| **v1.0.38** | 2026-02-02 | fix: runtime version 1.0 para FC1 custom | ❌ FC1 no soporta Docker |
+| **v1.0.44** | 2026-02-02 | fix: Ubuntu 22.04 para glibc 2.35 | 🔄 Building |
+| v1.0.43 | 2026-02-02 | fix: FUNCTIONS_WORKER_RUNTIME para FC1 | ⚠️ glibc mismatch |
+| v1.0.42 | 2026-02-02 | fix: Remover symlink antes de copiar shared | ✅ |
+| v1.0.41 | 2026-02-02 | fix: apt-get install para PostgreSQL client | ❌ Fallido |
+| v1.0.40 | 2026-02-02 | fix: PostgreSQL 16 para Ubuntu 24.04 | ❌ Fallido |
+| v1.0.39 | 2026-02-02 | feat: FC1 nativo + database tools en ZIP | ❌ PostgreSQL pkg |
+| v1.0.38 | 2026-02-02 | fix: runtime version 1.0 para FC1 custom | ❌ FC1 no soporta Docker |
 | v1.0.37 | 2026-02-01 | feat: Docker containers con database tools | ⚠️ Solo EP1/EP2/EP3 |
 | v1.0.36 | 2026-02-01 | fix: corrección query addressPrefixes | ✅ |
 | v1.0.35 | 2026-02-01 | feat: Key Vault para passwords | ✅ |
@@ -477,7 +523,13 @@ gh release view v1.0.x
 
 | Versión | Fecha | Cambios |
 |---------|-------|---------|
-| **v1.0.38** | 2026-02-02 | **fix: runtime version 1.0 para FC1 - DESCUBIERTO: FC1 no soporta Docker** |
+| **v1.0.44** | 2026-02-02 | **fix: Ubuntu 22.04 para glibc 2.35 compatibility (Azure Functions)** |
+| v1.0.43 | 2026-02-02 | fix: remover FUNCTIONS_WORKER_RUNTIME para FC1 |
+| v1.0.42 | 2026-02-02 | fix: remover symlink antes de copiar shared package |
+| v1.0.41 | 2026-02-02 | fix: apt-get install para PostgreSQL client (fallido) |
+| v1.0.40 | 2026-02-02 | fix: PostgreSQL 16 para Ubuntu 24.04 (fallido) |
+| v1.0.39 | 2026-02-02 | feat: FC1 nativo + database tools bundled en ZIP |
+| v1.0.38 | 2026-02-02 | fix: runtime version 1.0 para FC1 - DESCUBIERTO: FC1 no soporta Docker |
 | v1.0.37 | 2026-02-01 | feat: Docker containers con database tools (solo EP1/EP2/EP3) |
 | v1.0.36 | 2026-02-01 | fix: query addressPrefixes para cálculo de subnets |
 | v1.0.35 | 2026-02-01 | feat: Key Vault para passwords en producción |
