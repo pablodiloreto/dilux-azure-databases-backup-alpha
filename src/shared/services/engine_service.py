@@ -13,6 +13,7 @@ from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
 
 from ..config import AzureClients, get_settings
 from ..models import Engine, EngineType, DiscoveredDatabase, SYSTEM_DATABASES
+from ..utils import get_tool_path
 
 logger = logging.getLogger(__name__)
 
@@ -363,7 +364,7 @@ class EngineService:
         import subprocess
 
         cmd = [
-            "mysql",
+            get_tool_path("mysql"),
             f"-h{engine.host}",
             f"-P{engine.port}",
             f"-u{engine.username}",
@@ -406,7 +407,7 @@ class EngineService:
         env["PGPASSWORD"] = engine.password
 
         cmd = [
-            "psql",
+            get_tool_path("psql"),
             "-h", engine.host,
             "-p", str(engine.port),
             "-U", engine.username,
@@ -446,7 +447,7 @@ class EngineService:
         import subprocess
 
         cmd = [
-            "sqlcmd",
+            get_tool_path("sqlcmd"),
             "-S", f"{engine.host},{engine.port}",
             "-U", engine.username,
             "-P", engine.password,

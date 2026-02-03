@@ -178,7 +178,14 @@
       "Bash(az monitor activity-log:*)",
       "Bash(az network vnet subnet show:*)",
       "Bash(az network vnet subnet list:*)",
-      "Bash(az network vnet list:*)"
+      "Bash(az network vnet list:*)",
+      "Bash(pgrep:*)",
+      "Bash(ss:*)",
+      "Bash(az webapp list:*)",
+      "Bash(az functionapp list-runtimes:*)",
+      "Bash(Flex Consumption sites is invalid. Please remove or rename it.\"\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(az network vnet subnet delete:*)",
+      "Bash(gh run rerun:*)"
     ],
     "deny": [],
     "ask": []
