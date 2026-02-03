@@ -34,12 +34,33 @@ infra/
 └── modules/          # Módulos Bicep reutilizables
 ```
 
-## Servicios Docker (Desarrollo)
+## Entorno de Desarrollo (DevContainer/Codespaces)
+
+**IMPORTANTE: En Codespaces/DevContainer, todos los servicios Docker ya están corriendo automáticamente.** No es necesario iniciar manualmente las bases de datos ni Azurite. El entorno local está siempre listo para testear.
+
+### Servicios Docker (ya corriendo)
 
 - **azurite**: Azure Storage emulator (puertos 10000-10002)
 - **mysql**: MySQL 8.0 (puerto 3306)
 - **postgres**: PostgreSQL 15 (puerto 5432)
 - **sqlserver**: SQL Server 2022 (puerto 1433)
+
+### Para testear localmente
+
+Solo necesitás iniciar el frontend y/o las Function Apps según lo que quieras probar:
+
+```bash
+# Frontend (puerto 3000)
+cd src/frontend && npm run dev
+
+# API (puerto 7071)
+cd src/functions/api && func start --port 7071
+
+# Scheduler (puerto 7072)
+cd src/functions/scheduler && func start --port 7072
+```
+
+Las bases de datos y Azurite ya están disponibles - no requieren ninguna acción.
 
 ## Credenciales de Desarrollo
 
@@ -48,22 +69,16 @@ infra/
 
 ## Comandos Útiles
 
-### Desarrollo Local
+### Conectar a Bases de Datos de Test
 
 ```bash
-# Iniciar API
-cd src/functions/api && func start --port 7071
-
-# Iniciar Frontend
-cd src/frontend && npm run dev
-
-# Conectar a MySQL
+# MySQL
 mysql -h mysql -u root -pDevPassword123! testdb
 
-# Conectar a PostgreSQL
+# PostgreSQL
 PGPASSWORD=DevPassword123! psql -h postgres -U postgres testdb
 
-# Conectar a SQL Server
+# SQL Server
 sqlcmd -S sqlserver,1433 -U sa -P 'YourStrong@Passw0rd' -d testdb -C
 ```
 

@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 @app.queue_trigger(
     arg_name="msg",
     queue_name="backup-jobs",
-    connection="STORAGE_CONNECTION_STRING",
+    connection="",  # Uses AzureWebJobsStorage (managed identity)
 )
 def backup_processor(msg: func.QueueMessage) -> None:
     """

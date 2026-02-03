@@ -1,12 +1,49 @@
 # Dilux Database Backup - Estado del Proyecto
 
-**Última actualización:** 2026-02-03 15:30 UTC
+**Última actualización:** 2026-02-03 18:35 UTC
 
 ---
 
-## ESTADO: v1.0.47 - EN DESARROLLO 🔧
+## ESTADO: v1.0.48 - EN DESARROLLO 🔧
 
-### ❌ Bugs Encontrados en v1.0.46 (dilux105-rg) - EN PROCESO
+### ❌ Bugs Encontrados en v1.0.47 (dilux106-rg)
+
+v1.0.47 se desplegó pero processor y scheduler tienen 0 funciones registradas.
+
+#### BUGS CRÍTICOS (v1.0.47)
+
+| # | Bug | Archivo | Estado | Descripción |
+|---|-----|---------|--------|-------------|
+| P1 | Processor/Scheduler: 0 functions loaded | `shared/services/__init__.py` | ✅ Arreglado | Import de AzureService falla porque azure-mgmt-web no está en requirements |
+| P2 | Queue trigger usa connection string que no existe | `processor/function_app.py:54` | ✅ Arreglado | Cambiar `connection="STORAGE_CONNECTION_STRING"` a `connection=""` para usar managed identity |
+
+#### Root Cause P1
+
+El `shared/services/__init__.py` importa `AzureService` que requiere `azure-mgmt-web`. Este módulo solo está en el requirements del API, no en processor/scheduler. El import falla y las funciones no se cargan.
+
+**Solución**: Import condicional con try/except para AzureService.
+
+#### Root Cause P2
+
+El processor tenía `connection="STORAGE_CONNECTION_STRING"` pero en Azure con Flex Consumption se usa managed identity, no connection strings. La variable `STORAGE_CONNECTION_STRING` no existe.
+
+**Solución**: Usar `connection=""` que usa `AzureWebJobsStorage` por defecto (managed identity).
+
+### 📋 Próximos Pasos v1.0.48
+
+1. ✅ ~~Arreglar P1 (import condicional)~~
+2. ✅ ~~Arreglar P2 (connection="")~~
+3. ⬜ Commit y crear tag v1.0.48
+4. ⬜ Esperar GitHub Action
+5. ⬜ Redesplegar a dilux106-rg
+6. ⬜ Verificar que processor tenga funciones
+7. ⬜ Probar backup manual
+
+---
+
+## HISTORIAL: v1.0.47 - PROCESSOR SIN FUNCIONES ❌
+
+### Bugs encontrados en v1.0.46 (dilux105-rg) - ARREGLADOS EN v1.0.47
 
 Los fixes de v1.0.46 NO funcionaron. Se encontraron más bugs críticos:
 
